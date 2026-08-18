@@ -24,8 +24,6 @@ a = Analysis(
         ('fonts', 'fonts'),
         ('resources', 'resources'),
         ('licenses', 'licenses'),
-        ('tomato.png', '.'),
-        ('tomato_mini.png', '.'),
     ],
     hiddenimports=[
         'PySide6.QtCore',

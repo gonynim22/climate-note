@@ -75,7 +75,7 @@ python build_app.py                                      # 빌드 → dist/기�
 | `ui_dday_panel.py` | `large` 모드 우측 컬럼의 편집 가능한 미니 D-Day 패널(`DDayMiniCard`/`DDaySidePanel`). **3열 그리드**(스크롤 없음, 최대 5개=2행), 카드별 X(`delete_requested`)로 영구 삭제, 더블클릭 편집 요청·1분 갱신. |
 | `ui_focus.py` | Focus Mode widgets: 1개만 생성/표시, ambient/glance 상태만 제공, 생성 시 목표/짧은 집중·깊은 집중·몰입 블록 모드 설정 후 즉시 시작, 더블클릭 편집 패널 없음, 진행률 원형 링, 기본 배경 그라데이션(`#FFFFFF`→`#EEF6FF`→`#DDE8FF`), ambient 우측 `tomato_mini.png`, hover 시 상세 정보(모드·`MM:SS` 남은 시간·다음 휴식 `HH:MM AM/PM`) + 투명 배경의 50px `tomato.png`, hover 토마토 클릭 시 외곽 배경 없는 3초 응원 말풍선, 큰 토마토 기본 툴팁 없음, 집중 완료 후 휴식 시작 버튼 알림, 세션 기록 저장 |
 | `ui_focus_panel.py` | `large` 모드 우측 컬럼의 집중 미니 패널(`FocusMiniCard`/`FocusSidePanel`). 숨긴 플로팅 집중창의 `FocusTimer`를 매초 미러링, 카드 X(`close_requested`)로 세션 종료. |
-| `tomato.png` / `tomato_mini.png` | Focus Mode 장식 이미지. `tomato_mini.png`는 ambient 전용이며 hover 시 숨고, `tomato.png`는 hover Glance 전용이다. 두 이미지 모두 흰 배경은 투명 처리되어야 하며 PyInstaller `build.spec` datas에 포함 |
+| `resources/images/tomato.png` / `tomato_mini.png` | Focus Mode 장식 이미지. `tomato_mini.png`는 ambient 전용이며 hover 시 숨고, `tomato.png`는 hover Glance 전용이다. 두 이미지 모두 흰 배경은 투명 처리되어야 한다. `build.spec` datas의 `('resources', 'resources')`로 통째로 번들되므로 개별 항목을 다시 추가하지 않는다. 경로는 `ui_focus._IMAGE_DIR`이 단일 출처다 |
 | `popup_border_fix.py` | Win11 DWM 창 테두리가 `RoundMenu`(콤보 드롭다운 포함) 그림자 여백 창 외곽에 "메뉴보다 넓은 박스"로 그려지는 문제 우회. 앱 레벨 이벤트 필터가 메뉴 Show 시 `DwmSetWindowAttribute(DWMWA_BORDER_COLOR, COLOR_NONE)` 적용. Qt 쪽 완화(그림자/여백/QSS)로는 제거 불가(OS가 그리는 선) — 실측 확인 |
 | `build_app.py` | PyInstaller build script. 출력 exe 이름은 `app_info.py`의 `APP_DISPLAY_NAME`/`APP_VERSION` 기반 |
 

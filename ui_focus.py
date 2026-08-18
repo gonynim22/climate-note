@@ -35,8 +35,9 @@ FOCUS_CARD_GRADIENT = (
     ")"
 )
 FOCUS_ACCENT_COLOR = "#FF5A45"
-TOMATO_MINI_IMAGE_PATH = Path(__file__).resolve().parent / "tomato_mini.png"
-TOMATO_IMAGE_PATH = Path(__file__).resolve().parent / "tomato.png"
+_IMAGE_DIR = Path(__file__).resolve().parent / "resources" / "images"
+TOMATO_MINI_IMAGE_PATH = _IMAGE_DIR / "tomato_mini.png"
+TOMATO_IMAGE_PATH = _IMAGE_DIR / "tomato.png"
 FOCUS_ENCOURAGEMENT_MESSAGES = (
     "지금도 충분히 잘했어",
     "내일은 더 빛날 거야",
