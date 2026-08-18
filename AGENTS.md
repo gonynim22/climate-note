@@ -16,6 +16,20 @@ This file is the project source of truth for Codex and other coding agents.
 
 `CLAUDE.md` is only a compatibility pointer to this file. Keep durable project instructions here.
 
+## 저장소 (GitLab)
+
+- **origin**: `https://gitlab.aigov.go.kr/whrhkdrh/climate-note` — 기관 내부 GitLab, visibility **Public**
+- `main`이 정본이다. v3.5 시점의 부모 없는 orphan 커밋에서 시작하므로 v3.5 이전 개발 이력은 원격에 없고 로컬 `archive/local-v3.5` 브랜치에만 있다.
+
+> 🚫 **`archive/local-v3.5`는 절대 push하지 않는다.** 이 브랜치의 첫 커밋에 `security/` 폴더가 들어 있고 그 안에 금강청 소스코드 취약점 점검 상세·요약 보고서와 CODEMIND 반론서가 있다. 저장소가 Public이므로 push하면 그대로 노출된다. `git push --all`과 `git push --mirror`는 이 브랜치까지 올리므로 **사용 금지**. push는 항상 `git push origin main`처럼 브랜치를 명시한다.
+
+- **`security/`는 저장소에 없다.** CODEMIND 점검 원본 자료는 기관 내부 문서이므로 담당자가 저장소 외부에서 별도 관리하며 `.gitignore` 대상이다. 보안 코딩 규칙은 [`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md)에 자체 완결적으로 남아 있다.
+- **`holidays.py`는 추적 대상이다.** 공공데이터포털 API 키 없이도 클론 직후 실행·테스트·빌드가 가능해야 한다는 결정이다. 갱신은 종전대로 `fetch_data.py`로만 하며 임의 계산은 여전히 금지다.
+- 루트 `LICENSE`는 **GPLv3**다. `PySide6-Fluent-Widgets`가 GPLv3이고, 기관 내부 소스 공개와 기관 내부 EXE 배포로 제공 범위가 일치한다. 다만 SBOM·PySide6/Qt 고지·Authenticode 서명은 아래 "Deferred Release Work"에 그대로 남아 있다.
+- `main`은 보호 브랜치다. push/merge는 Maintainer 이상, 강제 push는 비활성이다. 동료는 Developer 권한으로 Merge Request를 통해 기여한다.
+- 전환 설계와 근거: [`docs/superpowers/specs/2026-08-18-gitlab-public-migration-design.md`](docs/superpowers/specs/2026-08-18-gitlab-public-migration-design.md)
+- **알려진 테스트 실패 1건**: `tests/test_packaging.py::test_requirements_lock_matches_verified_direct_dependencies`. `requirements-lock.txt`는 v3.5 EXE를 만든 검증 버전 기록이므로 로컬 venv가 그보다 새 버전으로 드리프트하면 실패한다. lock 파일을 임의로 갱신하지 않는다. 의존성 업그레이드는 lock 갱신 + 전체 재검증 + EXE 재빌드 + 검증 스냅샷 갱신을 한 묶음으로 처리한다. `pip install -r requirements-lock.txt`로 맞추면 통과한다.
+
 ## Commands
 
 ```bash
