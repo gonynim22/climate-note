@@ -62,8 +62,3 @@ check.log
 
 # 기관 내부 문서 (담당자가 저장소 외부에서 별도 관리)
 security/
-
-# 매뉴얼 리디자인 미확정 시안 (확정본은 manual.qmd)
-manual_v3.4_bright.qmd
-manual_v3.4_redesign.qmd
-docs/manual_assets/

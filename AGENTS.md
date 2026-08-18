@@ -210,4 +210,3 @@ python build_app.py                                      # 빌드 → dist/기�
 | [`docs/UI_PATTERNS.md`](docs/UI_PATTERNS.md) | UI 컴포넌트 패턴, 레이아웃, 색상, IME 이슈 |
 | [`docs/TESTING.md`](docs/TESTING.md) | 테스트 구조, CODEMIND 점검 이력 |
 | [`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md) | 행안부 5개 보안 규칙 상세 (CWE, 예제 코드) |
-| [`manual.qmd`](manual.qmd) | Quarto 기반 사용설명서 (xelatex PDF) |
