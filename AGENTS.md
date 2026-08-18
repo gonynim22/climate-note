@@ -2,7 +2,7 @@
 
 App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Version: **v3.6** (2026.8.18)
 
-> ⚠️ **v3.6은 아직 빌드·검증·배포되지 않았다(2026-08-18).** 표시 버전과 앱 메타데이터만 v3.6으로 올린 상태이며, 앱 런타임 코드는 v3.5와 동일하다. `dist/기후노트_v3.6.exe`는 존재하지 않고 아래에 v3.6 검증 스냅샷도 없다. 실제 배포 전에는 전체 테스트·격리 실행·SHA-256·Defender 검사를 거쳐 v3.6 스냅샷을 새로 남긴다. 현재 배포된 산출물은 여전히 v3.5다.
+> ✅ **v3.6 산출물 검증 완료(2026-08-18).** 앱 런타임 코드는 v3.5와 동일하며, 변경분은 표시 버전·제3자 라이선스 고지·저장소 정비다. 전체 테스트 518건, 격리 신규 설치, v3.5 데이터 업데이트 시나리오, Defender 검사를 통과했다. 상세는 아래 "v3.6 Release Verification Snapshot"을 본다. **배포 방식은 GitLab Releases를 사용하고 `dist/`를 git에 커밋하지 않는다**(EXE 55.6 MiB가 릴리스마다 히스토리에 영구 누적되기 때문).
 
 > ✅ **v3.5 배포 진행 결정(2026-08-15).** 설정 하단 버전 문구와 앱 메타데이터를 v3.5로 올렸으며, 정상 종료 전 스티키 저장 게이트·바로가기 인라인 관리·시작 전 데이터 건강 검사·DB와 `.salt`를 한 파일로 묶는 자동백업을 포함한다. **DB 스키마와 암호화 방식은 v3.4의 v17을 그대로 유지하며 기존 행을 일괄 수정하지 않는다.** 기술 검증 결과를 바탕으로 현 산출물의 배포를 진행한다.
 
@@ -29,6 +29,7 @@ This file is the project source of truth for Codex and other coding agents.
 - **`holidays.py`는 추적 대상이다.** 공공데이터포털 API 키 없이도 클론 직후 실행·테스트·빌드가 가능해야 한다는 결정이다. 갱신은 종전대로 `fetch_data.py`로만 하며 임의 계산은 여전히 금지다.
 - 루트 `LICENSE`는 **GPLv3**다. `PySide6-Fluent-Widgets`가 GPLv3이고, 기관 내부 소스 공개와 기관 내부 EXE 배포로 제공 범위가 일치한다. 다만 SBOM·PySide6/Qt 고지·Authenticode 서명은 아래 "Deferred Release Work"에 그대로 남아 있다.
 - `main`은 보호 브랜치다. push/merge는 Maintainer 이상, 강제 push는 비활성이다. 동료는 Developer 권한으로 Merge Request를 통해 기여한다.
+- **빌드 산출물은 git에 커밋하지 않는다.** `dist/`는 `.gitignore` 대상이며 EXE 배포는 **GitLab Releases**(`/-/releases`)를 쓴다. EXE 하나가 약 55.6 MiB이고 PyInstaller 산출물은 델타 압축이 거의 되지 않아, 커밋하면 릴리스마다 통짜 블롭이 히스토리에 영구 누적된다(5개 릴리스면 약 300 MiB). 소스만 받으려는 사람도 전부 내려받게 되고, 나중에 빼려면 히스토리 재작성이 필요하다.
 - 전환 설계와 근거: [`docs/superpowers/specs/2026-08-18-gitlab-public-migration-design.md`](docs/superpowers/specs/2026-08-18-gitlab-public-migration-design.md)
 - **알려진 테스트 실패 1건**: `tests/test_packaging.py::test_requirements_lock_matches_verified_direct_dependencies`. `requirements-lock.txt`는 v3.5 EXE를 만든 검증 버전 기록이므로 로컬 venv가 그보다 새 버전으로 드리프트하면 실패한다. lock 파일을 임의로 갱신하지 않는다. 의존성 업그레이드는 lock 갱신 + 전체 재검증 + EXE 재빌드 + 검증 스냅샷 갱신을 한 묶음으로 처리한다. `pip install -r requirements-lock.txt`로 맞추면 통과한다.
 
@@ -133,6 +134,31 @@ python build_app.py                                      # 빌드 → dist/기�
 - **현재 가설(미확정)**: 설정과 휴지통이 공통으로 GUI 스레드에서 수행하는 동기 DB 조회/WAL 잠금이 1순위 공통 후보다. 설정에는 별도로 `available_system_fonts()` → `QFontDatabase.families()` 전체 열거가 있어 손상·충돌 글꼴 또는 Windows Font Cache 정지도 후보지만, 이것만으로 휴지통 멈춤까지 설명할 수는 없다.
 - **진단 원칙**: import 직전/생성자 진입/DB 조회 전후/글꼴 열거 전후/show 완료를 파일에 먼저 `flush`+`fsync`하여 마지막 통과 지점을 남긴다. 원인이 확인되기 전에는 글꼴만 고치고 전체 문제가 해결됐다고 판단하지 않는다.
 - **사용자 조치 순서**: 글꼴 열거에서만 멈추면 최근 설치 글꼴 제거 → `제어판 > 모양 및 개인 설정 > 글꼴 > 글꼴 설정`의 기본값 복원 → 재부팅 → Windows Font Cache 초기화 순으로 점검한다. DB 단계에서 멈추면 앱 완전 종료·중복 프로세스·보안 프로그램의 DB 잠금을 먼저 확인한다.
+
+## v3.6 Release Verification Snapshot
+
+검증일: **2026-08-18**
+
+- 앱 런타임 코드는 v3.5와 동일하다. v3.5 대비 변경분은 표시 버전(`app_info.py`), 제3자 라이선스 고지, 저장소 정비뿐이며 DB 스키마·암호화·UI 동작은 그대로다. 현재 `user_version=17` 유지.
+- 전체 테스트: `518 passed`, 실패 0건. 외부 QFluentWidgets의 SciPy deprecated import 경고 1건만 존재. venv는 `requirements-lock.txt`와 8개 직접 의존성이 모두 일치한다.
+- 빌드 산출물: `dist/기후노트_v3.6.exe`, 58,279,798 bytes, SHA-256 `C6763B023DBCDAB26CFA7D2800DADD98277FFE1201A641423F930220A1BAF6FB`. Windows File/Product Version `3.6.0.0`, OriginalFilename `기후노트_v3.6.exe`, Authenticode `NotSigned`.
+- 번들 구성: PyInstaller `Analysis-00.toc` 기준 736개 항목, 원본 152.4 MB. 폰트·아이콘·Fluent SVG·토마토 이미지·라이선스가 모두 포함됐고 이번에 추가한 `LGPL-3.0.txt`와 `cryptography-LICENSE{,.APACHE,.BSD}.txt`도 들어갔다.
+- 신규 설치 격리 실행: 별도 임시 `LOCALAPPDATA`와 `CLIMATENOTE_SKIP_STARTUP_REFRESH=1`에서 프로세스가 정상 응답했다. 신규 DB는 `user_version=17`, `integrity_check=ok`, FK 위반 0건, `.salt` 32 bytes, 검증 통과한 일일 `.cnbak` 1개, 오류 로그 0 bytes였다. `.cnbak`은 `calendar.db`·`.salt`·`manifest.json` 3개만 담았고 manifest의 SHA-256이 실제 페이로드와 일치했다.
+- v3.5 데이터 업데이트 시나리오: 일정 3·메모 2·열린 스티키 1·휴지통 스티키 1·D-Day 1·집중 위젯 1·집중 세션 1·바로가기·사용자 설정을 채운 v17 데이터셋에서 EXE를 실행했다. **사용자 테이블 8개의 raw 행 해시가 전부 실행 전과 동일했고 `.salt` bytes도 동일했다.** 복호화 평문 12건(일정·메모·D-Day·집중 목표·집중 세션·바로가기·열린/휴지통 스티키·설정)이 모두 일치했다. `calendar_pre_v35_*.cnbak`과 일일 `.cnbak`이 각각 1개 생성됐고 오류 로그는 0 bytes였다.
+- Windows Defender: 엔진 `1.1.26070.7`, 보안 인텔리전스 `1.457.219.0`(2026-08-18 갱신) 사용자 지정 검사에서 신규 탐지 0건.
+
+### 이번 검증에서 확인된 문제
+
+- **UPX가 실제로 적용되지 않는다.** `build.spec`은 `upx=True`이고 `docs/ARCHITECTURE.md`는 "UPX-compressed"라고 적었지만 UPX 실행 파일이 PATH에도 `upx_dir`에도 없어 PyInstaller가 압축을 건너뛴다. 문서와 실제가 어긋난 상태이므로, UPX를 도입하든 문서를 고치든 한쪽으로 맞춘다.
+- **EXE 크기가 v3.5보다 3,495,772 bytes 작은 이유를 확정하지 못했다.** 앱 코드가 동일한데 크기가 줄었다. v3.5 EXE가 `dist/`에 남아 있지 않고 당시 빌드 TOC도 덮어써져 직접 비교가 불가능하다. 기능 검증은 모두 통과했으므로 배포를 막지는 않지만, 다음 빌드에서는 이전 산출물과 TOC를 보존해 비교할 수 있게 한다.
+- **임시 WAL/SHM 파일이 정리되지 않고 누적된다.** 백업 검증용 `.backup-validate-*.db`와 `.auto-snapshot-*.db`는 삭제되지만 짝인 `-wal`/`-shm`이 남는다. 실제 사용자 폴더에서 2026-08-15 21:00(v3.5 최초 실행)부터 64개·약 1.0 MB가 쌓인 것을 확인했다. 데이터 손상은 없고 정상 파일과 백업 회전은 정상이지만, 사용자가 문제 발생 시 열어보는 폴더가 지저분해진다. v3.5부터 있는 결함이며 v3.6에서도 동일하다. 후속 버전에서 임시 DB 삭제 시 `-wal`/`-shm`을 함께 지우도록 고친다.
+
+### 남은 수동 확인
+
+- 실제 보이는 창에서 설정 하단 v3.6 문구와 종료·바로가기 동작 확인
+- 실제 Win+D 직후 Explorer/브라우저 전환 육안 확인
+- 음수 좌표·혼합 DPI 다중 모니터 육안 확인
+- 2026-08-05 접수된 특정 PC의 설정/휴지통 멈춤은 여전히 미해결
 
 ## v3.5 Release Verification Snapshot
 
