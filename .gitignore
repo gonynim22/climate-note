@@ -1,0 +1,69 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment variables
+.env
+.salt
+.lock
+
+# Test artifacts
+.pytest_cache/
+.pytest-tmp/
+.pytest-localappdata/
+.pytest-meta-tmp/
+pytest_meta_tmp/
+.test-localappdata/
+.test-temp/
+.font-download/
+
+# Local environments / editor / agent state
+.venv/
+.vs/
+.claude/
+
+# Distribution / build
+dist/
+build/
+output/
+*.spec
+!build.spec
+
+# Backups
+backups/
+
+# User data
+audit.log
+
+# Brainstorm visual companion
+.superpowers/
+
+# Local review / diagnostic scratch
+_review_*.py
+_test_api.py
+check.log
+.py
+
+# 기관 내부 문서 (담당자가 저장소 외부에서 별도 관리)
+security/
+
+# 매뉴얼 리디자인 미확정 시안 (확정본은 manual.qmd)
+manual_v3.4_bright.qmd
+manual_v3.4_redesign.qmd
+docs/manual_assets/

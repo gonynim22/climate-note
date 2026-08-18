@@ -1,0 +1,8 @@
+PySide6
+PySide6-Fluent-Widgets[Full]
+cryptography
+python-dotenv
+pytest
+pytest-qt
+pytest-timeout
+PyInstaller

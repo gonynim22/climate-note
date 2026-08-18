@@ -1,0 +1,155 @@
+"""배포 패키지 메타데이터·의존성·고지 파일 회귀 테스트."""
+
+from importlib.metadata import distribution
+from pathlib import Path
+from types import SimpleNamespace
+
+from PyInstaller.utils.win32.versioninfo import VSVersionInfo
+
+from app_info import (
+    APP_AUTHOR,
+    APP_DISPLAY_NAME,
+    APP_VERSION,
+    app_exe_name,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _execute_spec():
+    captured = {}
+
+    def analysis(*_args, **_kwargs):
+        return SimpleNamespace(
+            pure=[],
+            zipped_data=[],
+            scripts=[],
+            binaries=[],
+            zipfiles=[],
+            datas=[],
+        )
+
+    def pyz(*_args, **_kwargs):
+        return object()
+
+    def exe(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return object()
+
+    namespace = {
+        "SPECPATH": str(ROOT),
+        "Analysis": analysis,
+        "PYZ": pyz,
+        "EXE": exe,
+    }
+    spec_path = ROOT / "build.spec"
+    with open(spec_path, encoding="utf-8") as f:
+        spec_source = f.read()
+    exec(
+        compile(spec_source, str(spec_path), "exec"),
+        namespace,
+    )
+    return captured
+
+
+def _version_strings(version_info):
+    values = {}
+    for child in version_info.kids:
+        if getattr(child, "name", "") != "StringFileInfo":
+            continue
+        for table in child.kids:
+            values.update({item.name: item.val for item in table.kids})
+    return values
+
+
+def test_build_spec_embeds_app_info_version_metadata():
+    captured = _execute_spec()
+    kwargs = captured["kwargs"]
+    version_info = kwargs["version"]
+
+    assert isinstance(version_info, VSVersionInfo)
+    parts = tuple(int(part) for part in APP_VERSION.lstrip("vV").split("."))
+    parts = parts + (0,) * (4 - len(parts))
+    version_text = ".".join(str(part) for part in parts)
+    strings = _version_strings(version_info)
+
+    assert strings["FileVersion"] == version_text
+    assert strings["ProductVersion"] == version_text
+    assert strings["ProductName"] == APP_DISPLAY_NAME
+    assert strings["CompanyName"] == APP_AUTHOR
+    assert strings["OriginalFilename"] == app_exe_name()
+    assert kwargs["name"] == app_exe_name().removesuffix(".exe")
+    assert kwargs["codesign_identity"] is None
+
+
+def test_requirements_lock_matches_verified_direct_dependencies():
+    with open(ROOT / "requirements.txt", encoding="utf-8") as f:
+        requirements = {
+            line.strip().lower()
+            for line in f
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+    assert "pyinstaller" in requirements
+
+    with open(ROOT / "requirements-lock.txt", encoding="utf-8") as f:
+        lock_lines = [
+            line.strip()
+            for line in f
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+    assert lock_lines
+    assert all("==" in line for line in lock_lines)
+
+    direct_names = {
+        "PySide6",
+        "PySide6-Fluent-Widgets",
+        "cryptography",
+        "python-dotenv",
+        "pytest",
+        "pytest-qt",
+        "pytest-timeout",
+        "PyInstaller",
+    }
+    pinned = {}
+    for line in lock_lines:
+        name, version = line.split("==", 1)
+        pinned[name.split("[", 1)[0].lower()] = version
+
+    for name in direct_names:
+        assert pinned[name.lower()] == distribution(name).version
+
+
+def test_bundled_third_party_license_texts_and_notices_exist():
+    licenses = ROOT / "licenses"
+    expected_markers = {
+        "Pretendard-LICENSE.txt": (
+            "SIL OPEN FONT LICENSE",
+            "Reserved Font Name Pretendard",
+        ),
+        "Font-Awesome-Free-LICENSE.txt": (
+            "Font Awesome Free License",
+            "SIL OPEN FONT LICENSE",
+        ),
+        "QFluentWidgets-LICENSE.txt": (
+            "GNU GENERAL PUBLIC LICENSE",
+            "Version 3",
+        ),
+    }
+    for filename, markers in expected_markers.items():
+        with open(licenses / filename, encoding="utf-8") as f:
+            text = f.read()
+        assert all(marker in text for marker in markers)
+
+    with open(licenses / "THIRD_PARTY_NOTICES.txt", encoding="utf-8") as f:
+        notices = f.read()
+    for marker in (
+        "Pretendard 1.3.9",
+        "Font Awesome Free 6.7.2",
+        "PySide6-Fluent-Widgets 1.11.1",
+        "Pretendard-LICENSE.txt",
+        "Font-Awesome-Free-LICENSE.txt",
+        "QFluentWidgets-LICENSE.txt",
+    ):
+        assert marker in notices

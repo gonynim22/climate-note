@@ -1,0 +1,36 @@
+# 기후노트 v3.5 검증 환경 (Windows x64, CPython 3.13.5)
+# 2026-07-23 설치 환경의 직접 의존성과 그 전이 의존성을 고정한 재현용 목록.
+# 일상 개발은 requirements.txt, 동일 환경 재현은 이 파일을 사용한다.
+
+PySide6==6.10.2
+PySide6-Fluent-Widgets[Full]==1.11.1
+cryptography==46.0.4
+python-dotenv==1.2.1
+pytest==9.0.2
+pytest-qt==4.5.0
+pytest-timeout==2.4.0
+PyInstaller==6.19.0
+
+altgraph==0.17.5
+cffi==2.0.0
+colorama==0.4.6
+colorthief==0.2.1
+darkdetect==0.8.0
+iniconfig==2.3.0
+numpy==2.2.6
+packaging==26.0
+pefile==2024.8.26
+pillow==12.1.1
+pluggy==1.6.0
+pycparser==3.0
+Pygments==2.19.2
+pyinstaller-hooks-contrib==2026.1
+PySide6_Addons==6.10.2
+PySide6_Essentials==6.10.2
+PySideSix-Frameless-Window==0.8.0
+pywin32==311
+pywin32-ctypes==0.2.3
+scipy==1.17.1
+setuptools==81.0.0
+shiboken6==6.10.2
+typing_extensions==4.15.0
