@@ -1,6 +1,8 @@
 # AGENTS.md
 
-App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Version: **v3.5** (2026.8.15)
+App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Version: **v3.6** (2026.8.18)
+
+> ⚠️ **v3.6은 아직 빌드·검증·배포되지 않았다(2026-08-18).** 표시 버전과 앱 메타데이터만 v3.6으로 올린 상태이며, 앱 런타임 코드는 v3.5와 동일하다. `dist/기후노트_v3.6.exe`는 존재하지 않고 아래에 v3.6 검증 스냅샷도 없다. 실제 배포 전에는 전체 테스트·격리 실행·SHA-256·Defender 검사를 거쳐 v3.6 스냅샷을 새로 남긴다. 현재 배포된 산출물은 여전히 v3.5다.
 
 > ✅ **v3.5 배포 진행 결정(2026-08-15).** 설정 하단 버전 문구와 앱 메타데이터를 v3.5로 올렸으며, 정상 종료 전 스티키 저장 게이트·바로가기 인라인 관리·시작 전 데이터 건강 검사·DB와 `.salt`를 한 파일로 묶는 자동백업을 포함한다. **DB 스키마와 암호화 방식은 v3.4의 v17을 그대로 유지하며 기존 행을 일괄 수정하지 않는다.** 기술 검증 결과를 바탕으로 현 산출물의 배포를 진행한다.
 
@@ -36,7 +38,7 @@ This file is the project source of truth for Codex and other coding agents.
 python main.py                                           # 실행
 pip install -r requirements.txt                          # 의존성 설치 (pytest-qt 포함)
 python -m pytest tests -q                                # 전체 테스트 실행 (DB/UI/보안/스트레스)
-python build_app.py                                      # 빌드 → dist/기후노트_v3.5.exe
+python build_app.py                                      # 빌드 → dist/기후노트_v3.6.exe
 ```
 
 ## 핵심 개발 원칙
