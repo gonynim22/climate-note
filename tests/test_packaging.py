@@ -136,6 +136,18 @@ def test_bundled_third_party_license_texts_and_notices_exist():
             "GNU GENERAL PUBLIC LICENSE",
             "Version 3",
         ),
+        "LGPL-3.0.txt": (
+            "GNU LESSER GENERAL PUBLIC LICENSE",
+            "Version 3",
+        ),
+        "cryptography-LICENSE.APACHE.txt": (
+            "Apache License",
+            "Version 2.0",
+        ),
+        "cryptography-LICENSE.BSD.txt": (
+            "Redistribution and use in source and binary forms",
+            "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS",
+        ),
     }
     for filename, markers in expected_markers.items():
         with open(licenses / filename, encoding="utf-8") as f:
@@ -148,8 +160,14 @@ def test_bundled_third_party_license_texts_and_notices_exist():
         "Pretendard 1.3.9",
         "Font Awesome Free 6.7.2",
         "PySide6-Fluent-Widgets 1.11.1",
+        "PySide6 6.10.2",
+        "cryptography 46.0.4",
+        "pysidesix-frameless-window 0.8.0",
         "Pretendard-LICENSE.txt",
         "Font-Awesome-Free-LICENSE.txt",
         "QFluentWidgets-LICENSE.txt",
+        "LGPL-3.0.txt",
+        "cryptography-LICENSE.APACHE.txt",
+        "cryptography-LICENSE.BSD.txt",
     ):
         assert marker in notices

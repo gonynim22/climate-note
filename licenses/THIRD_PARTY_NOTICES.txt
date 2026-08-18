@@ -68,3 +68,83 @@ PySide6-Fluent-Widgets 1.11.1 (import package: qfluentwidgets)
 
 프로젝트 메타데이터가 제시하는 라이선스 및 별도 라이선스 선택지는
 위 공식 패키지 페이지와 프로젝트 문서를 기준으로 배포 전에 확인한다.
+
+
+PySide6 6.10.2 / Qt 6.10.2 (shiboken6 6.10.2 포함)
+--------------------------------------------------
+
+번들 대상:
+  PyInstaller 산출물에 포함되는 PySide6 확장 모듈과 Qt 런타임 라이브러리
+  (QtCore, QtGui, QtWidgets, QtXml, QtSvg, QtSvgWidgets, QtNetwork 등),
+  그리고 이를 지원하는 shiboken6 바인딩 런타임
+
+배포판 메타데이터가 제시하는 라이선스:
+  LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+  (PySide6-6.10.2.dist-info/METADATA, shiboken6-6.10.2.dist-info/METADATA)
+
+라이선스 원문:
+  licenses/LGPL-3.0.txt
+  LGPLv3는 GPLv3를 참조하여 적용되므로 GPLv3 원문도 함께 본다.
+  GPLv3 원문은 프로젝트 루트 LICENSE 및 licenses/QFluentWidgets-LICENSE.txt와 같다.
+
+LGPLv3 원문 출처:
+  https://www.gnu.org/licenses/lgpl-3.0.txt
+  2026-08-18 내려받은 정본(7,652 bytes, SHA-256
+  E3A994D82E644B03A792A930F574002658412F62407F5FEE083F2555C5F23118)을 그대로 두었다.
+  설치 배포판에 동봉된 LGPLv3 사본과 본문이 완전히 일치함을 확인했다(끝 개행만 차이).
+
+상용 라이선스 참조:
+  PySide6/shiboken6 배포판은 LicenseRef-Qt-Commercial.txt만 동봉하며
+  LGPL/GPL 원문은 동봉하지 않는다.
+
+주의:
+  이 항목은 번들 사실과 라이선스 표기를 기록한 것이지, 특정 배포 방식의
+  적합성을 판단한 것이 아니다. LGPL 경로를 택할 경우 수령자가 Qt를 교체·
+  재링크할 수 있어야 한다는 조건이 PyInstaller one-file 배포에서 충족되는지는
+  별도 검토가 필요하다. AGENTS.md "Deferred Release Work" 항목을 따른다.
+
+
+cryptography 46.0.4
+-------------------
+
+번들 대상:
+  PyInstaller 산출물에 포함되는 cryptography 패키지와 네이티브 확장
+  (Fernet 암복호화, PBKDF2HMAC 키 유도에 사용)
+
+배포판 메타데이터가 제시하는 라이선스:
+  Apache-2.0 OR BSD-3-Clause
+
+라이선스 원문:
+  licenses/cryptography-LICENSE.txt          (이중 라이선스 안내)
+  licenses/cryptography-LICENSE.APACHE.txt   (Apache License 2.0)
+  licenses/cryptography-LICENSE.BSD.txt      (BSD 3-Clause)
+
+복사 출처:
+  설치 배포판 cryptography-46.0.4.dist-info/licenses/
+
+공식 패키지 페이지:
+  https://pypi.org/project/cryptography/46.0.4/
+
+
+pysidesix-frameless-window 0.8.0
+--------------------------------
+
+번들 대상:
+  PySide6-Fluent-Widgets가 의존하는 프레임리스 창 패키지로 산출물에 포함된다.
+
+배포판 메타데이터가 제시하는 라이선스:
+  GNU Lesser General Public License v3 (LGPL-3.0)
+
+라이선스 원문:
+  licenses/LGPL-3.0.txt (PySide6/Qt 항목과 동일 원문 공유)
+
+복사 출처:
+  설치 배포판 pysidesix_frameless_window-0.8.0.dist-info/LICENSE
+
+
+기록 범위에 대한 안내
+---------------------
+
+위 목록은 2026-08-18 기준으로 확인한 주요 번들 구성요소다.
+PyInstaller Analysis-00.toc와 최종 EXE를 기준으로 한 전수 SBOM은 아직
+작성하지 않았으며, AGENTS.md "Deferred Release Work"의 후속 과제로 남아 있다.

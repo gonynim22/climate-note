@@ -151,14 +151,21 @@ python build_app.py                                      # 빌드 → dist/기�
 
 ## Deferred Release Work: 라이선스·배포 정비 (2026-08-15)
 
-> **상태: HOLD — 후속 버전에서 반드시 재개.** 현재 EXE에 제3자 라이선스 원문은 포함했지만, 이것만으로 배포 라이선스 검토가 끝난 것은 아니다. 프로젝트 최상위 `LICENSE`가 없고 `dist/소스코드`는 비어 있으며, `licenses/THIRD_PARTY_NOTICES.txt`에는 PySide6/Qt와 실제 런타임 번들 전체가 아직 정리되지 않았다.
+> **상태: HOLD — 후속 버전에서 반드시 재개.** 2026-08-18에 기관 내부 GitLab 소스 공개(GPLv3)와 고지 보강을 진행했으나, 이것만으로 배포 라이선스 검토가 끝난 것은 아니다. **남은 것**: PyInstaller 산출물 기준 전수 SBOM, PySide6/Qt LGPL 경로에서 수령자의 교체·재링크 가능성(one-file 배포) 판단, 기관 법무·저작권 담당 확인, Authenticode 서명. **끝난 것**: 프로젝트 최상위 `LICENSE`(GPLv3) 추가, `licenses/THIRD_PARTY_NOTICES.txt`에 PySide6/Qt·shiboken6·cryptography·pysidesix-frameless-window 항목과 원문 추가, 소스 공개 경로 확보(`origin/main`).
 
 - **QFluentWidgets 경로 확정(둘 중 하나)**
   - GPLv3 경로: 기후노트 소스 공개 권한자를 먼저 확인하고, 앱의 적용 라이선스를 명시한다. 배포 EXE와 정확히 대응하는 전체 소스, `build.spec`/`build_app.py`, 의존성 잠금, 리소스, 빌드 안내, GPLv3 원문과 QFluentWidgets 1.11.1 대응 소스를 수령자가 EXE만큼 쉽게 받을 수 있게 제공한다.
   - 상용 경로: 저작권자로부터 `PySide6-Fluent-Widgets 1.11.1`의 Windows PyInstaller one-file, 대한민국 정부기관 업무용·무상 배포 범위를 포함하는 서면 라이선스를 확보한다. 영구 재배포, 개발자/사용자·기관 범위, 적용 버전과 업데이트, 기존 산출물 적용 여부, 필수 고지사항을 계약서·메일·영수증으로 보존한다. Pro 제품 구매가 상용 재배포권을 자동 포함한다고 가정하지 않는다.
 - **PySide6/Qt 별도 확인**: LGPLv3/GPLv3 또는 Qt 상용 조건 중 적용 경로를 기록한다. 오픈소스 경로라면 PySide6/Qt 사용 사실과 라이선스 원문, 실제 사용 라이브러리의 대응 소스 획득 방법, 사용자의 교체·재링크 및 역공학 권리를 제한하지 않는 배포 방식을 문서화한다. 필요하면 one-file 배포의 재링크 가능성을 별도로 검토한다.
 - **실제 산출물 기준 전수 조사**: `requirements-lock.txt` 전체가 아니라 PyInstaller `Analysis-00.toc`/최종 EXE에 실제 포함된 Python·PySide6/Qt·암호화·이미지·아이콘·폰트 구성요소로 SBOM을 만들고, 이름/버전/저작권자/라이선스/원문/소스 URL/수정 여부를 기록한다.
-- **배포 고지 완성**: 프로젝트 `LICENSE`, 갱신된 `THIRD_PARTY_NOTICES`, 필요한 모든 `licenses/*` 원문, 앱 설정에서 접근 가능한 오픈소스 고지 또는 동봉 문서를 준비한다. 소스 공개 경로라면 `기후노트_v3.5_소스코드.zip`을 생성한다.
+- **배포 고지 완성**: 2026-08-18 기준 일부 진행됐다.
+  - ✅ 프로젝트 최상위 `LICENSE` — GPLv3 전문 674줄.
+  - ✅ `licenses/THIRD_PARTY_NOTICES.txt` — 기존 Pretendard·Font Awesome·PySide6-Fluent-Widgets에 더해 **PySide6 6.10.2 / Qt 6.10.2(shiboken6 포함), cryptography 46.0.4, pysidesix-frameless-window 0.8.0** 항목을 추가했다.
+  - ✅ `licenses/LGPL-3.0.txt` — FSF 정본(https://www.gnu.org/licenses/lgpl-3.0.txt), 7,652 bytes, SHA-256 `E3A994D82E644B03A792A930F574002658412F62407F5FEE083F2555C5F23118`. 설치 배포판 동봉 사본과 본문 일치(끝 개행만 차이) 확인.
+  - ✅ `licenses/cryptography-LICENSE{,.APACHE,.BSD}.txt` — 설치 배포판 `cryptography-46.0.4.dist-info/licenses/`에서 복사.
+  - ✅ 소스 공개 경로 — `origin/main`(기관 내부 GitLab Public). GPLv3 대응 소스 제공 범위가 EXE 배포 범위와 일치한다.
+  - ⬜ 앱 설정에서 접근 가능한 오픈소스 고지 화면 또는 동봉 문서.
+  - ⬜ 배포 EXE와 정확히 대응하는 소스 묶음(`기후노트_v3.5_소스코드.zip`) 생성 여부 결정. 소스가 GitLab에 공개되어 있으므로 별도 zip이 필요한지 함께 판단한다.
 - **증빙 보존 및 완료 조건**: EXE·소스 묶음·SBOM·라이선스 문서·상용 계약(해당 시)의 SHA-256과 배포 게시 위치를 기록한다. 기관 법무/저작권 담당 확인이 필요한 배포 범위(동일 기관 내부인지, 타 기관까지 전달되는지)를 남긴다. 위 항목이 모두 충족되기 전에는 이 과제를 완료 처리하지 않는다.
 - **별도 후속 항목**: 현재 EXE는 Authenticode `NotSigned`다. 기관 정책이 요구하면 코드 서명을 적용하고 서명 상태·인증서 주체·타임스탬프를 기록한다. 이는 라이선스 정비와 별개다.
 
