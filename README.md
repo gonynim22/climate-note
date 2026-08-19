@@ -3,7 +3,7 @@
 Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위젯 앱입니다.
 일정과 메모를 하드웨어 바인딩 암호화로 로컬에만 저장하며, 외부 서버로 아무것도 보내지 않습니다.
 
-현재 버전 **v3.6** (2026. 8. 18.)
+현재 버전 **v3.6a** (2026. 8. 19.)
 
 <img src="docs/screenshot.png" width="395" alt="기후노트 화면 - 바탕화면에 캘린더, D-Day 카드, 스티키 노트가 함께 떠 있는 모습">
 
@@ -15,12 +15,10 @@ Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위
 ## 다운로드
 
 실행 파일은 **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 페이지에서 받습니다.
-아래는 현재 최신판 직접 링크입니다.
-
-- **[기후노트_v3.6.exe](https://gitlab.aigov.go.kr/-/project/647/uploads/5ccf2c47b03508940109f52d9533bb34/%EA%B8%B0%ED%9B%84%EB%85%B8%ED%8A%B8_v3.6.exe)** — 58,279,798 bytes
+최신판은 **기후노트_v3.6a.exe** (60,910,082 bytes) 입니다.
 
 ```
-SHA-256  C6763B023DBCDAB26CFA7D2800DADD98277FFE1201A641423F930220A1BAF6FB
+SHA-256  EC11C94B6346026A904F29F8ADEA590BBB0D0FD6B117EE5201C50B65979A6029
 ```
 
 설치 과정이 없는 단일 실행 파일입니다. 원하는 위치에 두고 실행하면 됩니다.
@@ -32,7 +30,7 @@ SHA-256  C6763B023DBCDAB26CFA7D2800DADD98277FFE1201A641423F930220A1BAF6FB
 > 받은 파일이 맞는지는 PowerShell에서 확인할 수 있습니다.
 >
 > ```powershell
-> Get-FileHash 기후노트_v3.6.exe -Algorithm SHA256
+> Get-FileHash 기후노트_v3.6a.exe -Algorithm SHA256
 > ```
 
 ---
@@ -100,7 +98,7 @@ DB·암호화·UI·보안·스트레스를 포함한 500개 이상의 테스트�
 python build_app.py     # 또는 build.bat
 ```
 
-PyInstaller 단일 실행 파일이 `dist/기후노트_v3.5.exe`로 생성됩니다.
+PyInstaller 단일 실행 파일이 `dist/기후노트_v3.6a.exe`로 생성됩니다.
 파일명의 버전은 `app_info.py`의 `APP_VERSION`을 따릅니다.
 
 ---

@@ -4,6 +4,7 @@ from importlib.metadata import distribution
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from PyInstaller.utils.win32.versioninfo import VSVersionInfo
 
 from app_info import (
@@ -12,6 +13,7 @@ from app_info import (
     APP_VERSION,
     app_exe_name,
 )
+from build_app import _windows_version_parts
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,8 +72,9 @@ def test_build_spec_embeds_app_info_version_metadata():
     version_info = kwargs["version"]
 
     assert isinstance(version_info, VSVersionInfo)
-    parts = tuple(int(part) for part in APP_VERSION.lstrip("vV").split("."))
-    parts = parts + (0,) * (4 - len(parts))
+    # 버전 변환 규칙은 build_app이 단일 출처다. 테스트가 규칙을 다시 구현하면
+    # v3.6a 같은 접미사 표기에서 둘이 어긋난다.
+    parts = _windows_version_parts(APP_VERSION)
     version_text = ".".join(str(part) for part in parts)
     strings = _version_strings(version_info)
 
@@ -171,3 +174,25 @@ def test_bundled_third_party_license_texts_and_notices_exist():
         "cryptography-LICENSE.BSD.txt",
     ):
         assert marker in notices
+
+
+def test_windows_version_parts_maps_letter_suffix_to_patch_position():
+    """v3.6a 같은 문자 접미사는 다음 숫자 자리로 옮겨 버전이 증가해야 한다.
+
+    접미사를 버리면 v3.6과 v3.6a의 Windows 파일 버전이 같아져 속성 창에서
+    구분되지 않고 버전 비교로 업데이트를 판단할 수 없다.
+    """
+    assert _windows_version_parts("v3.6") == (3, 6, 0, 0)
+    assert _windows_version_parts("v3.6a") == (3, 6, 1, 0)
+    assert _windows_version_parts("v3.6b") == (3, 6, 2, 0)
+    assert _windows_version_parts("v3.1a") == (3, 1, 1, 0)
+    assert _windows_version_parts("v3.6.2a") == (3, 6, 2, 1)
+
+    # 접미사가 붙은 버전은 붙지 않은 같은 base보다 커야 한다.
+    assert _windows_version_parts("v3.6a") > _windows_version_parts("v3.6")
+
+
+def test_windows_version_parts_rejects_malformed_versions():
+    for bad in ("v3.6ab", "v3.6.", "abc", "v3.6.1.2a", ""):
+        with pytest.raises(ValueError):
+            _windows_version_parts(bad)

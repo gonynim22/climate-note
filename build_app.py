@@ -8,13 +8,34 @@ from app_info import APP_AUTHOR, APP_DISPLAY_NAME, APP_VERSION, app_exe_name
 
 
 def _windows_version_parts(version: str) -> tuple[int, int, int, int]:
-    """``v3.5`` 형식 앱 버전을 Windows 4-part 숫자 버전으로 변환한다."""
-    raw_parts = version.strip().lstrip("vV").split(".")
-    if not 1 <= len(raw_parts) <= 4 or any(
+    """``v3.5``/``v3.6a`` 형식 앱 버전을 Windows 4-part 숫자 버전으로 변환한다.
+
+    마지막 자리에 붙는 소문자 한 글자는 패치 표기이며 다음 자리 숫자로 옮긴다
+    (``a``→1, ``b``→2 ...). ``v3.6``이 ``3.6.0.0``이므로 ``v3.6a``는
+    ``3.6.1.0``이 되어 Windows 속성에서 두 산출물이 구분되고 버전도 증가한다.
+    접미사를 그냥 버리면 두 파일이 같은 숫자 버전을 갖게 된다.
+    """
+    raw = version.strip().lstrip("vV")
+    suffix = 0
+    if raw and raw[-1].isalpha():
+        letter = raw[-1].lower()
+        if not ("a" <= letter <= "z"):
+            raise ValueError(f"Windows 버전으로 변환할 수 없습니다: {version}")
+        suffix = ord(letter) - ord("a") + 1
+        raw = raw[:-1]
+
+    raw_parts = raw.split(".")
+    max_parts = 3 if suffix else 4
+    if not 1 <= len(raw_parts) <= max_parts or any(
         not part.isdigit() for part in raw_parts
     ):
         raise ValueError(f"Windows 버전으로 변환할 수 없습니다: {version}")
+
     parts = tuple(int(part) for part in raw_parts)
+    if suffix:
+        # 접미사는 base 바로 다음 자리에 놓는다. major.minor 뒤면 세 번째 자리다.
+        # v3.6a -> (3, 6, 1, 0),  v3.6.2a -> (3, 6, 2, 1)
+        parts = parts + (0,) * max(0, 2 - len(parts)) + (suffix,)
     return parts + (0,) * (4 - len(parts))
 
 

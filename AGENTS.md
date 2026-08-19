@@ -1,6 +1,6 @@
 # AGENTS.md
 
-App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Version: **v3.6** (2026.8.18)
+App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Version: **v3.6a** (2026.8.19)
 
 > ✅ **v3.6 산출물 검증 완료(2026-08-18).** 앱 런타임 코드는 v3.5와 동일하며, 변경분은 표시 버전·제3자 라이선스 고지·저장소 정비다. 전체 테스트 518건, 격리 신규 설치, v3.5 데이터 업데이트 시나리오, Defender 검사를 통과했다. 상세는 아래 "v3.6 Release Verification Snapshot"을 본다. **배포 방식은 GitLab Releases를 사용하고 `dist/`를 git에 커밋하지 않는다**(EXE 55.6 MiB가 릴리스마다 히스토리에 영구 누적되기 때문).
 
@@ -137,6 +137,25 @@ python build_app.py                                      # 빌드 → dist/기�
 - **현재 가설(미확정)**: 설정과 휴지통이 공통으로 GUI 스레드에서 수행하는 동기 DB 조회/WAL 잠금이 1순위 공통 후보다. 설정에는 별도로 `available_system_fonts()` → `QFontDatabase.families()` 전체 열거가 있어 손상·충돌 글꼴 또는 Windows Font Cache 정지도 후보지만, 이것만으로 휴지통 멈춤까지 설명할 수는 없다.
 - **진단 원칙**: import 직전/생성자 진입/DB 조회 전후/글꼴 열거 전후/show 완료를 파일에 먼저 `flush`+`fsync`하여 마지막 통과 지점을 남긴다. 원인이 확인되기 전에는 글꼴만 고치고 전체 문제가 해결됐다고 판단하지 않는다.
 - **사용자 조치 순서**: 글꼴 열거에서만 멈추면 최근 설치 글꼴 제거 → `제어판 > 모양 및 개인 설정 > 글꼴 > 글꼴 설정`의 기본값 복원 → 재부팅 → Windows Font Cache 초기화 순으로 점검한다. DB 단계에서 멈추면 앱 완전 종료·중복 프로세스·보안 프로그램의 DB 잠금을 먼저 확인한다.
+
+## v3.6a Release Verification Snapshot
+
+검증일: **2026-08-19**
+
+- v3.6 대비 변경분은 **모니터 구성 변경 시 캘린더 크기 재계산 수정**(`_on_screen_changed`), 번들 리소스 경로 통일(`app_paths.resource_root()`), 토마토 이미지의 `resources/images/` 이동, 버전 표기 규칙 확장이다. **DB 스키마·암호화·저장 형식은 그대로이며 `user_version=17`을 유지한다.**
+- 전체 테스트: `535 passed`, 실패 0건. 외부 QFluentWidgets의 SciPy deprecated import 경고 1건만 존재.
+- 빌드 산출물: `dist/기후노트_v3.6a.exe`, 60,910,082 bytes, SHA-256 `EC11C94B6346026A904F29F8ADEA590BBB0D0FD6B117EE5201C50B65979A6029`. Windows File/Product Version `3.6.1.0`, OriginalFilename `기후노트_v3.6a.exe`, Authenticode `NotSigned`.
+- 버전 표기: 표시 버전 `v3.6a`, Windows 숫자 버전 `3.6.1.0`. 문자 접미사는 `build_app._windows_version_parts()`가 다음 숫자 자리로 옮긴다(`a`→1). `v3.6`(3.6.0.0)보다 커야 속성 창에서 구분되고 버전 비교가 성립한다.
+- 번들 구성: `Analysis-00.toc` 기준 740개 항목(v3.6은 736개). 토마토 2개가 `resources\images\`로, `app_paths` 모듈이 새로 포함됐다. 폰트 6·Fluent SVG 21·아이콘·라이선스 모두 유지.
+- 신규 설치 격리 실행: 별도 임시 `LOCALAPPDATA`와 `CLIMATENOTE_SKIP_STARTUP_REFRESH=1`에서 프로세스가 정상 응답했다. 신규 DB는 `user_version=17`, `integrity_check=ok`, FK 위반 0건, `.salt` 32 bytes, 오류 로그 0 bytes였다. 일일 `.cnbak` 1개가 `calendar.db`·`.salt`·`manifest.json` 3개만 담았고 `validate_backup_bundle()`을 통과했으며 manifest의 `app_version`이 `v3.6a`로 기록됐다.
+- Windows Defender: 엔진 `1.1.26070.7`, 보안 인텔리전스 `1.457.238.0`(2026-08-19 갱신) 사용자 지정 검사에서 탐지 0건.
+
+### 남은 확인
+
+- **KVM 본체 전환 실기 확인이 남아 있다.** 화면 변경 시 크기 재계산은 자동 테스트(`tests/test_ui_screen_change.py` 4건)로만 검증했다. 실제 가로/세로 듀얼 모니터 + KVM 환경에서 전환 후 창이 세로 모니터에 맞게 들어오는지 육안 확인이 필요하다.
+- **모니터 식별이 여전히 인덱스 기반이다.** `SETTING_TARGET_SCREEN`은 `QApplication.screens()`의 순번이라, 재연결 후 열거 순서가 바뀌면 크기는 맞아도 엉뚱한 모니터에 자리 잡을 수 있다. 미조사·미수정.
+- v3.6에서 확인된 UPX 미적용 문서 불일치와 임시 `-wal`/`-shm` 누적은 그대로 남아 있다(이번 격리 실행에서도 `.backup-validate-*` 짝이 4개 남았다).
+- 실제 보이는 창에서 설정 하단 v3.6a 문구 확인, 실제 Win+D 직후 Explorer/브라우저 전환 육안 확인, 2026-08-05 특정 PC 설정/휴지통 멈춤은 여전히 미해결.
 
 ## v3.6 Release Verification Snapshot
 
