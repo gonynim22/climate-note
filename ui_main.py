@@ -3170,13 +3170,20 @@ class MainCalendarWindow(QWidget):
         if not screens:
             return
 
-        # 1) 캘린더 위치 복원. 자유 위치는 저장 좌표, 기존 사용자는 모서리 설정 유지.
+        # 1) 캘린더 기하 복원. 자유 위치는 저장 좌표, 기존 사용자는 모서리 설정 유지.
+        # medium/large는 화면 크기에 비례하는 스케일이므로 좌표만 보정하면
+        # 가로 모니터 크기로 만든 창이 세로 모니터에서 우·하단이 잘린다
+        # (KVM 본체 전환으로 모니터가 끊겼다 붙을 때 실제로 발생). 드래그
+        # 완료와 같은 규칙으로 목적지 화면 기준 크기를 먼저 다시 계산한다.
         screen = self._get_target_screen()
-        x, y = self._calendar_xy_for_size(self.width(), self.height(), screen)
-        self.move(x, y)
-        if self._calendar_position_mode() == "free":
-            db.save_setting(db.SETTING_CALENDAR_X, str(x))
-            db.save_setting(db.SETTING_CALENDAR_Y, str(y))
+        if screen is not None:
+            scale = self._current_calendar_scale()
+            width, height = self._calendar_scale_geometry(scale, screen)
+            if scale != "compact":
+                # 축소된 화면으로 옮길 때 최소 폭이 새 폭을 막지 않도록
+                # _apply_calendar_scale과 같은 기준으로 다시 잡는다.
+                self.setMinimumSize(min(width, 600), 500)
+            self._apply_calendar_geometry(width, height, screen)
 
         # 2) 스티키 노트 위치 복원
         try:
