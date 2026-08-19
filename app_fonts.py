@@ -6,8 +6,10 @@ from PySide6.QtWidgets import QApplication
 
 from qfluentwidgets.common.font import setFontFamilies
 
+from app_paths import resource_root
 
-FONT_DIR = Path(__file__).resolve().parent / "fonts"
+
+FONT_DIR = resource_root() / "fonts"
 
 DEFAULT_APP_FONT = "Malgun Gothic"
 APP_FONT_OPTIONS = [

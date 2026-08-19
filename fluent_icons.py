@@ -3,11 +3,12 @@
 from functools import lru_cache
 from pathlib import Path
 import re
-import sys
 
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
+
+from app_paths import resource_root
 
 
 _ICON_DIR = Path("resources") / "fluent_icons"
@@ -15,14 +16,8 @@ _HEX_FILL_RE = re.compile(r'fill="#[0-9A-Fa-f]{6}"')
 _KEEP_COLOR_SUFFIX = "_color"
 
 
-def _resource_root() -> Path:
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        return Path(sys._MEIPASS)
-    return Path(__file__).resolve().parent
-
-
 def fluent_icon_path(name: str) -> Path:
-    return _resource_root() / _ICON_DIR / f"{name}.svg"
+    return resource_root() / _ICON_DIR / f"{name}.svg"
 
 
 def _tint_svg(svg_text: str, color: str) -> str:

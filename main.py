@@ -18,6 +18,7 @@ from PySide6.QtGui import (
 from qfluentwidgets import setTheme, setThemeColor, Theme, isDarkTheme, InfoBar, InfoBarPosition
 
 from app_fonts import apply_app_font, load_app_fonts, load_icon_fonts, load_ui_fonts
+from app_paths import resource_root
 import database as db
 from security import audit, APP_DIR
 
@@ -100,9 +101,9 @@ def _detect_system_theme() -> Theme:
 # ─── 트레이 아이콘 생성 ────────────────────────────────────────
 def _make_tray_icon(app: QApplication) -> QSystemTrayIcon:
     """시스템 트레이 아이콘 생성 (icon 파일 사용)"""
-    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon", "icon_fixed_32.ico")
-    if os.path.exists(icon_path):
-        icon = QIcon(icon_path)
+    icon_path = resource_root() / "icon" / "icon_fixed_32.ico"
+    if icon_path.exists():
+        icon = QIcon(str(icon_path))
     else:
         pixmap = QPixmap(32, 32)
         pixmap.fill(QColor("#0078D4"))

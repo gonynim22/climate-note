@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import random
 from datetime import datetime, timedelta
-from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDialog,
     QGridLayout,
@@ -18,6 +17,7 @@ from qfluentwidgets import (
 )
 
 import database as db
+from app_paths import resource_root
 
 
 FOCUS_DISTRACTIONS = ["없음", "알림", "피로", "난이도", "기타"]
@@ -35,7 +35,7 @@ FOCUS_CARD_GRADIENT = (
     ")"
 )
 FOCUS_ACCENT_COLOR = "#FF5A45"
-_IMAGE_DIR = Path(__file__).resolve().parent / "resources" / "images"
+_IMAGE_DIR = resource_root() / "resources" / "images"
 TOMATO_MINI_IMAGE_PATH = _IMAGE_DIR / "tomato_mini.png"
 TOMATO_IMAGE_PATH = _IMAGE_DIR / "tomato.png"
 FOCUS_ENCOURAGEMENT_MESSAGES = (

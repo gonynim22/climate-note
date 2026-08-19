@@ -60,7 +60,8 @@
 
 - **Offline-Only**: No external API calls; all data (holidays, lunar) must be embedded. Exceptions: AI 법령검색 and 업데이트 안내 open external URLs in the default browser.
 - **Font Bundling**: App text fonts are system fonts and are not bundled. Font Awesome files are included via `build.spec` `datas=[..., ('fonts', 'fonts')]` for sticky-note todo checkbox icons.
-- **Focus Assets**: `resources/images/tomato_mini.png` (ambient) and `resources/images/tomato.png` (hover glance) ship inside the `resources` datas tree, so they need no per-file `build.spec` entry. Resource lookups stay relative to the module directory, which PyInstaller maps to `sys._MEIPASS` only while the `.py` files remain at the bundle root.
+- **Resource Root**: `app_paths.resource_root()` is the single source for bundled asset paths — `sys._MEIPASS` when frozen, the project root from source. `app_fonts`, `fluent_icons`, `ui_focus`, and the tray icon in `main` all resolve through it, so module location never affects resource lookup. Never rebuild a resource path from `Path(__file__).parent`.
+- **Focus Assets**: `resources/images/tomato_mini.png` (ambient) and `resources/images/tomato.png` (hover glance) ship inside the `resources` datas tree, so they need no per-file `build.spec` entry.
 - **Qt Submodules**: Must include `QtXml`, `QtSvg`, `QtSvgWidgets`, `QtNetwork` for `qfluentwidgets`.
 - **Encryption Bound**: Data is machine-bound unless exported via PIN-encrypted `.enc` files.
 - **Output**: `dist/기후노트_v3.4.exe` (single-file, no console, UPX-compressed, icon: `icon/icon_fixed_256.ico`)
