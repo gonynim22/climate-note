@@ -1619,6 +1619,53 @@ def test_cell_count_updates_live_on_add_and_delete(qtbot, app_dir, qapp):
     assert win._day_cells["2026-07-15"].count_label.text() == ""
 
 
+def test_schedule_right_click_menu_edits_and_deletes(
+        qtbot, app_dir, qapp, monkeypatch):
+    """우클릭 메뉴를 추가해도 기존 더블클릭 편집과 휴지통 삭제 경로를 재사용한다."""
+    win = MainCalendarWindow()
+    qtbot.addWidget(win)
+    win._on_date_selected("2026-07-15")
+    win.schedule_input.setText("회의")
+    win._on_add_schedule()
+
+    item = win.schedule_list.item(0)
+
+    # 기존 더블클릭 인라인 편집은 그대로 유지한다.
+    win.schedule_list.itemDoubleClicked.emit(item)
+    assert win._editing_item is item
+    win._finish_current_edit(False)
+
+    menu = win._build_schedule_context_menu(item)
+    qtbot.addWidget(menu)
+    actions = [action for action in menu.menuActions() if not action.isSeparator()]
+    assert [action.text() for action in actions] == ["편집", "삭제"]
+
+    actions[0].trigger()
+    assert win._editing_item is item
+    win._finish_current_edit(False)
+
+    actions[1].trigger()
+    assert win.schedule_list.count() == 0
+    assert db.get_schedules("2026-07-15") == []
+
+    shown = []
+    monkeypatch.setattr(
+        ui_main.RoundMenu,
+        "exec",
+        lambda self, pos: shown.append((self, pos)),
+    )
+    win.schedule_input.setText("우클릭 일정")
+    win._on_add_schedule()
+    item = win.schedule_list.item(0)
+    pos = win.schedule_list.visualItemRect(item).center()
+    win.schedule_list.customContextMenuRequested.emit(pos)
+    assert len(shown) == 1
+    assert [
+        action.text() for action in shown[0][0].menuActions()
+        if not action.isSeparator()
+    ] == ["편집", "삭제"]
+
+
 def test_settings_has_five_section_panels(qtbot, app_dir, qapp):
     from qfluentwidgets import StrongBodyLabel
 

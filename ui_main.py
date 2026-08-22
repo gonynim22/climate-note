@@ -1920,6 +1920,10 @@ class MainCalendarWindow(QWidget):
             QListWidget { background: transparent; border: none; }
             QListWidget::item { padding: 3px; }
         """)
+        self.schedule_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.schedule_list.customContextMenuRequested.connect(
+            self._on_schedule_context_menu
+        )
         self.schedule_list.itemDoubleClicked.connect(self._on_edit_schedule)
         self._editing_item = None  # 현재 인라인 편집 중인 아이템
         self._finish_current_edit = None  # 현재 편집 종료 콜백
@@ -2118,6 +2122,38 @@ class MainCalendarWindow(QWidget):
         row_widget.setProperty("schedule_color", color)
         item.setSizeHint(row_widget.sizeHint())
         self.schedule_list.setItemWidget(item, row_widget)
+
+    def _build_schedule_context_menu(self, item: QListWidgetItem) -> "RoundMenu":
+        """일정 행 우클릭용 편집·삭제 메뉴를 만든다."""
+        schedule_id = item.data(Qt.UserRole)
+        menu = RoundMenu(parent=self)
+        menu.setWindowOpacity(1.0)
+        self._apply_header_menu_style(menu)
+
+        edit_action = Action(FIF.EDIT, "편집", menu)
+        edit_action.triggered.connect(
+            lambda checked=False, i=item: self._on_edit_schedule(i)
+        )
+        menu.addAction(edit_action)
+
+        delete_action = Action(FIF.DELETE, "삭제", menu)
+        delete_action.triggered.connect(
+            lambda checked=False, i=item, sid=schedule_id:
+                self._on_delete_schedule(i, sid)
+        )
+        menu.addAction(delete_action)
+        return menu
+
+    def _on_schedule_context_menu(self, pos: QPoint):
+        """우클릭한 일정 행 옆에 편집·삭제 메뉴를 표시한다."""
+        if self._is_locked:
+            return
+        item = self.schedule_list.itemAt(pos)
+        if item is None:
+            return
+        menu = self._build_schedule_context_menu(item)
+        menu.closedSignal.connect(menu.deleteLater)
+        menu.exec(self.schedule_list.viewport().mapToGlobal(pos))
 
     def _refresh_cell_for_date(self, date_str: str):
         """일정 변경 후 해당 날짜 셀만 현재 모드에 맞게 갱신."""
