@@ -190,6 +190,7 @@ def test_windows_version_parts_maps_letter_suffix_to_patch_position():
 
     # 접미사가 붙은 버전은 붙지 않은 같은 base보다 커야 한다.
     assert _windows_version_parts("v3.6a") > _windows_version_parts("v3.6")
+    assert _windows_version_parts("v3.6b") > _windows_version_parts("v3.6a")
 
 
 def test_windows_version_parts_rejects_malformed_versions():

@@ -1,8 +1,8 @@
 # AGENTS.md
 
-App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Version: **v3.6a** (2026.8.19)
+App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Version: **v3.6b** (2026.8.22)
 
-> 🛠️ **2026-08-22 일정 우클릭 관리 추가.** 하단 일정 행을 우클릭하면 불투명 `RoundMenu`에 `편집`·`삭제`가 표시된다. 기존 오른쪽 휴지통 버튼과 더블클릭 인라인 편집은 그대로 유지하며, 메뉴 액션도 기존 `_on_edit_schedule()`·`_on_delete_schedule()` 경로를 재사용한다. DB 스키마·암호화·일정 저장 형식은 변경하지 않았다. 전체 테스트 536건을 통과했으며, 이는 아래 v3.6a 정식 릴리스 검증 이후의 `main` 소스 변경이다. 로컬 개발 빌드 `dist/기후노트_v3.6a.exe`는 58,282,741 bytes, SHA-256 `6DF775DC58763BB9D6544F66AF18ACE8E6435D4DDAF1852DF3BE00817D1F4A49`, File/Product Version `3.6.1.0`, Authenticode `NotSigned`이며 GitLab Release 자산을 교체하지 않았다.
+> 🛠️ **v3.6b 개발 빌드 완료(2026-08-22).** 하단 일정 행을 우클릭하면 불투명 `RoundMenu`에 `편집`·`삭제`가 표시된다. 기존 오른쪽 휴지통 버튼과 더블클릭 인라인 편집은 그대로 유지하며, 메뉴 액션도 기존 `_on_edit_schedule()`·`_on_delete_schedule()` 경로를 재사용한다. DB 스키마·암호화·일정 저장 형식은 변경하지 않았다. 전체 테스트 536건을 통과했다. 로컬 빌드 `dist/기후노트_v3.6b.exe`는 58,280,125 bytes, SHA-256 `08B9FCC2493B97D8C61746E4DBBE427D73C4C108C33995A87C4D7077BB472BDA`, File/Product Version `3.6.2.0`, Authenticode `NotSigned`다. GitLab 태그·Release 생성과 EXE 업로드는 아직 하지 않았다.
 
 > ✅ **v3.6 산출물 검증 완료(2026-08-18).** 앱 런타임 코드는 v3.5와 동일하며, 변경분은 표시 버전·제3자 라이선스 고지·저장소 정비다. 전체 테스트 518건, 격리 신규 설치, v3.5 데이터 업데이트 시나리오, Defender 검사를 통과했다. 상세는 아래 "v3.6 Release Verification Snapshot"을 본다. **배포 방식은 GitLab Releases를 사용하고 `dist/`를 git에 커밋하지 않는다**(EXE 55.6 MiB가 릴리스마다 히스토리에 영구 누적되기 때문).
 
@@ -41,7 +41,7 @@ This file is the project source of truth for Codex and other coding agents.
 python main.py                                           # 실행
 pip install -r requirements.txt                          # 의존성 설치 (pytest-qt 포함)
 python -m pytest tests -q                                # 전체 테스트 실행 (DB/UI/보안/스트레스)
-python build_app.py                                      # 빌드 → dist/기후노트_v3.6a.exe
+python build_app.py                                      # 빌드 → dist/기후노트_v3.6b.exe
 ```
 
 ## 핵심 개발 원칙
