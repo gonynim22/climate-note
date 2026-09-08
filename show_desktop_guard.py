@@ -231,6 +231,11 @@ class ShowDesktopKeeper(QObject):
             elif not self._enabled or not self._pin_to_desktop_layer():
                 self._apply_topmost(widget, False)
 
+    def unguard(self, widget: QWidget) -> None:
+        """폐기할 창의 이벤트 필터와 강한 참조를 즉시 해제한다."""
+        self._guarded = [w for w in self._guarded if w is not widget]
+        widget.removeEventFilter(self)
+
     def shutdown(self) -> None:
         """Release the system hook and leave every guarded window non-topmost."""
         self._settle_timer.stop()

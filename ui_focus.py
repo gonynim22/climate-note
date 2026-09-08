@@ -684,6 +684,8 @@ class FocusWidgetWindow(QWidget):
             self._start_break_session()
 
     def _ask_break(self) -> bool:
+        if self.property("privacyLocked"):
+            return False  # 잠금 중에는 완료 상태/기록만 유지하고 팝업을 열지 않는다.
         dlg = FocusBreakPromptDialog(self.timer_model.break_minutes, self)
         return dlg.exec() == QDialog.Accepted
 

@@ -3,9 +3,9 @@
 Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위젯 앱입니다.
 일정과 메모를 하드웨어 바인딩 암호화로 로컬에만 저장하며, 외부 서버로 아무것도 보내지 않습니다.
 
-현재 버전 **v3.6b** (2026. 8. 22.)
+현재 소스 버전 **v3.7** (2026. 9. 9.)
 
-> 아래 소개 슬라이드는 **v3.5 화면 기준**이며, 현재 버전은 **v3.6b**입니다.
+> 아래 소개 슬라이드는 **v3.5 화면 기준**이며, 현재 소스 버전은 **v3.7**입니다.
 
 <img src="readme/슬라이드1.PNG" alt="기후노트 v3.5 소개 슬라이드 1">
 
@@ -27,7 +27,7 @@ Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위
 ## 다운로드
 
 실행 파일은 **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 페이지에서 받습니다.
-최신판은 **기후노트_v3.6b.exe** (58,280,125 bytes) 입니다.
+**v3.7 EXE는 아직 빌드·게시하지 않았습니다.** 아래 크기와 해시는 이전 **기후노트_v3.6b.exe** 빌드(58,280,125 bytes)의 정보입니다.
 
 ```
 SHA-256  08B9FCC2493B97D8C61746E4DBBE427D73C4C108C33995A87C4D7077BB472BDA
@@ -37,9 +37,13 @@ SHA-256  08B9FCC2493B97D8C61746E4DBBE427D73C4C108C33995A87C4D7077BB472BDA
 기존 사용자는 실행 중인 기후노트를 완전히 종료한 뒤 새 파일로 교체하세요.
 데이터는 `%LOCALAPPDATA%\MyDesktopCalendar\`에 그대로 유지됩니다.
 
+v3.7은 기존 DB v17·암호화·설정 키를 유지합니다. 가져오기 후 기존 메모와 진행 중인 집중 타이머를 보존하고,
+초기화 뒤 이전 창의 타이머가 새 메모를 덮어쓰는 문제와 PIN 잠금 중 창이 노출되는 문제를 수정했습니다.
+버전 교체를 위해 데이터 초기화나 별도 가져오기를 실행할 필요는 없습니다.
+
 > **처음 실행할 때 Windows SmartScreen 경고가 뜰 수 있습니다.** 코드 서명이 되어 있지 않기 때문입니다.
 > `추가 정보` → `실행`을 누르면 진행됩니다.
-> 받은 파일이 맞는지는 PowerShell에서 확인할 수 있습니다.
+> 받은 파일의 해시는 해당 릴리스 정보와 비교하세요. 이전 v3.6b 빌드 확인 예시는 다음과 같습니다.
 >
 > ```powershell
 > Get-FileHash 기후노트_v3.6b.exe -Algorithm SHA256
@@ -94,13 +98,21 @@ API 키 없이 실행·테스트·빌드가 모두 가능합니다.
 
 ## 테스트
 
-```bash
-python -m pytest tests -q                            # 전체
-python -m pytest tests/test_stress.py --timeout=120  # 스트레스만
+v3.7부터는 [개발 하네스](docs/TESTING.md)를 기본 검증 경로로 사용합니다.
+`requirements-lock.txt`와 일치하는 Windows / Python 3.13 가상환경에서 실행합니다.
+
+```powershell
+.\.venv\Scripts\python.exe tools/verify.py doctor
+.\.venv\Scripts\python.exe tools/verify.py quick
+.\.venv\Scripts\python.exe tools/verify.py quick --tests tests/test_ui_sticky.py
+.\.venv\Scripts\python.exe tools/verify.py data
+.\.venv\Scripts\python.exe tools/verify.py full
 ```
 
 DB·암호화·UI·보안·스트레스를 포함한 500개 이상의 테스트가 있습니다.
-테스트는 임시 폴더에 격리된 DB와 암호화 키를 사용하므로 실제 사용자 데이터에 영향을 주지 않습니다.
+실행별 격리 데이터와 검사 결과는 `output/harness/<run-id>/`에 보존합니다.
+`summary.md`에서 결과를, `result.json`에서 입력 해시·환경·실행 명령을 확인합니다.
+기존 `python -m pytest tests -q` 직접 실행도 지원합니다.
 
 ---
 
@@ -110,8 +122,13 @@ DB·암호화·UI·보안·스트레스를 포함한 500개 이상의 테스트�
 python build_app.py     # 또는 build.bat
 ```
 
-PyInstaller 단일 실행 파일이 `dist/기후노트_v3.6b.exe`로 생성됩니다.
+PyInstaller 단일 실행 파일이 `dist/기후노트_v3.7.exe`로 생성됩니다.
 파일명의 버전은 `app_info.py`의 `APP_VERSION`을 따릅니다.
+
+배포 전 자동 검증은 `python tools/verify.py release`로 실행합니다.
+전체 테스트 후 **실행 전용 폴더에 새로 빌드한 EXE**를 합성 데이터로 검사합니다.
+격리된 창이 잠시 표시되며 기존 `dist/`와 실사용 데이터는 보존합니다.
+자동 통과와 [수동 배포 확인](docs/TESTING.md)은 별개이며 게시·업로드는 수행하지 않습니다.
 
 ---
 
@@ -162,10 +179,12 @@ PyInstaller 단일 실행 파일이 `dist/기후노트_v3.6b.exe`로 생성됩�
 
 | 문서 | 내용 |
 |---|---|
-| [`AGENTS.md`](AGENTS.md) | 개발 규칙, 모듈 상세, UI 제약, 릴리스 검증 기록 |
+| [`AGENTS.md`](AGENTS.md) | 핵심 개발 규칙, 작업별 필수 문서, 완료 기준 |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 데이터 흐름, 보안, DB 스키마 |
 | [`docs/UI_PATTERNS.md`](docs/UI_PATTERNS.md) | UI 컴포넌트 패턴과 색상 |
-| [`docs/TESTING.md`](docs/TESTING.md) | 테스트 구조와 보안 점검 이력 |
+| [`docs/TESTING.md`](docs/TESTING.md) | 하네스 명령, 테스트 구조, 수동 배포 확인 |
+| [`docs/RELEASE_HISTORY.md`](docs/RELEASE_HISTORY.md) | 과거 검증 증빙, 미해결 조사·보류 과제 |
+| [`docs/templates/WORK_NOTE.md`](docs/templates/WORK_NOTE.md) | 여러 단계 개발 작업의 진행·검증·인계 양식 |
 | [`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md) | 행안부 CODEMIND 5개 보안 규칙 |
 
 ---

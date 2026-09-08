@@ -418,7 +418,8 @@ class SettingsWindow(QWidget):
                  on_lunar_changed=None, on_law_search_changed=None,
                  on_position_changed=None, on_sidebar_changed=None,
                  on_opacity_changed=None, on_scale_changed=None,
-                 on_keep_changed=None, on_schedule_colors_changed=None):
+                 on_keep_changed=None, on_schedule_colors_changed=None,
+                 on_prepare_data_change=None, on_before_reset=None):
         super().__init__(parent)
         self.on_reset_callback = on_reset_callback
         self.on_import_callback = on_import_callback
@@ -431,6 +432,8 @@ class SettingsWindow(QWidget):
         self.on_scale_changed = on_scale_changed
         self.on_keep_changed = on_keep_changed
         self.on_schedule_colors_changed = on_schedule_colors_changed
+        self.on_prepare_data_change = on_prepare_data_change
+        self.on_before_reset = on_before_reset
         self.setWindowTitle("설정")
         self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
         # AGENTS.md 스펙 800x560 (시안 A 무스크롤). 520이면 우측 컬럼(데이터/보안/시스템,
@@ -967,7 +970,22 @@ class SettingsWindow(QWidget):
             )
 
     # ─── Import ────────────────────────────────────────────────
+    def _prepare_data_change(self) -> bool:
+        """보호백업/병합 전에 현재 편집 원본의 저장을 확정한다."""
+        if not self.isEnabled():
+            return False
+        if self.on_prepare_data_change and not self.on_prepare_data_change():
+            InfoBar.error(
+                title="데이터 작업 보류",
+                content="스티키 노트를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                parent=self, position=InfoBarPosition.TOP, duration=5000,
+            )
+            return False
+        return True
+
     def _on_import(self):
+        if not self.isEnabled():
+            return
         pin = self.import_pin.text().strip()
         if not self._validate_pin(pin):
             return
@@ -975,7 +993,7 @@ class SettingsWindow(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "가져오기 파일 선택", "", "암호화 파일 (*.enc)"
         )
-        if not file_path:
+        if not file_path or not self.isEnabled():
             return
 
         try:
@@ -984,6 +1002,8 @@ class SettingsWindow(QWidget):
             with open(load_path, "rb") as import_file:
                 encrypted_bytes = import_file.read()
             json_bytes = decrypt_with_pin(encrypted_bytes, pin)
+            if not self._prepare_data_change():
+                return
             db.backup_before_operation("import")
             db.import_all_data(json_bytes.decode("utf-8"))
             imported_palette = db.get_schedule_palette()
@@ -1018,6 +1038,8 @@ class SettingsWindow(QWidget):
 
     # ─── Factory Reset ─────────────────────────────────────────
     def _on_reset(self):
+        if not self.isEnabled():
+            return
         # 데이터 초기화: PIN 없이 확인 팝업만 거친다(사용성 결정, 0011_IMPRAUTH 완화).
         dlg = MessageBox(
             "초기화 확인",
@@ -1028,11 +1050,20 @@ class SettingsWindow(QWidget):
         dlg.cancelButton.setText("취소")
         confirmed = dlg.exec()
         dlg.deleteLater()  # 0026_RESLEAK: 모달 종료 후 팝업 해제
-        if confirmed:
+        if confirmed and self.isEnabled():
             try:
+                if not self._prepare_data_change():
+                    return
                 db.backup_before_operation("reset")
-                db.reset_database()
-                reset_salt()
+                if self.on_before_reset:
+                    self.on_before_reset()
+                try:
+                    db.reset_database()
+                    reset_salt()
+                finally:
+                    # 교체 실패 시에도 이전 타이머를 재개하지 않고 현재 DB로 UI를 복원한다.
+                    if self.on_reset_callback:
+                        self.on_reset_callback()
                 audit("전체 초기화(Factory Reset)", "성공")
                 InfoBar.success(
                     title="초기화 완료",
@@ -1041,10 +1072,8 @@ class SettingsWindow(QWidget):
                     position=InfoBarPosition.TOP,
                     duration=3000,
                 )
-                if self.on_reset_callback:
-                    self.on_reset_callback()
             except (
-                OSError, sqlite3.Error, ValueError, db.DataHealthError,
+                OSError, sqlite3.Error, ValueError, RuntimeError,
             ) as e:
                 audit("전체 초기화(Factory Reset)", f"실패: {e}")
                 InfoBar.error(

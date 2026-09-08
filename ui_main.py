@@ -1079,6 +1079,7 @@ class MainCalendarWindow(QWidget):
         self._expanded_row = None
         self._day_cells = {}  # date_str -> CalendarDayButton
         self._is_locked = False
+        self._hidden_to_tray = False
         self._search_window = None
         self._show_lunar = db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1"
         self._schedule_color = db.DEFAULT_SCHEDULE_COLOR
@@ -1232,6 +1233,21 @@ class MainCalendarWindow(QWidget):
         """새 플로팅 위젯 공통 등록: 투명도 적용 + Win+D 유지 가드."""
         win.setWindowOpacity(self._get_app_opacity() if factor is None else factor)
         self._show_desktop_keeper.guard(win)
+
+    def _show_floating_widget(self, win) -> None:
+        """예약된 표시도 잠금·트레이·현재 레지스트리/패널 상태를 확인한다."""
+        if self._is_locked or self._hidden_to_tray:
+            return
+        for windows, in_panel in (
+            (self._sticky_windows, self._sticky_in_panel_mode),
+            (self._dday_windows, self._dday_in_panel_mode),
+            (self._focus_windows, self._focus_in_panel_mode),
+        ):
+            if any(current is win for current in windows.values()):
+                if not in_panel:
+                    win.show()
+                    win.raise_()
+                return
 
     def _on_keep_desktop_changed(self) -> None:
         """설정에서 '바탕화면 고정' 토글 변경 시 실시간 반영."""
@@ -2430,6 +2446,8 @@ class MainCalendarWindow(QWidget):
 
     # ─── 스티키 노트 ────────────────────────────────────────────
     def _on_new_sticky_note(self):
+        if self._is_locked:
+            return
         from ui_sticky import StickyNoteWindow
         # 최대 10개 제한
         open_count = len([w for w in self._sticky_windows.values() if w.isVisible()])
@@ -2458,8 +2476,8 @@ class MainCalendarWindow(QWidget):
         win = StickyNoteWindow(note_id, note_data)
         win.note_closed.connect(self._on_sticky_note_closed)
         self._register_floating_widget(win)
-        win.show()
         self._sticky_windows[note_id] = win
+        self._show_floating_widget(win)
         if self._sticky_in_panel_mode:
             win.hide()
             if self._sticky_side_panel is not None:
@@ -2471,14 +2489,13 @@ class MainCalendarWindow(QWidget):
             notes = db.get_open_sticky_notes()
             factor = self._get_app_opacity()
             for note in notes:
+                if note["id"] in self._sticky_windows:
+                    continue  # 기존 편집 원본과 대기 중인 자동저장을 유지한다.
                 win = StickyNoteWindow(note["id"], note)
                 win.note_closed.connect(self._on_sticky_note_closed)
                 self._register_floating_widget(win, factor)
-                if self._sticky_in_panel_mode:
-                    win.hide()
-                else:
-                    win.show()
                 self._sticky_windows[note["id"]] = win
+                self._show_floating_widget(win)
         except (sqlite3.Error, OSError) as e:
             _logger.error("스티키 노트 로드 실패: %s", e)
 
@@ -2490,8 +2507,12 @@ class MainCalendarWindow(QWidget):
 
     def _on_open_trash(self):
         """휴지통 창 열기(단일 인스턴스 재사용)."""
+        if self._is_locked:
+            return
         from ui_trash import StickyTrashWindow
         if self._trash_window is None or not self._trash_window.isVisible():
+            if self._trash_window is not None:
+                self._trash_window.deleteLater()
             self._trash_window = StickyTrashWindow()
             self._trash_window.restore_requested.connect(self._restore_sticky_note)
         else:
@@ -2501,6 +2522,8 @@ class MainCalendarWindow(QWidget):
 
     def _restore_sticky_note(self, note_id: int):
         """휴지통에서 복구: db 복구 후 원위치에 노트 창 재생성."""
+        if self._is_locked:
+            return
         from ui_sticky import StickyNoteWindow
         db.restore_sticky_note(note_id)
         if note_id in self._sticky_windows:
@@ -2511,8 +2534,8 @@ class MainCalendarWindow(QWidget):
         win = StickyNoteWindow(note_id, note)
         win.note_closed.connect(self._on_sticky_note_closed)
         self._register_floating_widget(win)
-        win.show()
         self._sticky_windows[note_id] = win
+        self._show_floating_widget(win)
         if self._sticky_in_panel_mode:
             win.hide()
             if self._sticky_side_panel is not None:
@@ -2557,7 +2580,7 @@ class MainCalendarWindow(QWidget):
                     self._expanded_row.layout().removeWidget(self._sticky_side_panel)
                 self._sticky_side_panel.hide()
                 self._sticky_side_panel.setParent(None)
-            if self.isVisible():
+            if self.isVisible() and not self._is_locked:
                 for win in self._sticky_windows.values():
                     win.show()
             self._sticky_in_panel_mode = False
@@ -2629,7 +2652,7 @@ class MainCalendarWindow(QWidget):
                     self._expanded_row.layout().removeWidget(self._dday_side_panel)
                 self._dday_side_panel.hide()
                 self._dday_side_panel.setParent(None)
-            if self.isVisible():
+            if self.isVisible() and not self._is_locked:
                 for win in self._dday_windows.values():
                     win.show()
             self._dday_in_panel_mode = False
@@ -2701,7 +2724,7 @@ class MainCalendarWindow(QWidget):
                     self._expanded_row.layout().removeWidget(self._focus_side_panel)
                 self._focus_side_panel.hide()
                 self._focus_side_panel.setParent(None)
-            if self.isVisible():
+            if self.isVisible() and not self._is_locked:
                 for win in self._focus_windows.values():
                     win.show()
             self._focus_in_panel_mode = False
@@ -2749,6 +2772,8 @@ class MainCalendarWindow(QWidget):
         return len(self._dday_windows) >= 5
 
     def _on_new_dday_widget(self):
+        if self._is_locked:
+            return
         from ui_dday import DDayCreateDialog, DDayWidgetWindow
         if self._dday_at_limit():
             InfoBar.warning(
@@ -2762,7 +2787,7 @@ class MainCalendarWindow(QWidget):
 
         open_count = len(self._dday_windows)
         dlg = DDayCreateDialog(self)
-        if dlg.exec():
+        if dlg.exec() and not self._is_locked:
             name, target_date = dlg.get_result()
             offset = open_count * 30
             color_idx = open_count % len(STICKY_COLORS)
@@ -2781,7 +2806,7 @@ class MainCalendarWindow(QWidget):
                 win.hide()
                 self._refresh_dday_panel()
             else:
-                QTimer.singleShot(0, lambda: (win.show(), win.raise_()))
+                QTimer.singleShot(0, lambda: self._show_floating_widget(win))
 
     def _load_open_dday_widgets(self):
         from ui_dday import DDayWidgetWindow
@@ -2789,13 +2814,15 @@ class MainCalendarWindow(QWidget):
             widgets = db.get_open_dday_widgets()
             factor = self._get_app_opacity()
             for w in widgets:
+                if w["id"] in self._dday_windows:
+                    continue
                 win = DDayWidgetWindow(w["id"], w)
                 win.widget_closed.connect(self._on_dday_widget_closed)
                 self._register_floating_widget(win, factor)
                 if self._dday_in_panel_mode:
                     win.hide()
                 else:
-                    QTimer.singleShot(0, lambda _w=win: (_w.show(), _w.raise_()))
+                    QTimer.singleShot(0, lambda _w=win: self._show_floating_widget(_w))
                 self._dday_windows[w["id"]] = win
         except (sqlite3.Error, OSError) as e:
             _logger.error("D-Day 위젯 로드 실패: %s", e)
@@ -2811,6 +2838,8 @@ class MainCalendarWindow(QWidget):
 
     # ─── 집중 모드 위젯 ─────────────────────────────────────────
     def _on_new_focus_widget(self):
+        if self._is_locked:
+            return
         from ui_focus import FocusCreateDialog, FocusWidgetWindow
         if self._focus_at_limit():
             InfoBar.warning(
@@ -2824,7 +2853,7 @@ class MainCalendarWindow(QWidget):
 
         open_count = len(self._focus_windows)
         dlg = FocusCreateDialog(self)
-        if dlg.exec() == QDialog.Accepted:
+        if dlg.exec() == QDialog.Accepted and not self._is_locked:
             goal, mode_key, start_now = dlg.get_result()
             offset = open_count * 30
             widget_id = db.create_focus_widget(goal, mode_key, x=140 + offset, y=140 + offset)
@@ -2847,7 +2876,7 @@ class MainCalendarWindow(QWidget):
                 win.hide()
                 self._refresh_focus_panel()
             else:
-                QTimer.singleShot(0, lambda: (win.show(), win.raise_()))
+                QTimer.singleShot(0, lambda: self._show_floating_widget(win))
 
     def _load_open_focus_widgets(self):
         from ui_focus import FocusWidgetWindow
@@ -2855,13 +2884,15 @@ class MainCalendarWindow(QWidget):
             widgets = db.get_open_focus_widgets()
             factor = self._get_app_opacity()
             for w in widgets:
+                if w["id"] in self._focus_windows:
+                    continue  # 실행 중인 집중 세션을 idle 인스턴스로 교체하지 않는다.
                 win = FocusWidgetWindow(w["id"], w)
                 win.widget_closed.connect(self._on_focus_widget_closed)
                 self._register_floating_widget(win, factor)
                 if self._focus_in_panel_mode:
                     win.hide()
                 else:
-                    QTimer.singleShot(0, lambda _w=win: (_w.show(), _w.raise_()))
+                    QTimer.singleShot(0, lambda _w=win: self._show_floating_widget(_w))
                 self._focus_windows[w["id"]] = win
         except (sqlite3.Error, OSError) as e:
             _logger.error("집중 모드 위젯 로드 실패: %s", e)
@@ -2970,7 +3001,11 @@ class MainCalendarWindow(QWidget):
 
     # ─── 검색 창 ────────────────────────────────────────────────
     def _on_search(self):
+        if self._is_locked:
+            return
         if self._search_window is None or not self._search_window.isVisible():
+            if self._search_window is not None:
+                self._search_window.deleteLater()
             self._search_window = SearchWindow()
             self._search_window.date_selected.connect(self._navigate_to_date)
         self._search_window.show()
@@ -2993,8 +3028,12 @@ class MainCalendarWindow(QWidget):
 
     # ─── 설정 창 ────────────────────────────────────────────────
     def _on_settings(self):
+        if self._is_locked:
+            return
         from ui_settings import SettingsWindow
         if self._settings_window is None or not self._settings_window.isVisible():
+            if self._settings_window is not None:
+                self._settings_window.deleteLater()
             self._settings_window = SettingsWindow(
                 on_reset_callback=self._on_factory_reset,
                 on_import_callback=self._on_import_complete,
@@ -3007,6 +3046,8 @@ class MainCalendarWindow(QWidget):
                 on_scale_changed=self._apply_calendar_scale,
                 on_keep_changed=self._on_keep_desktop_changed,
                 on_schedule_colors_changed=self._on_schedule_colors_changed,
+                on_prepare_data_change=self.prepare_for_data_change,
+                on_before_reset=self._discard_data_widgets,
             )
         # 스티키/위젯(Qt.Tool)이 앞에 있어도 설정창을 확실히 포그라운드로:
         # raise_()만으로는 Windows에서 활성 창이 바뀌지 않으므로 최소화 해제 + activateWindow.
@@ -3018,7 +3059,8 @@ class MainCalendarWindow(QWidget):
         # 달력이 화면 끝 코너에 있을 때 설정창이 화면 밖으로 열려 우측 컬럼이
         # 잘리는 문제 방지: 표시 후 프레임이 화면(작업 영역)을 넘으면 안으로 이동.
         # 프레임 지오메트리가 확정된 뒤 판정하도록 다음 이벤트 루프 턴에 실행.
-        QTimer.singleShot(0, lambda: self._clamp_window_to_screen(win))
+        QTimer.singleShot(0, lambda: self._clamp_window_to_screen(win)
+                          if self._settings_window is win else None)
 
     def _clamp_window_to_screen(self, win) -> None:
         """top-level 창의 프레임이 현재 화면 작업 영역을 벗어나면 안으로 이동한다."""
@@ -3039,22 +3081,43 @@ class MainCalendarWindow(QWidget):
         if dx or dy:
             win.move(win.x() + dx, win.y() + dy)
 
+    def prepare_for_data_change(self) -> bool:
+        """가져오기/초기화 보호백업에 현재 모드의 최신 편집을 담는다."""
+        return not self._is_locked and self.save_all_sticky_notes()
+
+    def _discard_data_widgets(self) -> None:
+        """초기화 전 모든 이전 데이터 편집기/타이머를 정지하고 폐기한다."""
+        if self._finish_current_edit:
+            self._finish_current_edit(False)
+        # 패널은 숨긴 상태에서도 타이머와 플로팅 원본 참조를 갖는다.
+        for name in ("sticky", "dday", "focus"):
+            panel = getattr(self, f"_{name}_side_panel")
+            if panel is not None:
+                for timer in panel.findChildren(QTimer):
+                    timer.stop()
+                panel.hide()
+                _detach_from_layout(panel)
+                panel.deleteLater()
+                setattr(self, f"_{name}_side_panel", None)
+            setattr(self, f"_{name}_in_panel_mode", False)
+            windows = getattr(self, f"_{name}_windows")
+            for win in list(windows.values()):
+                for timer in win.findChildren(QTimer):
+                    timer.stop()
+                win.hide()
+                self._show_desktop_keeper.unguard(win)
+                win.deleteLater()
+            windows.clear()
+
     def _on_factory_reset(self):
-        self._refresh_calendar()
-        self.schedule_list.clear()
-        self._update_count()
-        self.selected_date_label.setText("날짜를 선택하세요")
-        for win in list(self._sticky_windows.values()):
-            win.close()
-        self._sticky_windows.clear()
-        for win in list(self._dday_windows.values()):
-            win.close()
-        self._dday_windows.clear()
-        for win in list(self._focus_windows.values()):
-            win.close()
-        self._focus_windows.clear()
-        self._apply_calendar_scale()
-        self._apply_app_opacity()
+        # 직접 호출에도 안전하고, before_reset에서 이미 폐기했으면 빈 작업이다.
+        self._discard_data_widgets()
+        self._on_import_complete()
+        if self._search_window is not None:
+            self._search_window.result_table.setRowCount(0)
+            self._search_window.result_count_label.setText("")
+        if self._trash_window is not None:
+            self._trash_window._refresh()
 
     def _on_import_complete(self):
         """Import 완료 후 DB 설정과 열린 UI를 즉시 다시 동기화한다."""
@@ -3072,6 +3135,9 @@ class MainCalendarWindow(QWidget):
         self._load_open_sticky_notes()
         self._load_open_dday_widgets()
         self._load_open_focus_widgets()
+        if self._sticky_in_panel_mode and self._sticky_side_panel is not None:
+            if not self._sticky_side_panel.reload():
+                self._show_sticky_handoff_error()
 
     def _on_law_search_changed(self):
         """설정에서 법령검색 토글 변경 시 검색바 표시/숨김"""
@@ -3085,6 +3151,7 @@ class MainCalendarWindow(QWidget):
 
     # ─── 최소화 (트레이) ─────────────────────────────────────────
     def _minimize_to_tray(self):
+        self._hidden_to_tray = True
         self.hide()
         for win in self._sticky_windows.values():
             win.hide()
@@ -3098,17 +3165,12 @@ class MainCalendarWindow(QWidget):
         if self.isVisible():
             self._minimize_to_tray()
         else:
+            self._hidden_to_tray = False
             self.show()
             self._sync_to_today_if_changed()
-            if not self._sticky_in_panel_mode:
-                for win in self._sticky_windows.values():
-                    win.show()
-            if not self._dday_in_panel_mode:
-                for win in self._dday_windows.values():
-                    win.show()
-            if not self._focus_in_panel_mode:
-                for win in self._focus_windows.values():
-                    win.show()
+            for windows in (self._sticky_windows, self._dday_windows, self._focus_windows):
+                for win in windows.values():
+                    self._show_floating_widget(win)
 
     # ─── 종료 시 전체 저장 ─────────────────────────────────────
     def save_all_sticky_notes(self) -> bool:
@@ -3413,6 +3475,17 @@ class MainCalendarWindow(QWidget):
 
     def _lock(self):
         self._is_locked = True
+        # 잠금 당시 실행 중인 파일/확인 대화상자는 취소한다.
+        modal = QApplication.activeModalWidget()
+        if isinstance(modal, QDialog):
+            modal.reject()
+        popup = QApplication.activePopupWidget()
+        if popup is not None:
+            popup.close()
+        for win in (self._search_window, self._settings_window, self._trash_window):
+            if win is not None:
+                win.setEnabled(False)
+                win.hide()
         if not hasattr(self, "lock_overlay"):
             self.lock_overlay = LockOverlay(self.container)
             self.lock_overlay.unlocked.connect(self._unlock)
@@ -3427,6 +3500,8 @@ class MainCalendarWindow(QWidget):
         for win in self._dday_windows.values():
             win.hide()
         for win in self._focus_windows.values():
+            win.setProperty("privacyLocked", True)
+            win._hide_encouragement_bubble()
             win.hide()
 
     def _unlock(self):
@@ -3434,16 +3509,15 @@ class MainCalendarWindow(QWidget):
         if hasattr(self, "lock_overlay"):
             self.lock_overlay.hide()
 
-        # 스티키 노트 + D-Day + 집중 모드 위젯 복원
-        if not self._sticky_in_panel_mode:
-            for win in self._sticky_windows.values():
-                win.show()
-        if not self._dday_in_panel_mode:
-            for win in self._dday_windows.values():
-                win.show()
-        if not self._focus_in_panel_mode:
-            for win in self._focus_windows.values():
-                win.show()
+        for win in (self._search_window, self._settings_window, self._trash_window):
+            if win is not None:
+                win.setEnabled(True)
+        for win in self._focus_windows.values():
+            win.setProperty("privacyLocked", False)
+        # 보조 창은 사용자가 다시 열고, 위젯은 현재 모드에 맞게 복원한다.
+        for windows in (self._sticky_windows, self._dday_windows, self._focus_windows):
+            for win in windows.values():
+                self._show_floating_widget(win)
 
     def showEvent(self, event):
         super().showEvent(event)
