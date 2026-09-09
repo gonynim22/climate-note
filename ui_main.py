@@ -404,6 +404,7 @@ from qfluentwidgets import (
 
 from ui_sticky import STICKY_COLORS, WIDGET_WIDTH, DDAY_HEIGHT
 from ui_search import SearchWindow
+from ui_schedule_emoji import ScheduleEmojiButton, ScheduleInlineEditor
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
 
@@ -1923,6 +1924,10 @@ class MainCalendarWindow(QWidget):
         self.schedule_input.setPlaceholderText("일정 추가...")
         self.schedule_input.setAttribute(Qt.WA_InputMethodEnabled, True)
         self.schedule_input.returnPressed.connect(self._on_add_schedule)
+        self.schedule_emoji_button = ScheduleEmojiButton(
+            self.schedule_input, self._schedule_emoji_allowed, self
+        )
+        schedule_input_row.addWidget(self.schedule_emoji_button)
         schedule_input_row.addWidget(self.schedule_input, 1)
         add_btn = TransparentToolButton(FIF.ADD, self)
         add_btn.clicked.connect(self._on_add_schedule)
@@ -1943,6 +1948,7 @@ class MainCalendarWindow(QWidget):
         self.schedule_list.itemDoubleClicked.connect(self._on_edit_schedule)
         self._editing_item = None  # 현재 인라인 편집 중인 아이템
         self._finish_current_edit = None  # 현재 편집 종료 콜백
+        self._schedule_editor = None
         panel_layout.addWidget(self.schedule_list, 1)
 
         # 상태 표시 라벨 (자동 저장 등) - 가장 하단으로 이동
@@ -2030,6 +2036,8 @@ class MainCalendarWindow(QWidget):
             self._on_date_selected(self._selected_date)
     def _on_date_selected(self, date_str: str):
         """날짜 클릭 시 하단 패널 업데이트"""
+        if not self._save_schedule_edit():
+            return  # 저장하지 못한 편집기를 날짜 이동으로 폐기하지 않는다.
         old_cell = self._day_cells.get(self._selected_date)
         if old_cell is not None:
             try:
@@ -2066,8 +2074,8 @@ class MainCalendarWindow(QWidget):
 
     def _load_schedules(self):
         # 진행 중인 편집이 있으면 저장 후 종료 (위젯 파괴 전에 처리)
-        if self._finish_current_edit:
-            self._finish_current_edit(True)
+        if not self._save_schedule_edit():
+            return False
         self._editing_item = None
         self._finish_current_edit = None
         # 기존 아이템 위젯 명시적 해제 (메모리 누수 방지)
@@ -2093,6 +2101,7 @@ class MainCalendarWindow(QWidget):
         except (sqlite3.Error, OSError) as e:
             _logger.error("일정 로드 실패: %s", e)
         self._update_count()
+        return True
 
     def _add_schedule_item(self, schedule_id: int, content: str,
                            decryption_failed: bool = False,
@@ -2106,6 +2115,7 @@ class MainCalendarWindow(QWidget):
         item.setData(Qt.UserRole, schedule_id)
         item.setData(Qt.UserRole + 1, content)
         item.setData(Qt.UserRole + 2, color)
+        item.setData(Qt.UserRole + 3, decryption_failed)
         self.schedule_list.addItem(item)
 
         row_widget = QWidget()
@@ -2122,6 +2132,8 @@ class MainCalendarWindow(QWidget):
         row_layout.addWidget(color_dot)
 
         text_label = BodyLabel(content)
+        text_label.setToolTip(content)
+        row_widget.schedule_text_label = text_label
         if decryption_failed:
             text_label.setStyleSheet("color: #D32F2F; font-style: italic;")
         else:
@@ -2204,6 +2216,8 @@ class MainCalendarWindow(QWidget):
             return
         try:
             db.delete_schedule(schedule_id)
+            if self._editing_item is item and self._finish_current_edit:
+                self._finish_current_edit(False)
             row = self.schedule_list.row(item)
             widget = self.schedule_list.itemWidget(item)
             if widget:
@@ -2244,7 +2258,7 @@ class MainCalendarWindow(QWidget):
 
     def _on_edit_schedule(self, item: QListWidgetItem):
         """더블클릭 → 인라인 편집 모드"""
-        if self._is_locked:
+        if self._is_locked or item.data(Qt.UserRole + 3):
             return
         # 이미 편집 중이면 기존 편집을 저장 후 종료
         if self._editing_item is not None:
@@ -2254,7 +2268,7 @@ class MainCalendarWindow(QWidget):
                 return
         schedule_id = item.data(Qt.UserRole)
         old_text = item.data(Qt.UserRole + 1)
-        color = item.data(Qt.UserRole + 2)
+        editing_date = self._selected_date
         if not schedule_id or not old_text:
             return
 
@@ -2265,37 +2279,31 @@ class MainCalendarWindow(QWidget):
             return
         layout = row_widget.layout()
 
-        # text_label(index 1)을 숨기고 LineEdit 삽입
-        text_label = layout.itemAt(1).widget()
+        text_label = row_widget.schedule_text_label
         text_label.hide()
 
-        edit = QLineEdit(row_widget)
-        edit.setText(old_text)
-        edit.setAttribute(Qt.WA_InputMethodEnabled, True)
-        edit.setStyleSheet("background: #FFF; border: 1px solid #0078D4; border-radius: 3px; padding: 1px 4px;")
-        layout.insertWidget(2, edit, 1)
+        editor = ScheduleInlineEditor(old_text, self._schedule_emoji_allowed, row_widget)
+        self._schedule_editor = editor
+        edit = editor.edit
+        layout.insertWidget(layout.indexOf(text_label) + 1, editor, 1)
+        item.setSizeHint(row_widget.sizeHint())
+        editor.show()
         edit.setFocus()
         edit.selectAll()
 
-        def _finish_edit(save: bool):
+        def _finish_edit(save: bool) -> bool:
             if self._editing_item is not item:
-                return
-            self._editing_item = None
-            self._finish_current_edit = None
-            new_text = edit.text().strip()
-            # LineEdit 제거, 라벨 복원
-            edit.hide()
-            layout.removeWidget(edit)
-            edit.deleteLater()
-            text_label.show()
+                return True
+            if save and self._is_locked:
+                return False
+            # 열기만 한 기존 본문은 공백까지 보존하고 실제 변경만 저장한다.
+            new_text = old_text if edit.text() == old_text else edit.text().strip()
 
             if save and new_text and new_text != old_text:
                 try:
                     db.update_schedule(schedule_id, content=new_text)
-                    text_label.setText(new_text)
-                    item.setData(Qt.UserRole + 1, new_text)
-                    self._refresh_cell_for_date(self._selected_date)
-                except (sqlite3.Error, OSError, ValueError):
+                except (sqlite3.Error, OSError, ValueError) as exc:
+                    _logger.error("일정 수정 실패 (id=%s): %s", schedule_id, exc)
                     InfoBar.error(
                         title="수정 오류",
                         content="일정 수정 중 오류가 발생했습니다.",
@@ -2303,25 +2311,36 @@ class MainCalendarWindow(QWidget):
                         position=InfoBarPosition.BOTTOM,
                         duration=3000,
                     )
+                    return False
+                text_label.setText(new_text)
+                text_label.setToolTip(new_text)
+                item.setData(Qt.UserRole + 1, new_text)
+                self._refresh_cell_for_date(editing_date)
+
+            self._editing_item = None
+            self._finish_current_edit = None
+            self._schedule_editor = None
+            editor.deactivate()
+            editor.hide()
+            layout.removeWidget(editor)
+            editor.deleteLater()
+            text_label.show()
+            item.setSizeHint(row_widget.sizeHint())
+            return True
 
         self._finish_current_edit = _finish_edit
+        editor.finish_requested.connect(_finish_edit)
 
-        edit.returnPressed.connect(lambda: _finish_edit(True))
+    def _schedule_emoji_allowed(self) -> bool:
+        return not self._is_locked and not self._hidden_to_tray
 
-        # Escape 키 처리
-        orig_key = edit.keyPressEvent
-        def _key_press(event):
-            if event.key() == Qt.Key_Escape:
-                _finish_edit(False)
-            else:
-                orig_key(event)
-        edit.keyPressEvent = _key_press
+    def _save_schedule_edit(self) -> bool:
+        return not self._finish_current_edit or self._finish_current_edit(True) is not False
 
-        # 포커스 잃으면 저장
-        def _focus_out(e):
-            _finish_edit(True)
-            QLineEdit.focusOutEvent(edit, e)
-        edit.focusOutEvent = _focus_out
+    def _close_schedule_emoji_popups(self) -> None:
+        self.schedule_emoji_button.close_popup()
+        if self._schedule_editor is not None:
+            self._schedule_editor.emoji_button.close_popup()
 
     def _update_count(self):
         n = self.schedule_list.count()
@@ -2343,6 +2362,8 @@ class MainCalendarWindow(QWidget):
 
     # ─── 오늘로 이동 ─────────────────────────────────────────────
     def _on_today(self):
+        if not self._save_schedule_edit():
+            return
         today = date.today()
         self._today = today.isoformat()
         self._current_year = today.year
@@ -2388,6 +2409,8 @@ class MainCalendarWindow(QWidget):
 
     # ─── 이전/다음 달 ───────────────────────────────────────────
     def _on_prev_month(self):
+        if not self._save_schedule_edit():
+            return
         if self._current_month == 1:
             self._current_year -= 1
             self._current_month = 12
@@ -2396,6 +2419,8 @@ class MainCalendarWindow(QWidget):
         self._refresh_calendar()
 
     def _on_next_month(self):
+        if not self._save_schedule_edit():
+            return
         if self._current_month == 12:
             self._current_year += 1
             self._current_month = 1
@@ -3016,6 +3041,8 @@ class MainCalendarWindow(QWidget):
 
     def _navigate_to_date(self, date_str: str):
         """검색 결과 클릭 시 해당 날짜로 캘린더 이동"""
+        if not self._save_schedule_edit():
+            return
         try:
             from datetime import datetime as _dt
             d = _dt.strptime(date_str, "%Y-%m-%d")
@@ -3083,10 +3110,14 @@ class MainCalendarWindow(QWidget):
 
     def prepare_for_data_change(self) -> bool:
         """가져오기/초기화 보호백업에 현재 모드의 최신 편집을 담는다."""
-        return not self._is_locked and self.save_all_sticky_notes()
+        return (
+            not self._is_locked and self._save_schedule_edit()
+            and self.save_all_sticky_notes()
+        )
 
     def _discard_data_widgets(self) -> None:
         """초기화 전 모든 이전 데이터 편집기/타이머를 정지하고 폐기한다."""
+        self._close_schedule_emoji_popups()
         if self._finish_current_edit:
             self._finish_current_edit(False)
         # 패널은 숨긴 상태에서도 타이머와 플로팅 원본 참조를 갖는다.
@@ -3152,6 +3183,7 @@ class MainCalendarWindow(QWidget):
     # ─── 최소화 (트레이) ─────────────────────────────────────────
     def _minimize_to_tray(self):
         self._hidden_to_tray = True
+        self._close_schedule_emoji_popups()
         self.hide()
         for win in self._sticky_windows.values():
             win.hide()
@@ -3200,7 +3232,9 @@ class MainCalendarWindow(QWidget):
         return all_saved
 
     def prepare_for_quit(self) -> bool:
-        """정상 종료 전에 스티키 저장을 확정하고 실패하면 종료를 보류한다."""
+        """정상 종료 전에 일정·스티키 저장을 확정하고 실패하면 종료를 보류한다."""
+        if not self._save_schedule_edit():
+            return False
         if self.save_all_sticky_notes():
             return True
         _logger.error("스티키 노트 저장 실패로 앱 종료를 보류합니다")
@@ -3475,6 +3509,7 @@ class MainCalendarWindow(QWidget):
 
     def _lock(self):
         self._is_locked = True
+        self._close_schedule_emoji_popups()
         # 잠금 당시 실행 중인 파일/확인 대화상자는 취소한다.
         modal = QApplication.activeModalWidget()
         if isinstance(modal, QDialog):

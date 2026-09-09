@@ -35,6 +35,35 @@ class TestScheduleEdgeCases:
         db.add_schedule("2025-02-14", text)
         assert db.get_schedules("2025-02-14")[0]["content"] == text
 
+    def test_schedule_emoji_pin_roundtrip_preserves_existing_dataset(self, app_dir):
+        original_id = db.add_schedule("2026-09-09", "기존 일정", "#4CC9F0")
+        text = "✉️ 협의회의 👩🏽‍💻 🇰🇷 📌 ⭐ 🔥 ⏰ 🤝 👥 📞 📝 📄 📊 🎯 📚 🚗 🏠 🎉"
+        emoji_id = db.add_schedule("2026-09-09", "📌 협의회의", "#FFD166")
+        db.update_schedule(emoji_id, content=text)
+        assert db.get_schedules_for_month(2026, 9)["2026-09-09"][1]["content"] == text
+        assert db.search_all("협의회의")[0]["content"] == text
+        with db._connection() as conn:
+            before = [tuple(row) for row in conn.execute("SELECT * FROM schedules ORDER BY id")]
+            settings = [tuple(row) for row in conn.execute("SELECT * FROM app_settings ORDER BY key")]
+        salt = security.read_existing_salt()
+        bundle = security.encrypt_with_pin(db.export_all_data().encode("utf-8"), "1234")
+        path = app_dir / "emoji-roundtrip.enc"
+        with open(path, "wb") as stream:
+            stream.write(bundle)
+        with open(path, "rb") as stream:
+            imported = security.decrypt_with_pin(stream.read(), "1234").decode("utf-8")
+        db.import_all_data(imported)
+        after = db.get_schedules("2026-09-09")
+        assert [row["content"] for row in after] == ["기존 일정", text, "기존 일정", text]
+        assert [row["color"] for row in after] == ["#4CC9F0", "#FFD166"] * 2
+        with db._connection() as conn:
+            assert [tuple(row) for row in conn.execute(
+                "SELECT * FROM schedules WHERE id IN (?, ?) ORDER BY id", (original_id, emoji_id)
+            )] == before
+            assert [tuple(row) for row in conn.execute("SELECT * FROM app_settings ORDER BY key")] == settings
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert security.read_existing_salt() == salt
+
     def test_unknown_color_stored_as_is(self, app_dir):
         """팔레트에 없는 색상도 저장/복원"""
         custom = "#ABCDEF"

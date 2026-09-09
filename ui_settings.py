@@ -977,7 +977,7 @@ class SettingsWindow(QWidget):
         if self.on_prepare_data_change and not self.on_prepare_data_change():
             InfoBar.error(
                 title="데이터 작업 보류",
-                content="스티키 노트를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                content="편집 내용을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
                 parent=self, position=InfoBarPosition.TOP, duration=5000,
             )
             return False
