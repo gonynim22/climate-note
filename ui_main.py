@@ -1939,7 +1939,7 @@ class MainCalendarWindow(QWidget):
         self.schedule_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.schedule_list.setStyleSheet("""
             QListWidget { background: transparent; border: none; }
-            QListWidget::item { padding: 3px; }
+            QListWidget::item { padding: 0px; }
         """)
         self.schedule_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.schedule_list.customContextMenuRequested.connect(
@@ -2120,7 +2120,8 @@ class MainCalendarWindow(QWidget):
 
         row_widget = QWidget()
         row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(4, 2, 4, 2)
+        # 목록 item padding은 sizeHint에서 차감되므로 여백을 행 안에서 계산한다.
+        row_layout.setContentsMargins(7, 5, 7, 5)
         row_layout.setSpacing(4)
 
         color_dot = QLabel("●")
@@ -2286,8 +2287,8 @@ class MainCalendarWindow(QWidget):
         self._schedule_editor = editor
         edit = editor.edit
         layout.insertWidget(layout.indexOf(text_label) + 1, editor, 1)
-        item.setSizeHint(row_widget.sizeHint())
         editor.show()
+        item.setSizeHint(row_widget.sizeHint())
         edit.setFocus()
         edit.selectAll()
 

@@ -133,6 +133,35 @@ def test_inline_picker_focus_replace_remove_and_enter(qtbot):
     assert item.data(Qt.UserRole + 2) == "#4CC9F0"
 
 
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_inline_emoji_button_fits_row_before_and_after_edit(qtbot, scale):
+    win = main_window(qtbot, scale, "📚 교육 일정")
+    item = win.schedule_list.item(0)
+    row = win.schedule_list.itemWidget(item)
+    for save in (False, True):
+        win._on_edit_schedule(item)
+        editor = win._schedule_editor
+        qtbot.waitUntil(lambda: editor.edit.hasFocus())
+        QApplication.processEvents()
+        appdata = os.environ.get("CLIMATENOTE_TEST_APPDATA")
+        if appdata:
+            assert row.grab().save(str(
+                Path(appdata).parent / f"schedule-emoji-inline-{scale}.png"
+            ))
+        # 실제 목록 배치가 버튼 하단까지 확보해야 한다. sizeHint만 검사하면
+        # QListWidget의 item padding과 아직 숨겨진 편집기를 놓칠 수 있다.
+        assert editor.rect().contains(editor.emoji_button.geometry())
+        assert row.rect().contains(editor.geometry())
+        assert editor.edit.height() >= editor.edit.sizeHint().height()
+        editor.edit.setText("⭐ 변경한 일정")
+        assert win._finish_current_edit(save)
+        QApplication.processEvents()
+        label = row.schedule_text_label
+        assert row.rect().contains(label.geometry())
+        assert label.height() >= label.sizeHint().height()
+    assert db.get_schedules("2026-09-09")[0]["content"] == "⭐ 변경한 일정"
+
+
 def test_keyboard_picker_escape_and_unchanged_rows(qtbot):
     win = main_window(qtbot, content="📌 회의")
     with db._connection() as conn:
