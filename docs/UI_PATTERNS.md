@@ -22,6 +22,7 @@
 - **일정 이모지**: 입력 행은 `[색상 → 이모지 선택 → 본문 → 추가]` 순서다. `ui_schedule_emoji.py`의 공용 선택창은 16개 이모지(4×4)와 `없음`을 제공한다. 선택은 입력창 앞의 알려진 `이모지 + 공백 한 칸`만 추가·교체·제거하고, Enter/추가 또는 인라인 편집 확정 시 기존 본문으로 암호화 저장한다. 본문 중간·미지원·복합 이모지는 변경하지 않는다. 직접 입력한 알려진 선두 표식도 같은 방식으로 편집한다. 별도 중요도·색상 슬롯은 만들지 않는다.
 - **이모지 표시·조작**: compact는 하단 일정 목록에, medium/large는 일정 목록과 날짜 칩에 표시하며 검색 결과와 전체 본문 툴팁에도 포함한다. compact 날짜 칸 3행과 기존 칩 크기·말줄임은 유지한다. 선택 버튼과 팝업은 키보드로 접근할 수 있고, 팝업의 방향키/Tab으로 이동·Enter/Space로 선택한다. 팝업에서 Escape는 팝업만 취소하고 입력으로 복귀하며, 편집 입력의 Escape는 수정 전체를 취소한다. 선두 치환은 Undo 한 번으로 되돌릴 수 있다.
 - **이모지 팝업 수명·폰트**: 팝업은 한 개만 열고 호출 버튼의 화면 작업 영역 안에 배치한다. 닫힌 팝업은 `deleteLater()`하고 선택 콜백을 무효화한다. 잠금·트레이 숨김·초기화 때 팝업과 예약된 포커스 복원을 취소하여 뒤늦은 저장·재표시를 막는다. 선택창은 시스템 `Segoe UI Emoji`, 일정 본문은 기존 앱 글꼴과 Qt 폴백을 사용한다. 외부 폰트·이미지는 추가하지 않는다. 방향키는 실제 포커스 버튼의 이벤트를 받아 격자 안에서 좌우 한 칸·상하 한 행으로 이동한다.
+- **컬러 이모지 렌더링**: Qt 6.10.2의 Windows DirectWrite 글리프 캐시에는 비트맵 우측·하단 한 픽셀을 누락하는 문제가 있어 Qt/PySide6 6.11.2를 사용한다. 버튼 높이·padding을 늘려도 이 문제는 해결되지 않는다. `test_emoji_rendering.py`에서 캐시를 거친 화면 렌더와 원본 컬러 비트맵의 경계를 비교한다. 본문 글꼴·Unicode 저장값은 유지한다.
 - **Lunar Setting**: Cached as `self._show_lunar` on `MainCalendarWindow`, refreshed once per `_refresh_calendar()` (not per cell). It now gates ONLY the bottom-panel lunar-date text (`lunar_info_label`). Holiday highlighting (red day number) and the bottom-panel holiday name (`holiday_info_label`) are always shown regardless of this setting (holiday = rest day). Holiday lookup uses `holidays.is_holiday()` / `holidays.get_holiday()`.
 
 ---

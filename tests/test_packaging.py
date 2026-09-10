@@ -163,7 +163,7 @@ def test_bundled_third_party_license_texts_and_notices_exist():
         "Pretendard 1.3.9",
         "Font Awesome Free 6.7.2",
         "PySide6-Fluent-Widgets 1.11.1",
-        "PySide6 6.10.2",
+        "PySide6 6.11.2",
         "cryptography 46.0.4",
         "pysidesix-frameless-window 0.8.0",
         "Pretendard-LICENSE.txt",

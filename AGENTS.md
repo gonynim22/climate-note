@@ -80,14 +80,15 @@
 - `main`은 보호 브랜치다. push/merge는 Maintainer 이상, 강제 push는 비활성이다. 동료는 Developer 권한으로 Merge Request를 통해 기여한다.
 - **빌드 산출물은 git에 커밋하지 않는다.** `dist/`는 `.gitignore` 대상이며 EXE 배포는 **GitLab Releases**(`/-/releases`)를 쓴다. EXE 하나가 약 55.6 MiB이고 PyInstaller 산출물은 델타 압축이 거의 되지 않아, 커밋하면 릴리스마다 통짜 블롭이 히스토리에 영구 누적된다(5개 릴리스면 약 300 MiB). 소스만 받으려는 사람도 전부 내려받게 되고, 나중에 빼려면 히스토리 재작성이 필요하다.
 - 전환 설계와 근거: [`docs/superpowers/specs/2026-08-18-gitlab-public-migration-design.md`](docs/superpowers/specs/2026-08-18-gitlab-public-migration-design.md)
-- **환경 드리프트 시 실패하는 검사**: `tests/test_packaging.py::test_requirements_lock_matches_verified_direct_dependencies`. `requirements-lock.txt`는 v3.5 EXE를 만든 검증 버전 기록이므로 로컬 venv가 그보다 새 버전으로 드리프트하면 실패한다. lock 파일을 임의로 갱신하지 않는다. 의존성 업그레이드는 lock 갱신 + 전체 재검증 + EXE 재빌드 + 검증 스냅샷 갱신을 한 묶음으로 처리한다. `pip install -r requirements-lock.txt`로 맞추면 통과한다.
+- **환경 드리프트 시 실패하는 검사**: `tests/test_packaging.py::test_requirements_lock_matches_verified_direct_dependencies`. `requirements-lock.txt`는 v3.5 기준에서 v3.7 컬러 이모지 수정용 Qt 계열 4개를 6.11.2로 갱신한 환경 기록이다. 검증 근거는 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)에 남긴다. 로컬 venv 버전이 lock과 다르면 실패하며 lock을 임의로 갱신하지 않는다. 의존성 업그레이드는 lock 갱신 + 전체 재검증 + EXE 재빌드 + 검증 스냅샷 갱신을 한 묶음으로 처리한다. `pip install -r requirements-lock.txt`로 맞추면 통과한다.
 
 ## 기록 관리
 
 - 프로젝트 초기 파악 시 과거 구현 계획·완료된 작업 기록·`output/` 결과를 일괄로 읽지 않는다. 현재 작업에 필요한 지침과 관련 자료만 선택해서 읽는다.
 - [RELEASE_HISTORY.md](docs/RELEASE_HISTORY.md)에 v3.3~v3.6b 검증과 미해결 조사·보류 항목을 보존했다. 현재 검증은 하네스 보고서와 해당 작업 기록을 본다.
 - v3.7은 DB v17·암호화·저장 경로·기존 설정 키를 유지하는 데이터 UI 수명·잠금 개선이다. 버전·호환성·검증 범위는 [v3.7 작업 기록](docs/work/2026-09-09-v3.7-version-commit.md)에 남긴다. 소스 검증과 새 EXE 검증·게시 여부를 구분한다.
-- 일정 이모지 선택은 표시 버전 v3.7·DB v17을 유지한 후속 기능이다. 구현·중단 후 재점검·최종 검증 근거는 [일정 이모지 작업 기록](docs/work/2026-09-09-schedule-emoji-plan.md)에 남긴다. 실제 한글 IME·혼합 DPI/KVM 확인과 EXE 재빌드·게시는 별도 미실행 범위다.
+- 일정 이모지 선택은 표시 버전 v3.7·DB v17을 유지한 후속 기능이다. 구현·중단 후 재점검·최종 검증 근거는 [일정 이모지 작업 기록](docs/work/2026-09-09-schedule-emoji-plan.md)에 남긴다. 당시 미실행이던 EXE 재빌드·격리 검증은 아래 글리프 잘림 기록에서 갱신하며, 실제 한글 IME·혼합 DPI/KVM 확인과 게시는 별도다.
 - 일정 인라인 편집 이모지 하단 잘림 수정과 100/125/150% 합성 배율 검증은 [하단 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-clipping.md)에 남긴다. 소스 수정과 EXE 재빌드·게시 여부를 구분하며 실제 혼합 DPI/KVM 확인은 별도다.
+- 입력창·선택 버튼의 컬러 글리프 잘림은 행 높이와 별개인 Qt Windows 캐시 문제다. Qt/PySide6 6.11.2 갱신과 재빌드 검증은 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)에 남기고 [UI 계약](docs/UI_PATTERNS.md)의 비트맵 경계 검사를 유지한다.
 - 설정/휴지통 특정 PC 멈춤, 임시 WAL/SHM 누적, 모니터 인덱스 식별·혼합 DPI/KVM 실기 확인은 별도 후속 과제다.
 - 라이선스·SBOM·PySide6/Qt 조건·서명 후속 과제는 증빙 없이 완료 처리하거나 삭제하지 않는다.

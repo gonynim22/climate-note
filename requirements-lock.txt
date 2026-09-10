@@ -1,8 +1,9 @@
-# 기후노트 v3.5 검증 환경 (Windows x64, CPython 3.13.5)
-# 2026-07-23 설치 환경의 직접 의존성과 그 전이 의존성을 고정한 재현용 목록.
+# 기후노트 v3.7 검증 환경 (Windows x64, CPython 3.13.5)
+# v3.5 기준에서 2026-09-10 컬러 이모지 잘림 수정용 Qt 계열 4개만 6.11.2로 갱신.
+# 검증 스냅샷: docs/work/2026-09-10-schedule-emoji-glyph-clipping.md
 # 일상 개발은 requirements.txt, 동일 환경 재현은 이 파일을 사용한다.
 
-PySide6==6.10.2
+PySide6==6.11.2
 PySide6-Fluent-Widgets[Full]==1.11.1
 cryptography==46.0.4
 python-dotenv==1.2.1
@@ -25,12 +26,12 @@ pluggy==1.6.0
 pycparser==3.0
 Pygments==2.19.2
 pyinstaller-hooks-contrib==2026.1
-PySide6_Addons==6.10.2
-PySide6_Essentials==6.10.2
+PySide6_Addons==6.11.2
+PySide6_Essentials==6.11.2
 PySideSix-Frameless-Window==0.8.0
 pywin32==311
 pywin32-ctypes==0.2.3
 scipy==1.17.1
 setuptools==81.0.0
-shiboken6==6.10.2
+shiboken6==6.11.2
 typing_extensions==4.15.0

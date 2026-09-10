@@ -70,7 +70,7 @@ PySide6-Fluent-Widgets 1.11.1 (import package: qfluentwidgets)
 위 공식 패키지 페이지와 프로젝트 문서를 기준으로 배포 전에 확인한다.
 
 
-PySide6 6.10.2 / Qt 6.10.2 (shiboken6 6.10.2 포함)
+PySide6 6.11.2 / Qt 6.11.2 (shiboken6 6.11.2 포함)
 --------------------------------------------------
 
 번들 대상:
@@ -80,7 +80,7 @@ PySide6 6.10.2 / Qt 6.10.2 (shiboken6 6.10.2 포함)
 
 배포판 메타데이터가 제시하는 라이선스:
   LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
-  (PySide6-6.10.2.dist-info/METADATA, shiboken6-6.10.2.dist-info/METADATA)
+  (PySide6-6.11.2.dist-info/METADATA, shiboken6-6.11.2.dist-info/METADATA)
 
 라이선스 원문:
   licenses/LGPL-3.0.txt
