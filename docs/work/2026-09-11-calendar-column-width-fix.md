@@ -1,6 +1,6 @@
 # 작업 기록: 캘린더 요일 열 너비 수정
 
-작성일: 2026-09-11 / 상태: 구현·검증 완료, 커밋·push 진행
+작성일: 2026-09-11 / 상태: 구현·검증·로컬 커밋 완료, 원격 보안 검사로 push 차단
 
 ## 목표와 범위
 
@@ -15,7 +15,8 @@
 - [x] 실제 배치된 7열이 일정 분포·추가·월 왕복·화면 왕복에 영향받지 않고 요일 제목과 정렬된다.
 - [x] 좁은 칩의 말줄임, 전체 본문 툴팁, large/medium/compact 동작을 검증한다.
 - [x] 기존 합성 데이터·salt·schema 보존과 신규 EXE 실행을 검증한다.
-- [ ] AGENTS.md/UI 계약 갱신, 관련 파일만 커밋, 명시적 `main` push와 원격 커밋 확인.
+- [x] AGENTS.md/UI 계약 갱신, 관련 파일만 로컬 커밋.
+- [ ] 명시적 `main` push와 원격 커밋 확인: 서버 pre-receive 보안 검사 거부로 미반영.
 
 ## 결정과 진행
 
@@ -61,4 +62,11 @@
 ## 미해결과 인계
 
 - 실제 회사 PC의 혼합 DPI/KVM·최종 사용자 화면은 수동 미확인으로 구분한다.
-- 커밋·push: 미실행.
+- 수정 커밋: `ca0f617192d509b4062582571fee49e51e8e4793` (`fix: keep calendar weekday columns stable on portrait screens`). 기존 `.gitignore` 사용자 변경은 커밋하지 않았다.
+- `git push origin main`을 실행했으나 GitLab의 pre-receive hook이 `SECURITY SCAN REJECTED`로 거부했다. 인증/권한 실패가 아닌 서버의 코드·의존성 보안 검사 실패다.
+- 거부 후 `git ls-remote origin refs/heads/main`으로 원격이 기존 `aa383a1fe16e736afe1b656a69169bad2412863b`에 그대로 있음을 확인했다. 이번 수정과 로컬에 먼저 있던 v3.7 후속 4개 커밋은 원격에 반영되지 않았다.
+- 서버 응답 요약: Gitleaks PASS / Semgrep FAIL / OSV-Scanner FAIL / Trivy PASS / Syft PASS. [push 거부 기록](../../output/harness/20260911-210624-06a98aabf3/push-rejection.txt).
+- Semgrep: `fetch_data.py:11`, `tools/verify.py:21`의 `xml.etree.ElementTree` 사용에 ERROR; `fetch_data.py:23,36` 동적 urllib 호출에 WARNING; 검사기 오류 1건도 보고했다.
+- OSV-Scanner: `Pygments 2.19.2`의 `PYSEC-2026-2987`, `GHSA-5239-wwwm-4pmq`; `cryptography 46.0.4`의 `PYSEC-2026-2141`, `PYSEC-2026-35`, `PYSEC-2026-3552`; 그 외 54건을 보고했다. 나머지 상세 목록/수정 버전은 서버 응답에 없다.
+- 위 파일과 의존성은 이번 캘린더 수정 커밋에서 변경하지 않았다. origin/main과 비교해도 cryptography/Pygments 버전은 같으며, lock 차이는 이전 컬러 이모지 수정의 Qt 계열 4개 버전뿐이다. 이 사실이 서버 지적의 오탐을 의미하지는 않는다.
+- 원격 반영을 마무리하려면 전체 보안 검사 보고서 및 검사기 오류 원인을 확인하고, 필요한 코드/의존성 보안 수정과 lock·전체 검사·EXE 재빌드를 한 묶음으로 검증해야 한다. 이번 조사에서 검사 예외나 bypass는 추가하지 않았다.
