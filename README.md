@@ -27,10 +27,10 @@ Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위
 ## 다운로드
 
 실행 파일은 **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 페이지에서 받습니다.
-**v3.7 EXE는 로컬 빌드·격리 검증을 마쳤으며 GitLab에는 아직 게시하지 않았습니다.** 아래 크기와 해시는 Qt 6.11.2로 이모지 잘림을 수정한 **기후노트_v3.7.exe** 빌드(57,907,537 bytes)의 정보입니다. [검증 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)
+**v3.7 EXE는 로컬 빌드·격리 검증을 마쳤으며 GitLab에는 아직 게시하지 않았습니다.** 아래 크기와 해시는 Qt 6.11.2 이모지 수정에 더해 세로 화면의 캘린더 요일 열 축소를 수정한 **기후노트_v3.7.exe** 빌드(57,907,537 bytes)의 정보입니다. [검증 기록](docs/work/2026-09-11-calendar-column-width-fix.md)
 
 ```
-SHA-256  9677998585F0507D6219BE61EEDD80C75046A76A84A65A05A60520F6F6B26810
+SHA-256  0A3A85C1E082A81CEFE742FE63BDE642427D0A389ACE11D4309277ACACB2F379
 ```
 
 설치 과정이 없는 단일 실행 파일입니다. 원하는 위치에 두고 실행하면 됩니다.

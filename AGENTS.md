@@ -61,6 +61,7 @@
 - 일정 이모지는 기존 `schedules.content`의 `이모지 + ASCII 공백 한 칸` 접두 문자열로 저장한다. `ui_schedule_emoji.py`의 알려진 표식 하나만 명시적 선택으로 교체·제거하며 본문 Unicode·색상·DB v17·Export v2·salt를 유지한다. 별도 컬럼·설정 키·기존 행 일괄 갱신은 추가하지 않는다.
 - 일정 인라인 편집은 입력창·이모지 버튼·팝업을 하나의 편집 영역으로 다룬다. 저장 실패 시 편집 원본을 유지하고 날짜/월/검색 이동·목록 재생성·데이터 작업·정상 종료를 보류한다. 잠금·트레이 숨김·초기화 때 팝업과 예약된 포커스 복원을 취소한다. 키보드 검사는 실제 포커스된 버튼으로 입력하며 상세 동작은 [UI 계약](docs/UI_PATTERNS.md)을 따른다.
 - 일정 목록의 여백은 행 레이아웃에 포함하고 `QListWidget::item` padding은 0으로 둔다. 인라인 편집기를 표시한 뒤 행 높이를 계산해 입력창과 26px 이모지 버튼 하단을 확보한다. compact/medium/large에서 실제 배치된 편집 영역이 버튼 전체를 포함하는지 검증한다.
+- 캘린더 날짜 그리드와 요일 제목은 7열에 동일한 stretch를 적용한다. 일정 칩은 가로 `QSizePolicy.Ignored`로 말줄임 결과가 열 최소 너비에 역영향을 주지 않게 한다. 세로 화면에서 일정 추가·월 왕복·화면 왕복 후 실제 열 너비 차이 1px 이내와 요일 제목 정렬을 검증한다. 저장된 일정 본문·색상·DB/salt는 바꾸지 않는다.
 - 공휴일 데이터는 추적 중인 `holidays.py`를 사용하고 `fetch_data.py`의 실제 API 데이터로만 갱신한다. 임의 계산 금지.
 - 폰트·아이콘·이미지·SVG는 `app_paths.resource_root()`로 찾는다. 본문은 시스템 Malgun Gothic 기본, Pretendard는 D-Day 강조용이다. QSS 글꼴 크기는 정수 px만 쓴다.
 - Win+D 보호는 일시 topmost pulse 후 바탕화면 바로 위 non-topmost 복귀다. 영구 topmost·WorkerW/SetParent 재부모화 금지. native hook은 해제한다.
@@ -90,5 +91,6 @@
 - 일정 이모지 선택은 표시 버전 v3.7·DB v17을 유지한 후속 기능이다. 구현·중단 후 재점검·최종 검증 근거는 [일정 이모지 작업 기록](docs/work/2026-09-09-schedule-emoji-plan.md)에 남긴다. 당시 미실행이던 EXE 재빌드·격리 검증은 아래 글리프 잘림 기록에서 갱신하며, 실제 한글 IME·혼합 DPI/KVM 확인과 게시는 별도다.
 - 일정 인라인 편집 이모지 하단 잘림 수정과 100/125/150% 합성 배율 검증은 [하단 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-clipping.md)에 남긴다. 소스 수정과 EXE 재빌드·게시 여부를 구분하며 실제 혼합 DPI/KVM 확인은 별도다.
 - 입력창·선택 버튼의 컬러 글리프 잘림은 행 높이와 별개인 Qt Windows 캐시 문제다. Qt/PySide6 6.11.2 갱신과 재빌드 검증은 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)에 남기고 [UI 계약](docs/UI_PATTERNS.md)의 비트맵 경계 검사를 유지한다.
+- 세로 화면 large 보기의 요일 열 축소는 일정 칩의 말줄임 결과가 레이아웃 최소 너비로 되먹임되는 문제다. 수정과 기존 데이터 보존·EXE 검증은 [요일 열 너비 수정 기록](docs/work/2026-09-11-calendar-column-width-fix.md)에 남긴다. 앱 v3.7·DB v17·Export v2·Qt 6.11.2를 유지하며 실제 회사 PC 혼합 DPI/KVM 확인과 GitLab Release 게시는 별도로 구분한다.
 - 설정/휴지통 특정 PC 멈춤, 임시 WAL/SHM 누적, 모니터 인덱스 식별·혼합 DPI/KVM 실기 확인은 별도 후속 과제다.
 - 라이선스·SBOM·PySide6/Qt 조건·서명 후속 과제는 증빙 없이 완료 처리하거나 삭제하지 않는다.

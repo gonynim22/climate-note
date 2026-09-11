@@ -591,6 +591,8 @@ class CalendarDayButton(QWidget):
         """단일 일정 칩 라벨을 만든다."""
         chip = QLabel(self._chips_container)
         chip.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        # 말줄임된 문자열이 열 최소 폭에 반영되면 좁은 요일이 회복되지 않는다.
+        chip.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         chip.setFixedHeight(self._chip_height)
         chip.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         font = chip.font()
@@ -1544,6 +1546,8 @@ class MainCalendarWindow(QWidget):
         # ── 달력 그리드 ──
         self.calendar_grid = QGridLayout()
         self.calendar_grid.setSpacing(2)
+        for col in range(7):
+            self.calendar_grid.setColumnStretch(col, 1)
         calendar_layout.addLayout(self.calendar_grid)
 
         # ── 구분선 ──
@@ -1868,6 +1872,7 @@ class MainCalendarWindow(QWidget):
         header_layout = QGridLayout()
         header_layout.setSpacing(2)
         for col, day in enumerate(weekdays):
+            header_layout.setColumnStretch(col, 1)
             lbl = QLabel(day)
             lbl.setAlignment(Qt.AlignCenter)
             color = "#D32F2F" if col == 0 else ("#1565C0" if col == 6 else "")

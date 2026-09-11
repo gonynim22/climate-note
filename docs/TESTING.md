@@ -31,6 +31,8 @@ Windows / Python 3.13과 `requirements-lock.txt`의 직접 의존성 8개를 사
 대상이 없는 경우, 수집 오류, 0건 수집, 전부 skip은 통과가 아니다.
 `full`/`release` 실행 전에 `quick`/`data`를 의무적으로 중복 실행하지 않는다.
 
+캘린더 열 너비 변경은 `tests/test_ui_calendar_columns.py`를 포함한다. 창이 화면 안에 들어오는지만 확인해서는 요일 열 축소를 검출하지 못한다. 이 검사는 세로 논리 작업 영역(1080×1920, 864×1536, 720×1280)과 medium/compact에서 실제 날짜 열·요일 제목의 배치를 검사한다. `QT_SCALE_FACTOR=1.25`/`1.5`의 별도 실행은 합성 배율 확인이며 실제 혼합 DPI/KVM 수동 확인을 대신하지 않는다.
+
 ### 실행 격리와 증거
 
 각 호출은 `output/harness/<시각-고유값>/`을 새로 만든다. 그 안에:
