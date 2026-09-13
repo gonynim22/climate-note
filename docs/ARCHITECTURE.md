@@ -67,6 +67,7 @@
 - **Encryption Bound**: Data is machine-bound unless exported via PIN-encrypted `.enc` files.
 - **Output**: `dist/<app_info.app_exe_name()>` (single-file, no console, icon: `icon/icon_fixed_256.ico`). `upx=True` only requests UPX; compression requires an installed UPX executable. Harness release builds use isolated output directories.
 - **Version Source**: UI footer and build output name both read `APP_VERSION` from `app_info.py`.
+- **Build Environment**: `build.bat`은 프로젝트 `.venv\Scripts\python.exe`를 명시하고, `build_app.py`는 `tools.verify.doctor()`로 Python·lock·필수 파일을 검사한 뒤 같은 인터프리터의 PyInstaller를 `--clean`으로 실행한다. 환경 불일치나 빌드 실패는 비영 종료하며 패키지를 자동 설치하지 않는다. EXE의 표시 버전만으로 Qt 수정 포함 여부를 판단하지 않는다. 2026-09-14에는 전역 Python의 Qt 6.10.2가 들어간 v3.7a가 확인되었으므로 검증된 6.11.2 환경의 새 산출물을 사용한다.
 
 ```bash
 python build_app.py   # OR

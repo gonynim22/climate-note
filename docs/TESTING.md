@@ -6,6 +6,13 @@ Windows / Python 3.13과 `requirements-lock.txt`의 직접 의존성 8개를 사
 하네스는 패키지를 설치하거나 lock을 갱신하지 않는다. 버전이 다르면 환경 오류로 중단하므로
 개발자가 해당 가상환경에서 `pip install -r requirements-lock.txt`로 맞춘다.
 
+일반 빌드도 같은 환경을 사용한다. `build.bat`은 프로젝트 `.venv` Python을 직접 실행하며,
+`build_app.py`는 하네스의 `doctor()` 사전검사 실패 시 빌드를 시작하지 않는다. 자동 설치 없이
+같은 인터프리터의 PyInstaller를 `--clean`으로 실행하므로 다른 Python의 이전 빌드 캐시를
+재사용하지 않는다. `tests/test_build_app.py`는 환경 불일치·도구 누락 시 빌드 차단과 실패 코드 전파를 검사한다.
+EXE 표시 버전이 같아도 포함된 Qt는 다를 수 있다. 이모지 글리프 수정의 산출물 확인에서는
+EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌더와 실제 EXE 캡처를 구분한다.
+
 프로젝트 루트 PowerShell:
 
 ```powershell

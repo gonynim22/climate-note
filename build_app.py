@@ -84,7 +84,7 @@ def make_windows_version_info():
     )
 
 
-def build():
+def build() -> int:
     script_dir = Path(__file__).resolve().parent
     os.chdir(script_dir)
     if str(script_dir) not in sys.path:
@@ -93,29 +93,39 @@ def build():
     exe_name = app_exe_name()
     print(f"빌드를 시작합니다... ({APP_DISPLAY_NAME} {APP_VERSION})")
     
-    # 1. PyInstaller 설치 확인
-    try:
-        import PyInstaller
-    except ImportError:
-        print("PyInstaller가 설치되어 있지 않습니다. 설치를 시도합니다...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
+    # 일반 빌드에도 하네스와 같은 lock 검사를 적용한다. 전역 Python의
+    # 구형 Qt로 빌드하면 소스에서 해결한 컬러 이모지 잘림이 EXE에 재발한다.
+    from tools.verify import doctor
 
-    # 2. 빌드 실행 (build.spec 사용)
+    try:
+        environment = doctor(script_dir)
+    except (OSError, ValueError) as e:
+        print(f"빌드 환경 확인 실패: {e}")
+        return 2
+    if environment["errors"]:
+        print(f"빌드 환경 확인 실패 (Python: {sys.executable})")
+        for error in environment["errors"]:
+            print(f"  - {error}")
+        print("프로젝트 .venv의 Python 3.13과 requirements-lock.txt를 확인하세요.")
+        return 2
+
+    # 이전 인터프리터로 만든 분석 결과와 바이너리 캐시를 재사용하지 않는다.
     spec_path = script_dir / "build.spec"
-    if not os.path.exists(spec_path):
-        print(f"오류: {spec_path} 파일을 찾을 수 없습니다.")
-        return
-
     try:
-        subprocess.check_call([sys.executable, "-m", "PyInstaller", "--noconfirm", str(spec_path)])
+        subprocess.check_call([
+            sys.executable, "-m", "PyInstaller", "--clean", "--noconfirm", str(spec_path)
+        ])
         print("\n" + "="*40)
         print("빌드가 성공적으로 완료되었습니다!")
         print(f"출력 파일: dist/{exe_name}")
         print("="*40)
+        return 0
     except subprocess.CalledProcessError as e:
         print(f"\n빌드 중 오류가 발생했습니다: {e}")
-    except (OSError, FileNotFoundError) as e:
+        return 1
+    except OSError as e:
         print(f"\n빌드 환경 오류: {e}")
+        return 2
 
 if __name__ == "__main__":
-    build()
+    sys.exit(build())

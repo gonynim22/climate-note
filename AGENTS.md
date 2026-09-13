@@ -34,7 +34,8 @@
 - UI 변경은 `quick --tests <관련 파일>`, 데이터·스티키 저장 변경은 `data`, 공용 실행기·테스트 격리 변경은 `full`로 검증한다. 배포 산출물은 `release`로 검증한다.
 - `full`에 하위 검사를 중복 실행하지 않는다. 문서만 고쳤으면 링크·사실·지침 유실을 확인한다.
 - 출력은 `output/harness/<run-id>/`에 보존한다. 자동 검사 통과는 배포 승인이 아니다. Win+D·혼합 DPI·KVM·최종 UI 확인은 [수동 검사](docs/TESTING.md)에 남긴다.
-- 앱 실행은 `python main.py`, 일반 빌드는 `python build_app.py`, 직접 전체 검사는 `python -m pytest tests -q`도 지원한다. 의존성 재현은 `pip install -r requirements-lock.txt`로 한다. 하네스가 자동 설치하거나 lock을 갱신하지 않는다.
+- 앱 실행은 `python main.py`, 일반 빌드는 `.\.venv\Scripts\python.exe build_app.py` 또는 `build.bat`, 직접 전체 검사는 `python -m pytest tests -q`도 지원한다. 의존성 재현은 같은 가상환경에서 `pip install -r requirements-lock.txt`로 한다. 하네스와 일반 빌드는 패키지를 자동 설치하거나 lock을 갱신하지 않는다.
+- `build.bat`은 작업 디렉터리와 무관하게 프로젝트 `.venv` Python을 실행한다. `build_app.py`는 `tools.verify.doctor()` 사전검사 후 같은 인터프리터의 PyInstaller를 `--clean`으로 실행하며, 환경 불일치·빌드 실패는 비영 종료한다. 전역 Python이나 이전 빌드 캐시의 구형 Qt가 다시 포함되지 않도록 이 경로를 유지한다.
 
 ## 핵심 개발 원칙
 
@@ -64,6 +65,7 @@
 - 캘린더 날짜 그리드와 요일 제목은 7열에 동일한 stretch를 적용한다. 일정 칩은 가로 `QSizePolicy.Ignored`로 말줄임 결과가 열 최소 너비에 역영향을 주지 않게 한다. 세로 화면에서 일정 추가·월 왕복·화면 왕복 후 실제 열 너비 차이 1px 이내와 요일 제목 정렬을 검증한다. 저장된 일정 본문·색상·DB/salt는 바꾸지 않는다.
 - 공휴일 데이터는 추적 중인 `holidays.py`를 사용하고 `fetch_data.py`의 실제 API 데이터로만 갱신한다. 임의 계산 금지.
 - 폰트·아이콘·이미지·SVG는 `app_paths.resource_root()`로 찾는다. 본문은 시스템 Malgun Gothic 기본, Pretendard는 D-Day 강조용이다. QSS 글꼴 크기는 정수 px만 쓴다.
+- 소스 화면과 사용자 EXE의 이모지 렌더가 다르면 UI를 다시 수정하기 전에 실제 EXE의 SHA-256과 포함된 Qt DLL 버전·해시를 검증 환경과 대조한다. 표시 버전이나 소스 캡처만으로 수정 포함 여부를 판단하지 않는다. EXE 확인도 합성 데이터에서 수행한다.
 - Win+D 보호는 일시 topmost pulse 후 바탕화면 바로 위 non-topmost 복귀다. 영구 topmost·WorkerW/SetParent 재부모화 금지. native hook은 해제한다.
 - 설정창 800×560 무스크롤, 캘린더 크기·일정 표시·위젯 수 제한·DPI/스냅·메뉴 수명 등 세부 UI 계약은 [UI_PATTERNS.md](docs/UI_PATTERNS.md)를 따른다.
 - 테스트/EXE 검증은 실행별 합성 데이터 폴더에서만 수행한다. 실사용 AppData·DB·salt 또는 기존 실행 중인 앱을 검사·정리 대상으로 쓰지 않는다.
@@ -91,6 +93,7 @@
 - 일정 이모지 선택은 표시 버전 v3.7·DB v17을 유지한 후속 기능이다. 구현·중단 후 재점검·최종 검증 근거는 [일정 이모지 작업 기록](docs/work/2026-09-09-schedule-emoji-plan.md)에 남긴다. 당시 미실행이던 EXE 재빌드·격리 검증은 아래 글리프 잘림 기록에서 갱신하며, 실제 한글 IME·혼합 DPI/KVM 확인과 게시는 별도다.
 - 일정 인라인 편집 이모지 하단 잘림 수정과 100/125/150% 합성 배율 검증은 [하단 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-clipping.md)에 남긴다. 소스 수정과 EXE 재빌드·게시 여부를 구분하며 실제 혼합 DPI/KVM 확인은 별도다.
 - 입력창·선택 버튼의 컬러 글리프 잘림은 행 높이와 별개인 Qt Windows 캐시 문제다. Qt/PySide6 6.11.2 갱신과 재빌드 검증은 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)에 남기고 [UI 계약](docs/UI_PATTERNS.md)의 비트맵 경계 검사를 유지한다.
+- 2026-09-14에는 로컬 `dist/기후노트_v3.7a.exe`에 전역 Python의 Qt 6.10.2가 다시 포함된 것을 확인했다. 일반 빌드 경로를 위 명령처럼 고정하고 Qt 6.11.2로 재빌드했다. `release` 실행 `20260914-000953-2116a75e03`에서 669개 테스트와 3개 격리 EXE 시나리오를 통과했고, 기존 합성 데이터 8개 테이블의 raw/복호화 내용·ID·salt가 보존됐다. 실제 EXE의 100% large 화면에서 버튼·입력창 이모지의 우측·하단 픽셀 복원을 확인했다. 새 EXE의 해시·내부 Qt 대조·구형 EXE 보호 보관·dist 교체는 [재점검 작업 기록](docs/work/2026-09-14-schedule-emoji-rendering.md)에 남긴다. 앱 UI·저장 코드·DB v17·Export v2·버전·lock은 이번 수정에서 변경하지 않았으며 실제 한글 IME·혼합 DPI/KVM·GitLab 게시는 별도다.
 - 세로 화면 large 보기의 요일 열 축소는 일정 칩의 말줄임 결과가 레이아웃 최소 너비로 되먹임되는 문제다. 수정과 기존 데이터 보존·EXE 검증은 [요일 열 너비 수정 기록](docs/work/2026-09-11-calendar-column-width-fix.md)에 남긴다. 앱 v3.7·DB v17·Export v2·Qt 6.11.2를 유지하며 실제 회사 PC 혼합 DPI/KVM 확인과 GitLab Release 게시는 별도로 구분한다.
 - 설정/휴지통 특정 PC 멈춤, 임시 WAL/SHM 누적, 모니터 인덱스 식별·혼합 DPI/KVM 실기 확인은 별도 후속 과제다.
 - 라이선스·SBOM·PySide6/Qt 조건·서명 후속 과제는 증빙 없이 완료 처리하거나 삭제하지 않는다.
