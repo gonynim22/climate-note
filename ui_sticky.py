@@ -20,6 +20,7 @@ from qfluentwidgets import (
 )
 
 import database as db
+from fluent_icons import fluent_icon
 from ui_sticky_links import FileLinkTextEdit
 
 
@@ -583,10 +584,10 @@ class StickyFormatToolbar(QWidget):
         self.text_color_btn.clicked.connect(self._pick_text_color)
         layout.addWidget(self.text_color_btn)
 
-        self.link_btn = TransparentToolButton(FIF.LINK, self)
+        self.link_btn = TransparentToolButton(fluent_icon("link"), self)
         self.link_btn.setFixedSize(24, 22)
         self.link_btn.setFocusPolicy(Qt.NoFocus)
-        self.link_btn.setToolTip("파일 연결 (열기: Ctrl+클릭)")
+        self.link_btn.setToolTip("선택한 텍스트에 파일 링크 연결 (열기: Ctrl+클릭)")
         self.link_btn.clicked.connect(lambda: self.link_requested.emit())
         layout.addWidget(self.link_btn)
 
@@ -725,10 +726,10 @@ class StickyNoteWindow(QWidget):
         self.text_color_btn.clicked.connect(self._on_text_color_btn)
         hdr_layout.addWidget(self.text_color_btn)
 
-        self.link_btn = TransparentToolButton(FIF.LINK, self)
+        self.link_btn = TransparentToolButton(fluent_icon("link"), self)
         self.link_btn.setFixedSize(24, 22)
         self.link_btn.setFocusPolicy(Qt.NoFocus)
-        self.link_btn.setToolTip("파일 연결 (열기: Ctrl+클릭)")
+        self.link_btn.setToolTip("선택한 텍스트에 파일 링크 연결 (열기: Ctrl+클릭)")
         self.link_btn.clicked.connect(lambda: self.text_edit.choose_file_link())
         hdr_layout.addWidget(self.link_btn)
 

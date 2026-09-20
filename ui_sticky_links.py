@@ -240,7 +240,8 @@ class FileLinkTextEdit(QTextEdit):
     def choose_file_link(self, span=None):
         if not self._allowed():
             return
-        cursor = self._span_cursor(span) if span else self.textCursor()
+        # Snapshot the original selection before the file picker takes focus.
+        cursor = QTextCursor(self._span_cursor(span) if span else self.textCursor())
         text = cursor.selectedText()
         if ('\u2029' in text or any(c in text for c in '\uf0c8\uf14a☐☑')
                 or (span is None and any(s.start < cursor.selectionEnd() and s.end > cursor.selectionStart()
@@ -249,14 +250,15 @@ class FileLinkTextEdit(QTextEdit):
             return
         self.cancel_file_links()
         ticket = self._ticket()
-        dialog = QFileDialog(self.window(), '파일 다시 연결' if span else '파일 연결')
+        title = '파일 다시 연결' if span else ('선택한 텍스트에 파일 연결' if text else '파일 링크 추가')
+        dialog = QFileDialog(self.window(), title)
         # Qt dialog has an owned lifetime and can always be rejected on lock/hide/reset.
         dialog.setOption(QFileDialog.DontUseNativeDialog, True)
         dialog.setFileMode(QFileDialog.ExistingFile)
         dialog.setWindowModality(Qt.ApplicationModal)
         dialog.setLabelText(QFileDialog.Accept, '파일 다시 선택' if span else '연결')
         dialog.setLabelText(QFileDialog.Reject, '취소')
-        if span:
+        if text or span:
             # Keep long paths readable without expanding the file picker off-screen.
             from PySide6.QtWidgets import QLabel
             details = QLabel(dialog)
@@ -264,7 +266,10 @@ class FileLinkTextEdit(QTextEdit):
             details.setWordWrap(True)
             details.setTextInteractionFlags(Qt.TextSelectableByMouse)
             details.setMaximumWidth(520)
-            details.setText(f'{text}\n이전: {span.link.path if span.link else "연결 정보 확인 필요"}\n{self.link_error(span)}')
+            if span:
+                details.setText(f'{text}\n이전: {span.link.path if span.link else "연결 정보 확인 필요"}\n{self.link_error(span)}')
+            else:
+                details.setText(f'연결할 텍스트: {text}\n파일을 선택해도 이 문구는 그대로 유지됩니다.')
             dialog.layout().addWidget(details, dialog.layout().rowCount(), 0, 1, dialog.layout().columnCount())
         dialog.setNameFilter('로컬 파일 (*)')
         self._link_dialog = dialog

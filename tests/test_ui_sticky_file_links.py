@@ -352,3 +352,84 @@ def test_ctrl_click_only_launch_and_keyboard_menu(qtbot, edit, file_path, monkey
     edit.contextMenuEvent(event)
     assert '다시 연결' in [a.text() for a in edit._link_menu.actions()]
     edit.cancel_file_links()
+
+
+@pytest.mark.parametrize('mode', ['floating', 'panel'])
+@pytest.mark.parametrize('reverse', [False, True])
+def test_mouse_selection_button_picker_keeps_label(qtbot, app_dir, file_path, mode, reverse):
+    """Use the user's full gesture; do not set a selection programmatically."""
+    from PySide6.QtWidgets import QLabel
+    note_id = db.create_sticky_note('memo')
+    db.update_sticky_note(note_id, content='<p>앞 <b>회의 자료</b> 뒤</p>')
+    if mode == 'floating':
+        window = StickyNoteWindow(note_id, db.get_open_sticky_notes()[0])
+        text = window.text_edit
+        button = window.link_btn
+        window.resize(330, 230)
+    else:
+        window = StickySidePanel()
+        window.reload()
+        text = window._cards[0].text_edit
+        button = window._toolbar.link_btn
+        window.resize(340, 270)
+    qtbot.addWidget(window)
+    window.show()
+    window.activateWindow()
+    text.setFocus()
+    qtbot.waitUntil(lambda: text.hasFocus())
+    before = text.toHtml()
+    cursor = text.textCursor()
+    cursor.setPosition(2)
+    start = text.cursorRect(cursor).center()
+    cursor.setPosition(7)
+    end = text.cursorRect(cursor).center()
+    if reverse:
+        start, end = end, start
+    qtbot.mousePress(text.viewport(), Qt.LeftButton, pos=start)
+    qtbot.mouseMove(text.viewport(), end, delay=10)
+    qtbot.mouseRelease(text.viewport(), Qt.LeftButton, pos=end)
+    assert text.textCursor().selectedText() == '회의 자료'
+    qtbot.mouseClick(button, Qt.LeftButton)
+    dialog = text._link_dialog
+    assert dialog is not None and dialog.isVisible()
+    assert any('연결할 텍스트: 회의 자료' in label.text() for label in dialog.findChildren(QLabel))
+    # Moving the editor's live caret while the picker owns focus must not change the target.
+    cursor = text.textCursor()
+    cursor.movePosition(QTextCursor.End)
+    text.setTextCursor(cursor)
+    dialog.selectFile(file_path)
+    dialog.accept()
+    qtbot.waitUntil(lambda: bool(text._link_spans))
+    span = text._link_spans[0]
+    assert (span.start, span.end) == (2, 7)
+    assert text._span_cursor(span).selectedText() == '회의 자료'
+    assert span.link.path == file_path
+    assert text.toPlainText() == '앞 회의 자료 뒤'
+    assert Path(file_path).name not in text.toPlainText()
+    assert text._span_cursor(span).charFormat().fontWeight() == 700
+    text.setFocus()
+    if not reverse:
+        # Capture both actual toolbars after the real selection and picker interaction.
+        directory = os.environ.get('CLIMATENOTE_TEST_APPDATA')
+        if directory:
+            window.grab().save(str(Path(directory).parent / f'selected-link-{mode}.png'))
+    text.undo()
+    assert text.toHtml() == before
+    assert not text._link_spans
+
+
+def test_selected_text_picker_cancel_keeps_html_and_undo(edit, qtbot):
+    edit.setHtml('<p>앞 <b>연결할 문구</b> 뒤</p>')
+    select(edit, 2, 8)
+    edit.document().clearUndoRedoStacks()
+    before = edit.toHtml()
+    edit.choose_file_link()
+    edit._link_dialog.reject()
+    assert edit.toHtml() == before
+    assert not edit.document().isUndoAvailable()
+
+
+def test_chain_link_icon_is_bundled_and_renderable(qapp):
+    from fluent_icons import fluent_icon, fluent_icon_path
+    assert fluent_icon_path('link').is_file()
+    assert not fluent_icon('link').isNull()
