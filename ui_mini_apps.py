@@ -1,7 +1,10 @@
 """개발자 제공 미니앱의 실행 주머니. 사용자 데이터나 DB에 접근하지 않는다."""
 from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QScrollArea, QToolButton,
+    QVBoxLayout, QWidget,
+)
 
 from fluent_icons import fluent_icon
 
@@ -48,6 +51,16 @@ class MiniAppsButton(QToolButton):
             super().keyPressEvent(event)
 
 
+class MiniAppTile(QToolButton):
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if not event.isAutoRepeat():
+                self.click()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+
 class MiniAppsPocket(QWidget):
     dismissed = Signal(bool)
     unit_converter_requested = Signal()
@@ -61,10 +74,10 @@ class MiniAppsPocket(QWidget):
         # 바깥의 원래 버튼 클릭이 재전달되어 곧바로 다시 열리는 것을 막는다.
         self.setAttribute(Qt.WA_NoMouseReplay)
         self._return_focus = False
-        self.resize(300, 220)
+        self.resize(332, 332)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 14, 14, 18)
-        layout.setSpacing(8)
+        layout.setContentsMargins(18, 14, 18, 18)
+        layout.setSpacing(14)
         header = QHBoxLayout()
         title = QLabel("미니앱", self)
         title.setStyleSheet("color:#01295F;font-size:15px;font-weight:bold;")
@@ -84,26 +97,53 @@ class MiniAppsPocket(QWidget):
         self.close_button.clicked.connect(self.dismiss)
         header.addWidget(self.close_button)
         layout.addLayout(header)
-        layout.addStretch()
-        self.converter_card = QToolButton(self)
+        self.apps_scroll = QScrollArea(self)
+        self.apps_scroll.setWidgetResizable(True)
+        self.apps_scroll.setFrameShape(QFrame.NoFrame)
+        self.apps_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.apps_scroll.setStyleSheet(
+            "QScrollArea,QScrollArea > QWidget > QWidget{background:transparent;}"
+            "QScrollBar:vertical{width:6px;background:transparent;}"
+            "QScrollBar::handle:vertical{background:#CBD5E1;border-radius:3px;min-height:24px;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}"
+        )
+        content = QWidget()
+        self.apps_grid = QGridLayout(content)
+        self.apps_grid.setContentsMargins(0, 0, 0, 0)
+        self.apps_grid.setSpacing(12)
+        self.apps_grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.apps_grid.setSizeConstraint(QLayout.SetMinAndMaxSize)
+        self.apps_scroll.setWidget(content)
+        layout.addWidget(self.apps_scroll, 1)
+        self.converter_card = self.add_app(
+            "단위 환산기", "unit_converter", "길이·무게·온도·환경 단위 환산",
+            self.unit_converter_requested.emit,
+        )
         self.converter_card.setObjectName("unitConverterCard")
-        self.converter_card.setText("단위 환산기\n길이 · 무게 · 온도 등 21개 분류")
-        self.converter_card.setAccessibleName("단위 환산기 실행")
-        self.converter_card.setToolTip("단위 환산기 열기")
-        self.converter_card.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.converter_card.setIcon(fluent_icon("unit_converter", "#46679C", 64))
-        self.converter_card.setIconSize(QSize(32, 32))
-        self.converter_card.setMinimumHeight(78)
-        self.converter_card.setCursor(Qt.PointingHandCursor)
-        self.converter_card.setStyleSheet(
+
+    def add_app(self, title, icon_name, description, callback):
+        """개발자가 등록한 타일을 행 우선 2열로 추가한다. 사용자 슬롯과 별개다."""
+        card = MiniAppTile(self.apps_scroll.widget())
+        card.setText(title)
+        card.setAccessibleName(f"{title} 실행")
+        card.setToolTip(description)
+        card.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        card.setIcon(fluent_icon(icon_name, "#46679C", 80))
+        card.setIconSize(QSize(40, 40))
+        card.setFixedSize(132, 132)
+        card.setCursor(Qt.PointingHandCursor)
+        card.setStyleSheet(
             "QToolButton{background:#F4F7FB;border:1px solid #D9E2ED;"
-            "border-radius:10px;color:#294B73;font-size:11px;padding:10px;}"
+            "border-radius:14px;color:#294B73;font-size:13px;font-weight:bold;padding:10px;}"
             "QToolButton:hover{background:#EAF1FA;border-color:#96B2D5;}"
             "QToolButton:focus{border:2px solid #46679C;}"
         )
-        self.converter_card.clicked.connect(self.unit_converter_requested)
-        layout.addWidget(self.converter_card)
-        layout.addStretch()
+        card.clicked.connect(callback)
+        row, column = divmod(self.apps_grid.count(), 2)
+        self.apps_grid.addWidget(card, row, column)
+        card.show()
+        return card
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -118,10 +158,7 @@ class MiniAppsPocket(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Escape, Qt.Key_Return, Qt.Key_Enter):
-            if event.key() != Qt.Key_Escape and self.converter_card.hasFocus():
-                self.unit_converter_requested.emit()
-            else:
-                self.dismiss()
+            self.dismiss()
             event.accept()
         else:
             super().keyPressEvent(event)

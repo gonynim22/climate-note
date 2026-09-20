@@ -3553,7 +3553,7 @@ class MainCalendarWindow(QWidget):
         anchor = button.rect().translated(button.mapToGlobal(QPoint()))
         screen = QApplication.screenAt(anchor.center()) or self.screen()
         available = screen.availableGeometry()
-        popup.resize(min(300, available.width()), min(220, available.height()))
+        popup.resize(min(popup.width(), available.width()), min(popup.height(), available.height()))
         popup.move(pocket_position(anchor, popup.size(), available))
         button.setChecked(True)
         popup.show()

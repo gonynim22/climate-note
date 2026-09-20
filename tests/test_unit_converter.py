@@ -31,6 +31,11 @@ GOLDEN = {
     "force": ("n", [1, 1000, 9.80665, 4.4482216152605, .00001]),
     "freq": ("hz", [1, 1000, 1e6, 1e9, .0166666666666667]),
     "co2": ("kgco2", [.001, 1, 1000]),
+    "gas_fraction": ("molmol", [1e-6, 1e-9, 1e-12, .01, 1e-6, 1e-9, 1]),
+    "mass_fraction": ("kgkg", [1e-6, 1e-9, 1e-12, .01, 1e-6, 1e-9, 1e-12, .001, 1]),
+    "water": ("mgl", [1, .001, 1e-6, 1000, 1000, 1000, 1]),
+    "flow": ("m3s", [1, .0166666666666667, .000277777777777778, .0000115740740740741,
+                        .001, .0000166666666666667, .000000277777777777778, .0000000166666666666667]),
     "pm": ("ugm3", [.001, 1, 1000, 1e6]),
     "rad": ("msv", [.000001, .001, 1, 1000, .01, 10]),
     "lux": ("lx", [1, 1000, 10.7639104167097, 10000]),
@@ -50,11 +55,12 @@ def test_all_units_against_independent_reference_values(category):
 
 @pytest.mark.parametrize("category", CATEGORIES, ids=lambda c: c.id)
 def test_every_unit_pair_round_trip(category):
+    value = .123456789 if category.id in ("gas_fraction", "mass_fraction") else 123.456789
     for source in category.units:
         for target in category.units:
-            result = convert(category.id, source.id, target.id, 123.456789)
+            result = convert(category.id, source.id, target.id, value)
             restored = convert(category.id, target.id, source.id, result)
-            assert restored == pytest.approx(123.456789, rel=2e-12, abs=1e-11)
+            assert restored == pytest.approx(value, rel=2e-12, abs=1e-11)
 
 
 @pytest.mark.parametrize("cid,source,target,value,expected", [
@@ -65,6 +71,16 @@ def test_every_unit_pair_round_trip(category):
     ("db", "ratio", "db", 1, 0), ("db", "db", "upa", -20, 2),
     ("data", "GB", "GiB", 1, .9313225746154785), ("mass", "lb", "kg", 1, .45359237),
     ("len", "in", "cm", 1, 2.54), ("angle", "turn", "deg", 1, 360),
+    ("gas_fraction", "ppm", "ppb", 1, 1000),
+    ("gas_fraction", "ppm", "percent", 400, .04),
+    ("gas_fraction", "ppt", "ppm", 1000000, 1),
+    ("mass_fraction", "ppm", "mgkg", 1, 1),
+    ("mass_fraction", "ppb", "ugkg", 1, 1),
+    ("mass_fraction", "percent", "ppm", 1, 10000),
+    ("water", "mgl", "ugl", 2.5, 2500), ("water", "mgl", "gm3", 1, 1),
+    ("water", "kgm3", "gl", 1, 1),
+    ("flow", "ls", "m3h", 1, 3.6), ("flow", "m3d", "m3h", 24, 1),
+    ("flow", "lmin", "mlmin", 1, 1000),
 ])
 def test_defined_values_and_boundaries(cid, source, target, value, expected):
     assert convert(cid, source, target, value) == pytest.approx(expected, rel=2e-14, abs=1e-12)
@@ -78,6 +94,11 @@ def test_defined_values_and_boundaries(cid, source, target, value, expected):
     ("db", "db", "pa_", 1e6), ("db", "db", "pa_", -1e6),
     ("fuel", "kmpl", "l100", 1e-320), ("len", "cm", "m", math.inf),
     ("len", "m", "m", math.nan), ("shoe", "mm", "eu", 100), ("len", "kg", "m", 1),
+    ("gas_fraction", "ppm", "ppb", -1), ("gas_fraction", "ppm", "ppm", 1000001),
+    ("gas_fraction", "percent", "ppm", 100.01), ("mass_fraction", "kgkg", "ppm", 1.01),
+    ("mass_fraction", "mgkg", "mgkg", -1), ("water", "mgl", "ugl", -1),
+    ("flow", "m3h", "ls", -1), ("water", "ppm", "mgl", 1),
+    ("gas_fraction", "ppm", "mgm3", 1), ("mass_fraction", "ppm", "molmol", 1),
 ])
 def test_invalid_conversion_is_explicit(cid, source, target, value):
     with pytest.raises(ValueError):
@@ -136,8 +157,8 @@ def test_recents_use_identity_not_rounded_label_and_keep_twelve():
 
 
 def test_registry_has_only_the_approved_categories_and_complete_defaults():
-    assert len(CATEGORIES) == 21
-    assert sum(len(c.units) for c in CATEGORIES) == 147
+    assert len(CATEGORIES) == 25
+    assert sum(len(c.units) for c in CATEGORIES) == 178
     assert len(CATEGORY_BY_ID) == len(CATEGORIES)
     ids = {u.id for c in CATEGORIES for u in c.units}
     assert not ids.intersection({"shoe", "tree", "cig", "xray", "mach", "majigi", "spoon", "elec"})
@@ -145,3 +166,21 @@ def test_registry_has_only_the_approved_categories_and_complete_defaults():
         assert len({u.id for u in category.units}) == len(category.units)
         assert all(category.unit(uid) for uid in category.defaults)
         assert all(u.factor > 0 for u in category.units)
+
+
+@pytest.mark.parametrize("cid", ["gas_fraction", "mass_fraction"])
+def test_fraction_zero_and_pure_substance_boundaries(cid):
+    category = CATEGORY_BY_ID[cid]
+    # 100%는 단위 교환 시 부동소수점 오차 때문에 잘못 거절하지 않는다.
+    for unit in category.units:
+        assert convert(cid, unit.id, "ppm", 0) == 0
+        pure = convert(cid, "percent", unit.id, 100)
+        assert convert(cid, unit.id, "percent", pure) == pytest.approx(100)
+
+
+def test_recent_ppm_retains_its_concentration_basis():
+    history = RecentHistory()
+    history.add("gas_fraction", "ppm", "ppb", "1")
+    history.add("mass_fraction", "ppm", "ppb", "1")
+    assert len(history.items) == 2
+    assert {entry.category_id for entry in history.items} == {"gas_fraction", "mass_fraction"}

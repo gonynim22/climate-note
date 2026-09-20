@@ -75,7 +75,8 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
             rect = QRect(slot.mapTo(scroll.viewport(), QPoint()), slot.size())
             assert scroll.viewport().rect().contains(rect)
     popup = open_pocket(qtbot, win)
-    assert popup.size() == QSize(300, 220)
+    assert popup.size() == QSize(332, 332)
+    assert popup.converter_card.size() == QSize(132, 132)
     assert popup.screen().availableGeometry().contains(popup.geometry())
     assert popup.converter_card.isVisible()
     assert "단위 환산기" in popup.converter_card.text()
@@ -94,6 +95,7 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
         painter.drawPixmap(popup.pos()-bounds.topLeft(), popup.grab())
         painter.end()
         assert picture.save(str(target / f"mini-apps-{scale}.png"))
+        assert popup.grab().save(str(target / f"mini-apps-pocket-{scale}.png"))
     win._close_mini_apps()
 
 
@@ -239,10 +241,36 @@ def test_failed_inline_save_blocks_pocket_then_retry_preserves_content(qtbot, mo
 @pytest.mark.parametrize("anchor", [QRect(-1900, 40, 64, 48), QRect(-70, 900, 64, 48), QRect(-180, 0, 64, 48)])
 def test_position_on_negative_coordinate_monitor(anchor):
     available = QRect(-1920, 0, 1920, 1040)
-    size = QSize(300, 220)
+    size = QSize(332, 332)
     position = pocket_position(anchor, size, available)
     assert available.contains(QRect(position, size))
     if anchor.right()+9+size.width() <= available.right()+1:
         assert position.x() == anchor.right()+9
     else:
         assert position.x()+size.width() <= anchor.left()-8
+
+
+def test_more_developer_apps_use_two_columns_and_scroll_without_resizing(qtbot):
+    win = window(qtbot)
+    popup = open_pocket(qtbot, win)
+    clicked = []
+    cards = [popup.converter_card]
+    for index in range(1, 7):
+        cards.append(popup.add_app(f"합성 앱 {index}", "apps", "격자 확인용",
+                                  lambda checked=False, i=index: clicked.append(i)))
+    QApplication.processEvents()
+    assert popup.size() == QSize(332, 332)
+    for index, card in enumerate(cards):
+        assert card.size() == QSize(132, 132)
+        assert popup.apps_grid.getItemPosition(index)[:2] == divmod(index, 2)
+    assert cards[0].geometry().right() < cards[1].geometry().left()
+    assert popup.apps_scroll.horizontalScrollBar().maximum() == 0
+    qtbot.waitUntil(lambda: popup.apps_scroll.verticalScrollBar().maximum() > 0)
+    popup.apps_scroll.ensureWidgetVisible(cards[-1])
+    cards[-1].setFocus()
+    qtbot.waitUntil(cards[-1].hasFocus)
+    rect = QRect(cards[-1].mapTo(popup.apps_scroll.viewport(), QPoint()), cards[-1].size())
+    assert popup.apps_scroll.viewport().rect().contains(rect)
+    qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Return)
+    assert clicked == [6]
+    assert popup.isVisible()

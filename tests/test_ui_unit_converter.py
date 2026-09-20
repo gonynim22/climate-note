@@ -126,7 +126,8 @@ def test_invalid_input_and_invalid_domain_do_not_save_or_swap(qtbot):
     assert win._result == pytest.approx(.1)
 
 
-@pytest.mark.parametrize("cid", ["len", "energy", "co2", "pm", "db", "cook", "fuel"])
+@pytest.mark.parametrize("cid", ["len", "energy", "co2", "pm", "db", "cook", "fuel",
+                                "gas_fraction", "mass_fraction", "water", "flow"])
 def test_render_categories_and_actual_geometry(qtbot, cid):
     win = converter(qtbot)
     button = win.category_buttons[cid]
@@ -138,8 +139,8 @@ def test_render_categories_and_actual_geometry(qtbot, cid):
     win.input.setText("123456.789")
     win.save_recent()
     QApplication.processEvents()
-    assert win.size().width() == 340
-    assert win.size().height() == 460
+    assert win.size().width() == 440
+    assert win.size().height() == 580
     for control in (win.input, win.from_combo, win.to_combo, win.result_label, win.close_button):
         point = control.mapTo(win, QPoint())
         assert win.rect().contains(point)
@@ -147,6 +148,7 @@ def test_render_categories_and_actual_geometry(qtbot, cid):
         assert point.y()+control.height() <= win.height()
     assert win.result_label.fontMetrics().horizontalAdvance(win.result_label.text()) <= win.result_label.width()
     assert win.other_scroll.viewport().height() > 40
+    assert win.body_scroll.verticalScrollBar().maximum() == 0
     assert win.from_combo.currentData(Qt.ToolTipRole)
     capture(win, cid)
 
@@ -257,7 +259,7 @@ def test_calculations_preserve_all_existing_data(qtbot, tmp_path):
         before = tuple(conn.iterdump())
     salt = security.SALT_FILE.read_bytes()
     exported = db.export_all_data()
-    for cid in ("len", "temp", "db", "fuel", "co2"):
+    for cid in ("len", "temp", "db", "fuel", "co2", "gas_fraction", "mass_fraction", "water", "flow"):
         win = open_converter(qtbot, main)
         win.select_category(cid)
         win.input.setText("12.3456789")
@@ -306,4 +308,40 @@ def test_disconnected_screen_and_smaller_work_area_are_clamped(qtbot, monkeypatc
     assert available.contains(win.geometry())
     available = QRect(0, 0, 340, 400)
     win.fit_to_screen()
+    QApplication.processEvents()
     assert available.contains(win.geometry())
+    assert win.body_scroll.verticalScrollBar().maximum() > 0
+    win.body_scroll.ensureWidgetVisible(win.recent_content)
+    QApplication.processEvents()
+    assert win.body_scroll.horizontalScrollBar().maximum() == 0
+    capture(win, "small-screen")
+
+
+@pytest.mark.parametrize("cid,text,result,basis", [
+    ("gas_fraction", "400", 400000, "몰분율"),
+    ("mass_fraction", "5", 5, "질량분율"),
+    ("water", "2.5", 2500, "밀도"),
+    ("flow", "6", 100, "표준상태"),
+])
+def test_environment_basis_input_and_recent_restore(qtbot, cid, text, result, basis):
+    win = converter(qtbot)
+    win.select_category(cid)
+    assert win.basis_label.isVisible()
+    assert basis in win.basis_label.text()
+    win.input.setFocus()
+    qtbot.keyClick(win.input, Qt.Key_A, Qt.ControlModifier)
+    qtbot.keyClicks(win.input, text)
+    assert win._result == pytest.approx(result)
+    qtbot.keyClick(win.input, Qt.Key_Return)
+    win.select_category("len")
+    assert not win.basis_label.isVisible()
+    chip = win.recent_content.findChild(QPushButton, "recentCalculation")
+    qtbot.mouseClick(chip, Qt.LeftButton)
+    assert win.category_id == cid
+    assert basis in win.basis_label.text()
+    assert win._result == pytest.approx(result)
+    win.input.setText("-1")
+    assert win._result is None
+    assert not win.swap_button.isEnabled()
+    win.save_recent()
+    assert len(win.history.items) == 1

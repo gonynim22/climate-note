@@ -11,6 +11,9 @@ from unit_converter import (
     convert, format_number, parse_number,
 )
 
+CONVERTER_WIDTH = 440
+CONVERTER_HEIGHT = 580
+
 
 class UnitCombo(QComboBox):
     """닫힌 상태에는 기호, 목록에는 전체 단위 이름과 정의를 표시한다."""
@@ -43,7 +46,7 @@ class UnitConverterWindow(QWidget):
         self.setAccessibleName("단위 환산기")
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowOpacity(1.0)
-        self.resize(340, 460)
+        self.resize(CONVERTER_WIDTH, CONVERTER_HEIGHT)
         self.category_id = "len"
         self.history = RecentHistory()
         self._drag_origin = None
@@ -60,15 +63,15 @@ class UnitConverterWindow(QWidget):
             QScrollBar::handle { background:#CDD0D2; border-radius:2px; min-height:18px; min-width:18px; }
             QScrollBar::add-line, QScrollBar::sub-line { width:0; height:0; }
             QScrollBar::add-page, QScrollBar::sub-page { background:transparent; }
-            QComboBox { background:#FFFFFF; border:1px solid #DDDFE3; border-radius:5px; padding:2px 6px; font-size:11px; }
+            QComboBox { background:#FFFFFF; border:1px solid #DDDFE3; border-radius:5px; padding:2px 6px; font-size:13px; }
             QComboBox:focus { border:1px solid #46679C; }
-            QComboBox QAbstractItemView { background:#FFFFFF; color:#292C33; selection-background-color:#E3EAF4; selection-color:#1E385C; font-size:12px; padding:4px; }
+            QComboBox QAbstractItemView { background:#FFFFFF; color:#292C33; selection-background-color:#E3EAF4; selection-color:#1E385C; font-size:13px; padding:4px; }
             QToolButton#converterClose, QToolButton#converterSwap { background:transparent; border:1px solid transparent; border-radius:6px; }
             QToolButton#converterClose:hover, QToolButton#converterClose:focus,
             QToolButton#converterSwap:hover, QToolButton#converterSwap:focus { background:#EDF1F5; border-color:#B4C5DB; }
             QPushButton#otherUnit { background:transparent; border:1px solid transparent; border-radius:6px; }
             QPushButton#otherUnit:hover, QPushButton#otherUnit:focus { background:#F0F2F4; border-color:#CDD5E0; }
-            QPushButton#recentCalculation { background:#FFFFFF; border:1px solid #E1E3DF; border-radius:6px; padding:4px 7px; font-size:10px; color:#5C616A; }
+            QPushButton#recentCalculation { background:#FFFFFF; border:1px solid #E1E3DF; border-radius:6px; padding:4px 7px; font-size:11px; color:#5C616A; }
             QPushButton#recentCalculation:hover, QPushButton#recentCalculation:focus { border-color:#8099BB; color:#33549E; }
         """)
         root = QHBoxLayout(self)
@@ -76,12 +79,12 @@ class UnitConverterWindow(QWidget):
         root.setSpacing(0)
         rail = QWidget(self)
         rail.setObjectName("converterRail")
-        rail.setFixedWidth(100)
+        rail.setFixedWidth(124)
         rail_layout = QVBoxLayout(rail)
         rail_layout.setContentsMargins(6, 12, 5, 8)
         rail_layout.setSpacing(6)
         brand = QLabel("▪  단위 환산", rail)
-        brand.setStyleSheet("color:#F4F5F2;font-size:11px;font-weight:bold;padding:0 2px 5px;")
+        brand.setStyleSheet("color:#F4F5F2;font-size:13px;font-weight:bold;padding:0 2px 5px;")
         rail_layout.addWidget(brand)
         self.category_scroll = self._scroll(rail)
         category_content = QWidget()
@@ -91,12 +94,12 @@ class UnitConverterWindow(QWidget):
         self.category_buttons = {}
         for group, (cover, _, _) in GROUP_COLORS.items():
             group_label = QLabel(group)
-            group_label.setStyleSheet("color:#A1A5AF;font-size:10px;padding:5px 5px 1px;")
+            group_label.setStyleSheet("color:#A1A5AF;font-size:11px;padding:5px 5px 1px;")
             categories_layout.addWidget(group_label)
             for category in (c for c in CATEGORIES if c.group == group):
                 button = QToolButton(category_content)
                 button.setCheckable(True)
-                button.setFixedHeight(27)
+                button.setFixedHeight(32)
                 button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 button.setAccessibleName(category.name)
                 button.setToolTip(category.name)
@@ -113,11 +116,11 @@ class UnitConverterWindow(QWidget):
                 row.setContentsMargins(3, 0, 3, 0)
                 row.setSpacing(3)
                 symbol = QLabel(category.symbol)
-                symbol.setFixedWidth(24)
+                symbol.setFixedWidth(32)
                 symbol.setAlignment(Qt.AlignCenter)
-                symbol.setStyleSheet("font-size:9px;font-weight:bold;")
+                symbol.setStyleSheet("font-size:10px;font-weight:bold;")
                 name = QLabel(category.name)
-                name.setStyleSheet("font-size:10px;")
+                name.setStyleSheet("font-size:11px;")
                 for label in (symbol, name):
                     label.setAttribute(Qt.WA_TransparentForMouseEvents)
                     row.addWidget(label)
@@ -132,22 +135,23 @@ class UnitConverterWindow(QWidget):
 
         body = QWidget(self)
         body.setObjectName("converterBody")
+        body.setMinimumHeight(520)
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(0)
         self.header = QWidget(body)
-        self.header.setFixedHeight(36)
+        self.header.setFixedHeight(44)
         header_layout = QHBoxLayout(self.header)
         header_layout.setContentsMargins(14, 4, 8, 2)
         self.title_label = QLabel()
-        self.title_label.setStyleSheet("font-size:12px;font-weight:bold;")
+        self.title_label.setStyleSheet("font-size:14px;font-weight:bold;")
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
         self.close_button = QToolButton()
         self.close_button.setObjectName("converterClose")
         self.close_button.setText("×")
         self.close_button.setStyleSheet("font-size:19px;")
-        self.close_button.setFixedSize(26, 26)
+        self.close_button.setFixedSize(30, 30)
         self.close_button.setToolTip("닫기 (Esc)")
         self.close_button.setAccessibleName("단위 환산기 닫기")
         self.close_button.clicked.connect(self.close)
@@ -156,17 +160,24 @@ class UnitConverterWindow(QWidget):
         for target in (self.header, self.title_label):
             target.installEventFilter(self)
         body_layout.addWidget(self.header)
+        self.basis_label = QLabel(body)
+        self.basis_label.setObjectName("conversionBasis")
+        self.basis_label.setWordWrap(True)
+        self.basis_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.basis_label.setContentsMargins(16, 0, 16, 8)
+        self.basis_label.setStyleSheet("color:#527166;font-size:11px;")
+        body_layout.addWidget(self.basis_label)
 
         fields = QWidget(body)
         fields_layout = QVBoxLayout(fields)
-        fields_layout.setContentsMargins(12, 3, 12, 0)
-        fields_layout.setSpacing(4)
+        fields_layout.setContentsMargins(16, 3, 16, 0)
+        fields_layout.setSpacing(6)
         self.input = QLineEdit("100")
         self.input.setObjectName("converterInput")
         self.input.setAccessibleName("환산할 숫자")
         self.input.setMaxLength(96)
-        self.input.setStyleSheet("QLineEdit{background:transparent;border:0;font-size:21px;padding:0;color:#292C33;}")
-        self.input.setFixedHeight(32)
+        self.input.setStyleSheet("QLineEdit{background:transparent;border:0;font-size:28px;padding:0;color:#292C33;}")
+        self.input.setFixedHeight(42)
         self.from_combo = UnitCombo()
         self.from_combo.setAccessibleName("입력 단위")
         self.from_card = self._card("FROM", self.from_combo, self.input)
@@ -177,7 +188,7 @@ class UnitConverterWindow(QWidget):
         self.swap_button.setObjectName("converterSwap")
         self.swap_button.setText("⇅")
         self.swap_button.setStyleSheet("font-size:18px;")
-        self.swap_button.setFixedSize(28, 26)
+        self.swap_button.setFixedSize(32, 30)
         self.swap_button.setAccessibleName("입력과 결과 단위 바꾸기")
         self.swap_button.setToolTip("입력과 결과 바꾸기")
         self.swap_button.clicked.connect(self.swap)
@@ -188,7 +199,7 @@ class UnitConverterWindow(QWidget):
         self.result_label = QLabel("—")
         self.result_label.setObjectName("converterResult")
         self.result_label.setAccessibleName("환산 결과")
-        self.result_label.setFixedHeight(32)
+        self.result_label.setFixedHeight(42)
         self.result_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.result_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         self.result_label.setFocusPolicy(Qt.StrongFocus)
@@ -200,10 +211,10 @@ class UnitConverterWindow(QWidget):
         self.status_label = QLabel()
         self.status_label.setFixedHeight(23)
         self.status_label.setContentsMargins(14, 0, 10, 0)
-        self.status_label.setStyleSheet("color:#7B818C;font-size:10px;")
+        self.status_label.setStyleSheet("color:#7B818C;font-size:11px;")
         body_layout.addWidget(self.status_label)
         heading = QLabel("다른 단위")
-        heading.setStyleSheet("color:#898E97;font-size:10px;font-weight:bold;padding:0 14px;")
+        heading.setStyleSheet("color:#898E97;font-size:11px;font-weight:bold;padding:0 16px;")
         heading.setFixedHeight(20)
         body_layout.addWidget(heading)
         self.other_scroll = self._scroll(body)
@@ -215,12 +226,12 @@ class UnitConverterWindow(QWidget):
         body_layout.addWidget(self.other_scroll, 1)
 
         recent = QWidget(body)
-        recent.setFixedHeight(62)
+        recent.setFixedHeight(70)
         recent_layout = QVBoxLayout(recent)
         recent_layout.setContentsMargins(10, 5, 10, 6)
         recent_layout.setSpacing(2)
         recent_title = QLabel("최근")
-        recent_title.setStyleSheet("font-size:10px;color:#898E97;font-weight:bold;")
+        recent_title.setStyleSheet("font-size:11px;color:#898E97;font-weight:bold;")
         recent_layout.addWidget(recent_title)
         self.recent_scroll = self._scroll(recent, horizontal=True)
         self.recent_content = QWidget()
@@ -231,7 +242,9 @@ class UnitConverterWindow(QWidget):
         self.recent_scroll.setToolTip("Enter로 최근 기록에 추가 · 앱을 종료하면 기록이 사라집니다.")
         recent_layout.addWidget(self.recent_scroll)
         body_layout.addWidget(recent)
-        root.addWidget(body, 1)
+        self.body_scroll = self._scroll(self)
+        self.body_scroll.setWidget(body)
+        root.addWidget(self.body_scroll, 1)
         self.input.textChanged.connect(self.update_results)
         self.input.returnPressed.connect(self.save_recent)
         self.from_combo.currentIndexChanged.connect(self.update_results)
@@ -252,18 +265,21 @@ class UnitConverterWindow(QWidget):
     def _card(caption, combo, value):
         card = QWidget()
         card.setObjectName("conversionCard")
-        card.setFixedHeight(72)
+        card.setFixedHeight(92)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 6, 10, 5)
+        layout.setContentsMargins(12, 8, 12, 7)
         layout.setSpacing(2)
         row = QHBoxLayout()
         row.setSpacing(5)
         label = QLabel(caption)
-        label.setStyleSheet("font-size:10px;color:#858A94;font-weight:bold;")
+        label.setStyleSheet("font-size:11px;color:#858A94;font-weight:bold;")
         row.addWidget(label)
         row.addStretch()
-        combo.setFixedSize(137, 23)
-        row.addWidget(combo)
+        combo.setFixedHeight(28)
+        combo.setMinimumWidth(80)
+        combo.setMaximumWidth(168)
+        combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        row.addWidget(combo, 1)
         layout.addLayout(row)
         layout.addWidget(value)
         return card
@@ -285,6 +301,9 @@ class UnitConverterWindow(QWidget):
         self.category_id = category_id
         self.title_label.setText(category.name)
         self.title_label.setToolTip(category.note)
+        show_basis = category_id in ("gas_fraction", "mass_fraction", "water", "flow")
+        self.basis_label.setText(category.note if show_basis else "")
+        self.basis_label.setVisible(show_basis)
         for cid, button in self.category_buttons.items():
             button.setChecked(cid == category_id)
         self.category_scroll.ensureWidgetVisible(self.category_buttons[category_id])
@@ -307,7 +326,7 @@ class UnitConverterWindow(QWidget):
         for unit in category.units:
             button = QPushButton()
             button.setObjectName("otherUnit")
-            button.setFixedHeight(27)
+            button.setFixedHeight(31)
             button.setAccessibleName(f"결과 단위를 {unit.label}로 변경")
             button.setCursor(Qt.PointingHandCursor)
             button.installEventFilter(self)
@@ -316,8 +335,8 @@ class UnitConverterWindow(QWidget):
             row.setSpacing(5)
             name, value = QLabel(unit.symbol), QLabel("—")
             name.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-            name.setStyleSheet("font-size:11px;color:#646A76;")
-            value.setStyleSheet("font-size:11px;font-weight:bold;")
+            name.setStyleSheet("font-size:12px;color:#646A76;")
+            value.setStyleSheet("font-size:12px;font-weight:bold;")
             for label in (name, value):
                 label.setAttribute(Qt.WA_TransparentForMouseEvents)
             row.addWidget(name, 1)
@@ -350,7 +369,7 @@ class UnitConverterWindow(QWidget):
         self.status_label.setText(metrics.elidedText(message, Qt.ElideRight, max(50, self.status_label.width()-24)))
         self.status_label.setToolTip(error or self.category.note)
         self.status_label.setAccessibleDescription(error or self.category.note)
-        self.status_label.setStyleSheet(f"color:{'#BB4040' if error else '#7B818C'};font-size:10px;")
+        self.status_label.setStyleSheet(f"color:{'#BB4040' if error else '#7B818C'};font-size:11px;")
         for combo in (self.from_combo, self.to_combo):
             combo.setToolTip(combo.currentData(Qt.ToolTipRole))
         for unit in self.category.units:
@@ -370,7 +389,7 @@ class UnitConverterWindow(QWidget):
     def _fit_result_font(self):
         font = QFont(self.font())
         font.setBold(True)
-        for size in (21, 18, 16, 14):
+        for size in (28, 25, 22, 19, 16, 14):
             font.setPixelSize(size)
             if QFontMetrics(font).horizontalAdvance(self.result_label.text()) <= self.result_label.width():
                 break
@@ -398,7 +417,7 @@ class UnitConverterWindow(QWidget):
         self._clear_layout(self.recent_layout)
         if not self.history.items:
             label = QLabel("Enter로 최근 기록에 추가")
-            label.setStyleSheet("color:#8A909A;font-size:10px;")
+            label.setStyleSheet("color:#8A909A;font-size:11px;")
             self.recent_layout.addWidget(label)
         for entry in self.history.items:
             category = CATEGORY_BY_ID[entry.category_id]
@@ -426,7 +445,7 @@ class UnitConverterWindow(QWidget):
         if screen is None:
             return
         available = screen.availableGeometry()
-        self.resize(min(340, available.width()), min(460, available.height()))
+        self.resize(min(CONVERTER_WIDTH, available.width()), min(CONVERTER_HEIGHT, available.height()))
         self.move(
             max(available.left(), min(self.x(), available.right()+1-self.width())),
             max(available.top(), min(self.y(), available.bottom()+1-self.height())),

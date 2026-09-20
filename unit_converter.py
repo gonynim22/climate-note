@@ -140,6 +140,45 @@ CATEGORIES = (
         U("gco2", "그램 CO₂e", "gCO₂e", .001), U("kgco2", "킬로그램 CO₂e", "kgCO₂e"),
         U("tco2", "톤 CO₂e", "tCO₂e", 1000),
     ), ("kgco2", "tco2"), "이미 산정된 CO₂e의 질량 단위만 환산합니다."),
+    Category("gas_fraction", "기체 농도", "ppm", "환경", (
+        U("ppm", "ppm (몰분율·10⁻⁶)", "ppm", 1e-6, source="nist_fraction"),
+        U("ppb", "ppb (몰분율·10⁻⁹)", "ppb", 1e-9, source="nist_fraction"),
+        U("ppt", "ppt (몰분율·10⁻¹²)", "ppt", 1e-12, source="nist_fraction"),
+        U("percent", "백분율 (몰분율)", "%", .01, source="nist_fraction"),
+        U("umolmol", "마이크로몰/몰", "µmol/mol", 1e-6, source="nist_fraction"),
+        U("nmolmol", "나노몰/몰", "nmol/mol", 1e-9, source="nist_fraction"),
+        U("molmol", "몰/몰", "mol/mol", source="nist_fraction"),
+    ), ("ppm", "ppb"), "몰분율 기준 · 1 ppm = 1 µmol/mol. mg/m³ 환산에는 분자량·온도·압력이 필요합니다."),
+    Category("mass_fraction", "질량비", "mg/kg", "환경", (
+        U("ppm", "ppm (질량분율·10⁻⁶)", "ppm", 1e-6, source="nist_fraction"),
+        U("ppb", "ppb (질량분율·10⁻⁹)", "ppb", 1e-9, source="nist_fraction"),
+        U("ppt", "ppt (질량분율·10⁻¹²)", "ppt", 1e-12, source="nist_fraction"),
+        U("percent", "백분율 (질량분율)", "%", .01, source="nist_fraction"),
+        U("mgkg", "밀리그램/킬로그램", "mg/kg", 1e-6, source="nist_fraction"),
+        U("ugkg", "마이크로그램/킬로그램", "µg/kg", 1e-9, source="nist_fraction"),
+        U("ngkg", "나노그램/킬로그램", "ng/kg", 1e-12, source="nist_fraction"),
+        U("gkg", "그램/킬로그램", "g/kg", .001, source="nist_fraction"),
+        U("kgkg", "킬로그램/킬로그램", "kg/kg", source="nist_fraction"),
+    ), ("ppm", "mgkg"), "질량분율 기준 · 1 ppm = 1 mg/kg. 기체의 몰분율·수질의 mg/L와 구분하세요."),
+    Category("water", "수질 농도", "mg/L", "환경", (
+        U("mgl", "밀리그램/리터", "mg/L"),
+        U("ugl", "마이크로그램/리터", "µg/L", .001),
+        U("ngl", "나노그램/리터", "ng/L", 1e-6),
+        U("gl", "그램/리터", "g/L", 1000),
+        U("mgml", "밀리그램/밀리리터", "mg/mL", 1000),
+        U("kgm3", "킬로그램/세제곱미터", "kg/m³", 1000),
+        U("gm3", "그램/세제곱미터", "g/m³"),
+    ), ("mgl", "ugl"), "질량/부피 기준 · 1 mg/L = 1 g/m³. ppm과의 환산에는 용액 밀도가 필요합니다."),
+    Category("flow", "유량", "m³/h", "환경", (
+        U("m3s", "세제곱미터/초", "m³/s"),
+        U("m3min", "세제곱미터/분", "m³/min", 1/60),
+        U("m3h", "세제곱미터/시", "m³/h", 1/3600),
+        U("m3d", "세제곱미터/일", "m³/d", 1/86400),
+        U("ls", "리터/초", "L/s", .001),
+        U("lmin", "리터/분", "L/min", .001/60),
+        U("lh", "리터/시", "L/h", .001/3600),
+        U("mlmin", "밀리리터/분", "mL/min", 1e-6/60),
+    ), ("m3h", "lmin"), "실제 부피 유량의 크기 기준. Nm³ 등 표준상태 유량으로 보정하지 않습니다."),
     Category("pm", "미세먼지", "µg", "환경", (
         U("ngm3", "나노그램/세제곱미터", "ng/m³", .001), U("ugm3", "마이크로그램/세제곱미터", "µg/m³"),
         U("mgm3", "밀리그램/세제곱미터", "mg/m³", 1000), U("gm3", "그램/세제곱미터", "g/m³", 1e6),
@@ -213,6 +252,12 @@ def convert(category_id: str, from_id: str, to_id: str, value: float) -> float:
         raise ValueError("알 수 없는 분류입니다.")
     source, target = category.unit(from_id), category.unit(to_id)
     _finite(value)
+    if category_id in ("gas_fraction", "mass_fraction", "water", "flow") and value < 0:
+        raise ValueError("농도·유량은 0 이상을 입력하세요.")
+    if category_id in ("gas_fraction", "mass_fraction"):
+        maximum = 1 / source.factor
+        if value > maximum and not math.isclose(value, maximum, rel_tol=2e-15):
+            raise ValueError("분율은 100% 이하를 입력하세요.")
     if category_id == "temp" and value < -source.shift:
         raise ValueError("절대영도(0 K) 이상을 입력하세요.")
     if category_id == "fuel" and value <= 0:
