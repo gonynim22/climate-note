@@ -77,7 +77,8 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
     popup = open_pocket(qtbot, win)
     assert popup.size() == QSize(300, 220)
     assert popup.screen().availableGeometry().contains(popup.geometry())
-    assert any(label.text() == "미니앱을 준비하고 있어요." for label in popup.findChildren(QLabel))
+    assert popup.converter_card.isVisible()
+    assert "단위 환산기" in popup.converter_card.text()
     assert button.isChecked()
     appdata = os.environ.get("CLIMATENOTE_TEST_APPDATA")
     if appdata:

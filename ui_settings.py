@@ -412,6 +412,7 @@ class ScheduleColorPicker(QWidget):
 
 class SettingsWindow(QWidget):
     """설정 창 (시안 A)"""
+    reset_succeeded = Signal()
 
     def __init__(self, parent=None, on_reset_callback=None, on_import_callback=None,
                  on_quit_callback=None,
@@ -1069,6 +1070,7 @@ class SettingsWindow(QWidget):
                     if self.on_reset_callback:
                         self.on_reset_callback()
                 audit("전체 초기화(Factory Reset)", "성공")
+                self.reset_succeeded.emit()
                 InfoBar.success(
                     title="초기화 완료",
                     content="모든 데이터가 초기화되었습니다.",

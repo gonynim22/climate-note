@@ -115,6 +115,8 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 
 ## Test Suite
 
+- **단위 환산기(v3.8)**: `test_unit_converter.py`는 147개 항목의 독립 기준값·모든 단위 쌍 왕복·경계·오류 입력·표시·기록·반복 교환을 검사한다. `test_ui_unit_converter.py`는 실제 입력/단위 목록/키보드/주머니 실행·재사용·잠금/트레이/사이드바/초기화 성공·실패/종료 보류·모니터 보정·DB 전체 dump/Export/salt 보존과 합성 PNG를 확인한다. 주머니·일정 이모지·데이터 수명 회귀를 함께 실행한다. 125/150%는 별도 프로세스의 합성 배율이다. 실제 EXE에서 주머니→환산→닫기도 격리 데이터로 확인하고 기존 3개 smoke 시나리오와 구분한다. [계수 정본](UNIT_CONVERSION.md), [구현 기록](work/2026-09-20-v3.8-unit-converter.md).
+
 - **미니앱 주머니**: `test_ui_mini_apps.py`는 세 크기/짧은 화면의 6슬롯 접근·주머니 렌더·실제 클릭/키보드/반복 열기·음수 좌표 모니터 위치 보정·일정 저장 실패 게이트·잠금/트레이/보기 전환 취소·기존 DB 전체 dump/Export/바로가기/salt 불변을 검사한다. 기존 `test_ui.py`의 바로가기 등록/관리/드롭과 `test_ui_data_lifecycle.py`·`test_ui_schedule_emoji.py`의 수명 회귀를 함께 실행한다. 합성 PNG와 실제 EXE 자동 smoke·실제 혼합 DPI/KVM 수동 확인을 구분한다.
 
 - **이동 토글·스마일**: `test_ui_calendar_move.py`는 세 크기 실제 마우스 드래그·Tab/Space/Enter·설정 저장 실패·Import/초기화·잠금/트레이 취소·기본 380px 헤더를 검사한다. `test_ui_calendar_drag.py`는 OFF 차단·화면 간 크기/위치 보정을, `test_ui_schedule_emoji.py`는 색상 원과 스마일의 실제 렌더 외경/중심·선택/Undo를 검사한다. 관련 `quick --tests` 또는 `release`에서 합성 PNG를 남기며 실제 혼합 DPI/KVM 수동 검증을 대신하지 않는다.

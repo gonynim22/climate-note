@@ -412,6 +412,7 @@ from ui_schedule_emoji import (
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
 from ui_mini_apps import MiniAppsButton, MiniAppsPocket, pocket_position
+from ui_unit_converter import UnitConverterWindow
 
 import database as db
 from show_desktop_guard import ShowDesktopKeeper
@@ -1172,6 +1173,7 @@ class MainCalendarWindow(QWidget):
         self._hidden_to_tray = False
         self._search_window = None
         self._mini_apps_popup = None
+        self._unit_converter = None
         self._mini_apps_previous_focus = None
         self._mini_apps_focus_timer = QTimer(self)
         self._mini_apps_focus_timer.setSingleShot(True)
@@ -1273,6 +1275,8 @@ class MainCalendarWindow(QWidget):
     def _apply_sidebar_visibility(self):
         self._close_mini_apps()
         show_sidebar = db.get_setting(db.SETTING_SHOW_SIDEBAR, "0") == "1"
+        if not show_sidebar:
+            self._hide_unit_converter()
         
         # 시각적 업데이트 중단 (최소화)
         self.setUpdatesEnabled(False)
@@ -1505,6 +1509,8 @@ class MainCalendarWindow(QWidget):
         else:
             sidebar_visible = db.get_setting(db.SETTING_SHOW_SIDEBAR, "0") == "1"
         self.sidebar.setVisible(sidebar_visible)
+        if not sidebar_visible:
+            self._hide_unit_converter()
 
         for object_name in ("headerSection", "calendarSection"):
             section = self.right_content.findChild(QWidget, object_name)
@@ -3185,6 +3191,7 @@ class MainCalendarWindow(QWidget):
                 on_prepare_data_change=self.prepare_for_data_change,
                 on_before_reset=self._discard_data_widgets,
             )
+            self._settings_window.reset_succeeded.connect(self._discard_unit_converter)
         # 스티키/위젯(Qt.Tool)이 앞에 있어도 설정창을 확실히 포그라운드로:
         # raise_()만으로는 Windows에서 활성 창이 바뀌지 않으므로 최소화 해제 + activateWindow.
         win = self._settings_window
@@ -3235,6 +3242,7 @@ class MainCalendarWindow(QWidget):
     def _discard_data_widgets(self) -> None:
         """초기화 전 모든 이전 데이터 편집기/타이머를 정지하고 폐기한다."""
         self._close_mini_apps()
+        self._hide_unit_converter()
         self._reset_calendar_drag()
         self._close_schedule_emoji_popups()
         self._cancel_sticky_file_links()
@@ -3308,6 +3316,7 @@ class MainCalendarWindow(QWidget):
     # ─── 최소화 (트레이) ─────────────────────────────────────────
     def _minimize_to_tray(self):
         self._close_mini_apps()
+        self._hide_unit_converter()
         self._hidden_to_tray = True
         self._reset_calendar_drag()
         self._update_calendar_move_control()
@@ -3367,6 +3376,7 @@ class MainCalendarWindow(QWidget):
         if not self._save_schedule_edit():
             return False
         if self.save_all_sticky_notes():
+            self._discard_unit_converter()
             return True
         _logger.error("스티키 노트 저장 실패로 앱 종료를 보류합니다")
         if not self.isVisible():
@@ -3433,6 +3443,9 @@ class MainCalendarWindow(QWidget):
         screens = QApplication.screens()
         if not screens:
             return
+
+        if self._unit_converter is not None:
+            self._unit_converter.fit_to_screen()
 
         # 1) 캘린더 기하 복원. 자유 위치는 저장 좌표, 기존 사용자는 모서리 설정 유지.
         # medium/large는 화면 크기에 비례하는 스케일이므로 좌표만 보정하면
@@ -3536,6 +3549,7 @@ class MainCalendarWindow(QWidget):
         popup = MiniAppsPocket(self)
         self._mini_apps_popup = popup
         popup.dismissed.connect(lambda restore: self._on_mini_apps_dismissed(popup, restore))
+        popup.unit_converter_requested.connect(self._open_unit_converter)
         anchor = button.rect().translated(button.mapToGlobal(QPoint()))
         screen = QApplication.screenAt(anchor.center()) or self.screen()
         available = screen.availableGeometry()
@@ -3555,6 +3569,36 @@ class MainCalendarWindow(QWidget):
             self._mini_apps_focus_timer.start(0)
         else:
             self._mini_apps_previous_focus = None
+
+    def _open_unit_converter(self) -> None:
+        if not self._mini_apps_allowed() or not self._save_schedule_edit():
+            return
+        self._close_mini_apps()
+        self._close_schedule_emoji_popups()
+        if self._unit_converter is None:
+            self._unit_converter = UnitConverterWindow(self)
+            button = self.sidebar.mini_apps_button
+            anchor = button.rect().translated(button.mapToGlobal(QPoint()))
+            screen = QApplication.screenAt(anchor.center()) or self.screen()
+            self._unit_converter.move(pocket_position(anchor, self._unit_converter.size(), screen.availableGeometry()))
+        win = self._unit_converter
+        win.setEnabled(True)
+        win.fit_to_screen()
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        win.input.setFocus(Qt.OtherFocusReason)
+
+    def _hide_unit_converter(self) -> None:
+        if self._unit_converter is not None:
+            self._unit_converter.hide()
+
+    def _discard_unit_converter(self) -> None:
+        win = self._unit_converter
+        self._unit_converter = None
+        if win is not None:
+            win.hide()
+            win.deleteLater()
 
     def _restore_mini_apps_focus(self) -> None:
         target = self._mini_apps_previous_focus
@@ -3613,6 +3657,8 @@ class MainCalendarWindow(QWidget):
         event_type = event.type()
         if obj is self and event_type in (QEvent.Move, QEvent.Resize, QEvent.Hide):
             self._close_mini_apps()
+            if event_type == QEvent.Hide:
+                self._hide_unit_converter()
         if event_type in (
             QEvent.Type.WindowDeactivate,
             QEvent.Type.UngrabMouse,
@@ -3732,6 +3778,9 @@ class MainCalendarWindow(QWidget):
 
     def _lock(self):
         self._close_mini_apps()
+        self._hide_unit_converter()
+        if self._unit_converter is not None:
+            self._unit_converter.setEnabled(False)
         self._is_locked = True
         self._reset_calendar_drag()
         self._update_calendar_move_control()

@@ -1,4 +1,4 @@
-"""개발자가 제공할 미니앱의 빈 주머니. 사용자 데이터나 DB에 접근하지 않는다."""
+"""개발자 제공 미니앱의 실행 주머니. 사용자 데이터나 DB에 접근하지 않는다."""
 from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
@@ -50,6 +50,7 @@ class MiniAppsButton(QToolButton):
 
 class MiniAppsPocket(QWidget):
     dismissed = Signal(bool)
+    unit_converter_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
@@ -84,15 +85,24 @@ class MiniAppsPocket(QWidget):
         header.addWidget(self.close_button)
         layout.addLayout(header)
         layout.addStretch()
-        icon = QLabel(self)
-        icon.setPixmap(fluent_icon("apps", "#8AA2BF", 80).pixmap(QSize(40, 40)))
-        icon.setAlignment(Qt.AlignCenter)
-        layout.addWidget(icon)
-        message = QLabel("미니앱을 준비하고 있어요.", self)
-        message.setAlignment(Qt.AlignCenter)
-        message.setWordWrap(True)
-        message.setStyleSheet("color:#64748B;font-size:12px;")
-        layout.addWidget(message)
+        self.converter_card = QToolButton(self)
+        self.converter_card.setObjectName("unitConverterCard")
+        self.converter_card.setText("단위 환산기\n길이 · 무게 · 온도 등 21개 분류")
+        self.converter_card.setAccessibleName("단위 환산기 실행")
+        self.converter_card.setToolTip("단위 환산기 열기")
+        self.converter_card.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.converter_card.setIcon(fluent_icon("unit_converter", "#46679C", 64))
+        self.converter_card.setIconSize(QSize(32, 32))
+        self.converter_card.setMinimumHeight(78)
+        self.converter_card.setCursor(Qt.PointingHandCursor)
+        self.converter_card.setStyleSheet(
+            "QToolButton{background:#F4F7FB;border:1px solid #D9E2ED;"
+            "border-radius:10px;color:#294B73;font-size:11px;padding:10px;}"
+            "QToolButton:hover{background:#EAF1FA;border-color:#96B2D5;}"
+            "QToolButton:focus{border:2px solid #46679C;}"
+        )
+        self.converter_card.clicked.connect(self.unit_converter_requested)
+        layout.addWidget(self.converter_card)
         layout.addStretch()
 
     def paintEvent(self, event):
@@ -108,7 +118,10 @@ class MiniAppsPocket(QWidget):
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Escape, Qt.Key_Return, Qt.Key_Enter):
-            self.dismiss()
+            if event.key() != Qt.Key_Escape and self.converter_card.hasFocus():
+                self.unit_converter_requested.emit()
+            else:
+                self.dismiss()
             event.accept()
         else:
             super().keyPressEvent(event)
