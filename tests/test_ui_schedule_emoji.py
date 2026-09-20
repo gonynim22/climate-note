@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLineEdit
 from shiboken6 import isValid
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
@@ -48,14 +49,17 @@ def main_window(qtbot, scale="compact", content=None):
     QApplication.processEvents()
     # Windows 활성화는 show/activateWindow 뒤 비동기로 완료된다.
     # 입력·팝업 포커스를 검사하기 전에 실제 활성 창이 되었는지 확인한다.
-    qtbot.waitExposed(win)
-    qtbot.waitUntil(win.isActiveWindow)
+    assert QTest.qWaitForWindowExposed(win)
+    assert QTest.qWaitForWindowActive(win)
     return win
 
 
 def open_picker(qtbot, button):
     qtbot.mouseClick(button, Qt.LeftButton)
     qtbot.waitUntil(lambda: button._popup is not None and button._popup.isVisible())
+    # visible=True만으로는 native 팝업의 표시/활성화 완료를 보장하지 않는다.
+    assert QTest.qWaitForWindowExposed(button._popup)
+    assert QTest.qWaitForWindowActive(button._popup)
     return button._popup
 
 

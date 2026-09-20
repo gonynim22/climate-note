@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
 from shiboken6 import isValid
@@ -36,14 +37,16 @@ def window(qtbot, scale="compact"):
     qtbot.addWidget(win)
     win.show()
     win.activateWindow()
-    qtbot.waitExposed(win)
-    qtbot.waitUntil(win.isActiveWindow)
+    assert QTest.qWaitForWindowExposed(win)
+    assert QTest.qWaitForWindowActive(win)
     return win
 
 
 def open_pocket(qtbot, win):
     qtbot.mouseClick(win.sidebar.mini_apps_button, Qt.LeftButton)
     qtbot.waitUntil(lambda: win._mini_apps_popup is not None and win._mini_apps_popup.isVisible())
+    assert QTest.qWaitForWindowExposed(win._mini_apps_popup)
+    assert QTest.qWaitForWindowActive(win._mini_apps_popup)
     return win._mini_apps_popup
 
 
@@ -110,7 +113,7 @@ def test_short_screen_scroll_keeps_button_and_sixth_shortcut_accessible(qtbot):
     assert sidebar.mini_apps_button.pos() == position
 
 
-@pytest.mark.parametrize("dismiss", ["button", "escape", "close", "outside"])
+@pytest.mark.parametrize("dismiss", ["button", "escape", "close", "outside", "outside_window"])
 def test_dismissal_keeps_button_and_popup_lifetime_in_sync(qtbot, dismiss):
     win = window(qtbot)
     popup = open_pocket(qtbot, win)
@@ -123,7 +126,8 @@ def test_dismissal_keeps_button_and_popup_lifetime_in_sync(qtbot, dismiss):
     else:
         # Qt.Popup 바깥 클릭. 원래 버튼에 재전달되어 다시 열리지 않아야 한다.
         point = win.sidebar.mini_apps_button.mapToGlobal(QPoint(20, 20))
-        qtbot.mouseClick(popup, Qt.LeftButton, pos=popup.mapFromGlobal(point))
+        target = popup.windowHandle() if dismiss == "outside_window" else popup
+        QTest.mouseClick(target, Qt.LeftButton, pos=popup.mapFromGlobal(point))
     qtbot.waitUntil(lambda: win._mini_apps_popup is None)
     qtbot.waitUntil(lambda: not isValid(popup))
     assert not win.sidebar.mini_apps_button.isChecked()

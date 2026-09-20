@@ -54,6 +54,9 @@ audit.log
 # Brainstorm visual companion
 .superpowers/
 
+# Temporary design drafts
+/desgn_claude/
+
 # Local review / diagnostic scratch
 _review_*.py
 _test_api.py
