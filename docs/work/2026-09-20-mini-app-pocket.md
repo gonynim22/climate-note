@@ -1,6 +1,6 @@
 # 작업 기록: 미니앱 버튼과 빈 주머니
 
-작성일: 2026-09-20 / 상태: 구현 중
+작성일: 2026-09-20 / 상태: 구현·커밋·빌드·격리 검증 완료
 
 ## 목표와 범위
 
@@ -15,8 +15,8 @@
 - [x] 최상단 미니앱 버튼·기존 바로가기 6개·짧은 화면 스크롤과 세 크기/배율 렌더.
 - [x] 주머니 열기/닫기/재클릭/키보드/화면 경계/잠금·트레이·보기 전환 수명.
 - [x] 진행 중 일정 저장 실패 보류·초안 보존·기존 DB/설정/salt 불변.
-- [ ] 관련 검사·정본 문서/AGENTS 갱신·기능 커밋.
-- [ ] release 전체 검사/새 EXE 3개 격리 시나리오·코드/Qt 대조·기존 EXE 보호 후 dist 배치.
+- [x] 관련 검사·정본 문서/AGENTS 갱신·기능 커밋.
+- [x] release 전체 검사/새 EXE 3개 격리 시나리오·코드/Qt 대조·기존 EXE 보호 후 dist 배치.
 
 ## 결정과 진행
 
@@ -33,14 +33,23 @@
 | 150% 합성 배율 | 통과: 79개 | [20260920-230515-2cdbfcae87](../../output/harness/20260920-230515-2cdbfcae87/summary.md) | QT_SCALE_FACTOR=1.5, 동일 대상 |
 | 포커스 준비 보강 후 quick | 통과: 140개 | [20260920-231015-bbabe65bb5](../../output/harness/20260920-231015-bbabe65bb5/summary.md) | 이모지 전체·미니앱 전체와 기본 회귀 |
 | 실제 native 표시/활성화 대기 후 quick | 통과: 141개 | [20260920-231508-c78ec670be](../../output/harness/20260920-231508-c78ec670be/summary.md) | 이모지/미니앱 전체, QWindow 바깥 클릭 추가 |
-| release | 미실행 | | |
+| release | 통과: 798개·새 EXE·3개 격리 시나리오 | [20260920-231715-72ee145267](../../output/harness/20260920-231715-72ee145267/summary.md) | 소스 커밋 `bb95ccc`, 검사 전후 입력 불변 |
 | 최초 release | 실패: 796 통과 / 1 실패 | [20260920-230650-4f34cbbfc1](../../output/harness/20260920-230650-4f34cbbfc1/summary.md) | 기존 이모지 선택 검사의 포커스 복원 대기 timeout. 빌드/EXE 단계 미실행 |
 | 두 번째 release | 실패: 796 통과 / 1 실패 | [20260920-231108-eab917d899](../../output/harness/20260920-231108-eab917d899/summary.md) | 다른 이모지(📊)에서 같은 포커스 timeout. 메인 활성 확인만으로 부족, 빌드/EXE 단계 미실행 |
 | 실제 혼합 DPI/KVM/Win+D/IME·정상 종료·Defender | 미실행 | | 자동 검사와 구분 |
 
+## 빌드·배치와 기록
+
+- 기능·AGENTS/UI/아키텍처는 `21b1055`, 입력 검사 준비 보강은 `bb95ccc`로 커밋한 뒤 release를 실행했다. 검증 후 README/릴리스 이력/이 기록만 갱신하며 런타임·빌드 입력은 유지한다.
+- 새 [기후노트_v3.7b.exe](../../dist/기후노트_v3.7b.exe): **57,951,181 bytes**, Windows **3.7.2.0**, SHA-256 **`460D0C42BF0CE4A329CB971C744AEAAEF2C2BE04A82594BF0589888099BFEDA4`**. 원본 검사 산출물과 dist 파일의 해시가 일치한다.
+- 기존 EXE를 [dist/previous-v3.7b-20260920-231715-72ee145267/기후노트_v3.7b.exe](../../dist/previous-v3.7b-20260920-231715-72ee145267/기후노트_v3.7b.exe)에 먼저 보호 보관했다. 보관본 SHA-256은 **`E69D477E24B579BC68D7757183394AE5A5AB6197A786E78412A9893EF811F49D`**로 이전 이동 토글 빌드와 일치한다. 기존 실행 앱은 종료/검사 대상으로 삼지 않았다.
+- [산출물 대조](../../output/harness/20260920-231715-72ee145267/artifact-check/result.json): 내부 `ui_main`/`ui_mini_apps`/`database`/`app_info`의 컴파일 코드가 현재 소스와 일치한다(파일명 메타데이터 정규화). `apps.svg` 바이트 일치, Qt6Core/Qt6Gui/Qt6Widgets **6.11.2.0**과 검증 venv의 바이트/SHA-256 일치를 확인했다.
+- [기본 렌더](../../output/harness/20260920-231715-72ee145267/mini-apps-compact.png), [중간 렌더](../../output/harness/20260920-231715-72ee145267/mini-apps-medium.png), [크게 렌더](../../output/harness/20260920-231715-72ee145267/mini-apps-large.png)는 합성 데이터의 소스 Qt 위젯 렌더다. 실제 EXE는 신규 설치·기존 데이터 보존·손상 salt 시작 차단 3개 자동 시나리오를 통과했다.
+- 기존 합성 데이터 8개 테이블의 raw/복호화 내용·ID·salt 보존을 확인했다. 실사용 AppData/DB/salt는 접근하지 않았다. 실제 혼합 DPI/KVM/Win+D/IME·정상 종료 수동 확인·Defender·서명 검사는 미실행이며 자동 통과와 구분한다.
+
 ## 미해결과 인계
 
-- 최초 전체 검사에서 기존 `test_all_palette_choices_can_be_saved[🔥]`가 포커스 대기 timeout으로 실패했다. 테스트 helper가 Windows의 비동기 창 활성화 완료를 확인하지 않고 클릭하던 입력 준비를 `waitExposed`/`isActiveWindow` 대기로 보강했다. 앱 런타임 코드는 변경하지 않고 관련 검사와 release를 새 실행 ID로 다시 검증한다.
-- 재발 후 pytest-qt 구현을 확인해 `qtbot.waitExposed()`가 컨텍스트 관리자라 단독 호출로는 기다리지 않음을 확인했다. 메인과 선택 팝업 모두 Qt의 `qWaitForWindowExposed`/`qWaitForWindowActive` 반환값을 검사하도록 고쳤다. 주머니 검사에도 같은 실제 표시/활성화 대기와 QWindow 경로의 바깥 클릭 검사를 적용한다.
+- 최초 전체 검사에서 기존 `test_all_palette_choices_can_be_saved[🔥]`가 포커스 대기 timeout으로 실패했다. 테스트 helper가 Windows의 비동기 창 활성화 완료를 확인하지 않고 클릭하던 입력 준비를 `waitExposed`/`isActiveWindow` 대기로 보강했다. 앱 런타임 코드는 변경하지 않고 관련 검사와 release를 새 실행 ID로 다시 검증했다.
+- 재발 후 pytest-qt 구현을 확인해 `qtbot.waitExposed()`가 컨텍스트 관리자라 단독 호출로는 기다리지 않음을 확인했다. 메인과 선택 팝업 모두 Qt의 `qWaitForWindowExposed`/`qWaitForWindowActive` 반환값을 검사하도록 고쳤다. 주머니 검사에도 같은 실제 표시/활성화 대기와 QWindow 경로의 바깥 클릭 검사를 적용했다.
 - 단위 환산기 내용/실행 기능은 이번 범위에서 제외한다.
 - 기존 보안 회신·라이선스/SBOM/서명 보류와 GitLab push/게시 미수행 상태를 유지한다.
