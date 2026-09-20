@@ -1,6 +1,6 @@
 # 작업 기록: 캘린더 이동 토글과 테두리 스마일
 
-작성일: 2026-09-20 / 상태: 진행 중
+작성일: 2026-09-20 / 상태: 구현·커밋·빌드·격리 검증 완료
 
 ## 목표와 범위
 
@@ -16,8 +16,8 @@
 - [x] 모든 크기의 이동 ON/OFF, 상태 유지/Import/초기화 fallback, 저장 실패 복원.
 - [x] 실제 마우스/키보드 버튼과 드래그, 잠금/트레이 취소, 기본 380px 배치 검증.
 - [x] 스마일/색상 원의 지름·중심 정렬, 선택/Undo와 본문 보존, 합성 렌더 확인.
-- [ ] AGENTS/UI/아키텍처 갱신 및 이번 변경만 커밋.
-- [ ] 커밋 후 release 전체 검사·신규 EXE 3개 격리 시나리오·산출물 대조/보호 배치.
+- [x] AGENTS/UI/아키텍처 갱신 및 이번 변경만 커밋.
+- [x] 커밋 후 release 전체 검사·신규 EXE 3개 격리 시나리오·산출물 대조/보호 배치.
 
 ## 결정과 진행
 
@@ -32,13 +32,18 @@
 |---|---|---|---|
 | 초기 quick | 실패: 164 통과 / 2 실패 | [20260920-221134-4a08ef7b27](../../output/harness/20260920-221134-4a08ef7b27/summary.md) | 신규 테스트의 활성/포커스 대기 누락, 수정 후 재검사 |
 | 관련 quick | 통과: 166개 | [20260920-221427-20d2f7ff7b](../../output/harness/20260920-221427-20d2f7ff7b/summary.md) | 이동 토글/드래그/이모지/화면 전환/요일 열 포함 |
-| release | 미실행 | | |
+| release | 통과: 775개·신규 EXE·격리 3개 시나리오 | [20260920-222103-a3b365cc44](../../output/harness/20260920-222103-a3b365cc44/summary.md) | 소스 커밋 `5cd3e38`, 검사 전후 입력 불변 |
 | 125% 합성 배율 quick | 통과: 78개 | [20260920-221536-e81b215f85](../../output/harness/20260920-221536-e81b215f85/summary.md) | `QT_SCALE_FACTOR=1.25`, 이동 토글 전체·원 외경·인라인 편집 높이 |
 | 150% 합성 배율 quick | 통과: 78개 | [20260920-221622-ceeca1b9fe](../../output/harness/20260920-221622-ceeca1b9fe/summary.md) | `QT_SCALE_FACTOR=1.5`, 동일 대상 |
 | 실제 혼합 DPI/KVM/Win+D/한글 IME | 미실행 | | 기존 수동 보류 유지 |
 
 ## 미해결과 인계
 
-- 커밋/빌드/배치: 미실행.
+- 기능·테스트·AGENTS/UI/아키텍처는 `5cd3e38`로 먼저 커밋한 뒤 release를 실행했다. 검증 후 README/릴리스 이력/이 기록의 결과만 갱신하며 런타임·빌드 입력은 바꾸지 않았다.
+- 표준 [dist/기후노트_v3.7b.exe](../../dist/기후노트_v3.7b.exe) 배치 완료: **57,944,043 bytes**, Windows **3.7.2.0**, SHA-256 **`E69D477E24B579BC68D7757183394AE5A5AB6197A786E78412A9893EF811F49D`**. 배치 시 표준 경로에 기존 EXE가 없어 교체/삭제 없이 복사했고 검증 산출물과 해시가 일치한다.
+- [산출물 대조](../../output/harness/20260920-222103-a3b365cc44/artifact-check/result.json): EXE 내부 `ui_main`/`ui_schedule_emoji`/`database`/`app_info` 코드가 현재 소스 컴파일 결과와 일치한다(파일명 메타데이터 정규화). Qt6Core/Qt6Gui/Qt6Widgets는 검증 venv와 바이트·SHA-256 일치, 파일 버전 **6.11.2.0**.
+- [compact ON 렌더](../../output/harness/20260920-222103-a3b365cc44/calendar-move-compact-on.png), [OFF 헤더](../../output/harness/20260920-222103-a3b365cc44/calendar-move-compact-off.png), [large 렌더](../../output/harness/20260920-222103-a3b365cc44/calendar-move-large-on.png)는 합성 데이터의 소스 Qt 캡처다. 실제 EXE는 신규 설치·기존 데이터 보존·손상 salt 차단 3개 자동 시나리오로 검증했다.
+- 기존 합성 데이터 8개 테이블의 raw/복호화 내용·ID·salt 보존을 확인했다. 실제 사용자 AppData·DB·salt와 기존 실행 앱은 검사 대상으로 쓰지 않았다.
+- 실제 혼합 DPI/KVM/Win+D/한글 IME·회사 PC UI·Defender·서명 검사는 미실행이며 자동 통과와 구분한다.
 - 게시·push: 미수행, 기존 보안 회신 대기 유지.
 - 라이선스/SBOM/Qt 고지/서명 후속 과제 유지.
