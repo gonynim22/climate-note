@@ -1,8 +1,8 @@
 # 작업 기록: 스티키 링크 아이콘·선택 문구 연결 개선
 
-작성일: 2026-09-20 / 상태: 수정·검증·재빌드·dist 교체 완료
+작성일: 2026-09-20 / 상태: 수정·커밋·재빌드·dist 별도 파일 배치 완료
 
-추가 사용자 지시: AGENTS.md와 수정 소스를 먼저 커밋한 뒤 해당 커밋으로 다시 빌드한다. 아래 `124000` 실행은 커밋 전 검증이며 커밋 후 빌드는 별도 실행으로 기록한다.
+추가 사용자 지시에 따라 AGENTS.md와 수정 소스를 `c72351f`로 먼저 커밋한 뒤 다시 빌드했다. 아래 `124000` 실행은 커밋 전 검증이며, `124614` 실행이 해당 커밋의 최종 빌드다.
 
 ## 목표와 범위
 
@@ -17,7 +17,7 @@
 - [x] 플로팅·large 패널에서 체인 아이콘과 선택 문구 표시.
 - [x] 실제 마우스 선택→버튼→파일창 수락/취소에서 문구·주변 서식·한 Undo 보존.
 - [x] release 전체 테스트·새 EXE·합성 3개 실행, 내부 리소스/Qt 검증.
-- [x] 이전 v3.7b 보관 후 검증한 EXE dist 교체, 결과 기록.
+- [x] 이전 v3.7b 보관 후 검증한 EXE dist 배치, 결과 기록. 최종 빌드는 기존 파일 잠금으로 별도 이름을 사용했다.
 
 ## 결정과 진행
 
@@ -28,8 +28,12 @@
 - 자동 검사는 양방향 마우스 드래그로 `회의 자료`만 선택하고 실제 버튼·QFileDialog 수락을 거친다. 파일 선택 중 편집기의 현재 커서가 이동해도 원래 범위만 연결되고 본문/굵기/주변 글자/Undo가 유지됨을 두 보기에서 확인했다. 수락 뒤 합성 캡처도 직접 확인했다.
 - 실제 새 EXE에 체인 SVG가 포함돼 소스와 바이트가 같고, Qt DLL 3개도 검증 venv와 일치함을 확인했다. 기존 `A23C4A59…` v3.7b는 `dist/previous-v3.7b-20260920-123004/기후노트_v3.7b.exe`에 보관하고 새 파일을 원자 교체했다.
 
-현재 산출물: `dist/기후노트_v3.7b.exe`, **57,931,806 bytes**, Windows `3.7.2.0`, `NotSigned`.
-SHA-256: `F180AFA43396DF7A555E22AE42812000C8DBE03BF4FFD0DE8AD47EEE6DBB0CE9`.
+- 커밋 `c72351f` 이후 `release` 실행 `20260920-124614-fdedd0671c`에서 723개 테스트·새 EXE·3개 격리 시나리오를 모두 통과했다. 검사 전후 입력과 커밋 ID가 일치하며 이후 앱 코드/리소스는 변경하지 않았다.
+- 최종 EXE에도 체인 SVG가 소스와 바이트 일치하고 Qt DLL 3개가 검증 venv와 일치한다. 기존 `dist/기후노트_v3.7b.exe` 교체는 `PermissionError`로 차단되어 실행 중인 앱에 개입하지 않고 `dist/기후노트_v3.7b_링크수정.exe`로 배치했다. 두 파일은 동일한 기능 소스로 빌드됐으며, 최신 파일은 커밋 후 검증 결과다.
+- 커밋 전 EXE(`F180AFA43396DF7A555E22AE42812000C8DBE03BF4FFD0DE8AD47EEE6DBB0CE9`, 57,931,806 bytes)는 기존 경로와 `dist/previous-v3.7b-20260920-124000/기후노트_v3.7b.exe`에 보존했다.
+
+최신 산출물: `dist/기후노트_v3.7b_링크수정.exe`, **57,932,513 bytes**, Windows `3.7.2.0`, `NotSigned`.
+SHA-256: `7F66DEA83EF2BF71FCF23937250E5F9E1EA4CBB52A7BF2D8044E18EE5E888F08`.
 
 ## 검증 증거
 
@@ -38,6 +42,8 @@ SHA-256: `F180AFA43396DF7A555E22AE42812000C8DBE03BF4FFD0DE8AD47EEE6DBB0CE9`.
 | 관련 quick | 통과, 104개 | [20260920-123922-be6462c31d](../../output/harness/20260920-123922-be6462c31d/summary.md) | 합성 마우스/파일창, 두 보기·정방향/역방향 선택·취소·Undo |
 | release | 통과, 723개 + EXE 3개 시나리오 | [20260920-124000-f584ef3ff4](../../output/harness/20260920-124000-f584ef3ff4/summary.md), [result.json](../../output/harness/20260920-124000-f584ef3ff4/result.json) | 신규/기존 데이터/손상 salt 시작 차단, 검사 입력 불변 |
 | 번들 리소스/Qt·배치 | 통과 | [artifact-check/summary.md](../../output/harness/20260920-124000-f584ef3ff4/artifact-check/summary.md), [result.json](../../output/harness/20260920-124000-f584ef3ff4/artifact-check/result.json) | 실제 EXE SVG/Qt 바이트·dist 해시 일치·구형 보관 |
+| 커밋 후 release | 통과, 723개 + EXE 3개 시나리오 | [20260920-124614-fdedd0671c](../../output/harness/20260920-124614-fdedd0671c/summary.md), [result.json](../../output/harness/20260920-124614-fdedd0671c/result.json) | `c72351f`, 검사 전후 입력 불변 |
+| 최종 번들 리소스/Qt·배치 | 통과 | [artifact-check/summary.md](../../output/harness/20260920-124614-fdedd0671c/artifact-check/summary.md), [result.json](../../output/harness/20260920-124614-fdedd0671c/artifact-check/result.json) | 실제 EXE SVG/Qt 일치, dist 별도 파일 해시 일치·이전 파일 보관 |
 
 명령: `.\.venv\Scripts\python.exe tools/verify.py quick --tests tests/test_ui_sticky_file_links.py tests/test_ui_sticky_panel.py`, 이후 `.\.venv\Scripts\python.exe tools/verify.py release`.
 합성 캡처: 관련 quick 폴더의 `selected-link-floating.png`, `selected-link-panel.png`. 파일명과 무관한 `회의 자료` 링크와 체인 버튼을 확인했다.
@@ -45,4 +51,5 @@ SHA-256: `F180AFA43396DF7A555E22AE42812000C8DBE03BF4FFD0DE8AD47EEE6DBB0CE9`.
 ## 미해결과 인계
 
 - 실제 PC 이동·IME·혼합 DPI/KVM·정상 종료 및 기존 보안/라이선스 보류 상태는 그대로 유지한다.
-- 커밋 전 새 빌드는 로컬 배치했다. 후속 사용자 요청에 따라 AGENTS.md와 이번 수정/빌드 기록을 먼저 커밋하고 그 커밋으로 release를 다시 수행한다. 코드/테스트는 `124000` release 뒤 변경하지 않았다. GitLab 배포/push는 수행하지 않는다.
+- AGENTS.md와 수정 코드는 빌드 전에 `c72351f`로 커밋했다. 최종 실행 결과는 빌드 후 문서에 추가했다. GitLab 배포/push는 수행하지 않았다.
+- 사용 중인 앱을 정상 종료한 후 최신 `_링크수정.exe`를 실행한다. 기존 표준 이름 파일은 잠금으로 교체하지 못했으므로 두 산출물의 경로와 해시를 구분한다.

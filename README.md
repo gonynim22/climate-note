@@ -28,10 +28,10 @@ Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위
 
 실행 파일은 **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 페이지에서 받습니다.
 **v3.7b는 2026-09-20 체인 아이콘·선택 문구 연결 안내를 반영해 재빌드했으며, GitLab에는 아직 게시하지 않았습니다.** [최신 빌드 검증 기록](docs/work/2026-09-20-sticky-link-selection-fix.md)
-아래 크기와 해시는 Qt 6.11.2와 스티키 파일 링크가 포함된 **기후노트_v3.7b.exe** 로컬 빌드(57,931,806 bytes)의 정보입니다. 723개 테스트와 격리 EXE 시나리오 3개를 통과했습니다. 이전 산출물 정보는 [릴리스 이력](docs/RELEASE_HISTORY.md)에 보존합니다.
+아래 크기와 해시는 커밋 `c72351f` 이후 Qt 6.11.2와 스티키 파일 링크를 포함해 빌드한 **기후노트_v3.7b_링크수정.exe** (57,932,513 bytes)의 정보입니다. 기존 EXE의 파일 잠금으로 별도 이름으로 저장했으며, 723개 테스트와 격리 EXE 시나리오 3개를 통과했습니다. 이전 산출물 정보는 [릴리스 이력](docs/RELEASE_HISTORY.md)에 보존합니다.
 
 ```
-SHA-256  F180AFA43396DF7A555E22AE42812000C8DBE03BF4FFD0DE8AD47EEE6DBB0CE9
+SHA-256  7F66DEA83EF2BF71FCF23937250E5F9E1EA4CBB52A7BF2D8044E18EE5E888F08
 ```
 
 설치 과정이 없는 단일 실행 파일입니다. 원하는 위치에 두고 실행하면 됩니다.
@@ -47,7 +47,7 @@ v3.7 계열(v3.7b 포함)은 기존 DB v17·암호화·설정 키를 유지합�
 > 받은 파일의 해시는 해당 릴리스 정보와 비교하세요. 위 로컬 v3.7b 빌드 확인 명령은 다음과 같습니다.
 >
 > ```powershell
-> Get-FileHash 기후노트_v3.7b.exe -Algorithm SHA256
+> Get-FileHash 기후노트_v3.7b_링크수정.exe -Algorithm SHA256
 > ```
 
 ---
