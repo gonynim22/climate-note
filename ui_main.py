@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QApplication, QLabel,
     QSizePolicy, QLineEdit, QPushButton, QDialog, QFileDialog, QInputDialog
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QUrl, QPoint, QRectF
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QUrl, QPoint, QPointF, QRectF
 from PySide6.QtGui import QFont, QDesktopServices, QPainter, QBrush, QPen, QColor
 
 import ctypes
@@ -404,7 +404,9 @@ from qfluentwidgets import (
 
 from ui_sticky import STICKY_COLORS, WIDGET_WIDTH, DDAY_HEIGHT
 from ui_search import SearchWindow
-from ui_schedule_emoji import ScheduleEmojiButton, ScheduleInlineEditor
+from ui_schedule_emoji import (
+    SCHEDULE_CONTROL_DIAMETER, ScheduleEmojiButton, ScheduleInlineEditor,
+)
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
 
@@ -451,6 +453,57 @@ class SmoothCircleButton(QPushButton):
         
         rect = QRectF(self.rect())
         painter.drawEllipse(rect.adjusted(margin, margin, -margin, -margin))
+
+
+class CalendarMoveButton(QPushButton):
+    """A안: 이동 ON은 밝은 채움, OFF는 사선. 글리프 폰트에 의존하지 않는다."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("headerMoveButton")
+        self.setFixedSize(32, 32)
+        self.setCheckable(True)
+        # 마우스 클릭은 진행 중인 일정 입력의 포커스를 빼앗지 않는다.
+        self.setFocusPolicy(Qt.TabFocus)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAccessibleName("캘린더 이동")
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if not event.isAutoRepeat():
+                self.click()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        on = self.isChecked()
+        if not self.isEnabled():
+            painter.setOpacity(0.45)
+        background = QColor("#E7F2FF") if on else QColor(255, 255, 255, 9)
+        if self.underMouse() or self.isDown():
+            background = QColor("#CFE5FF") if on else QColor(255, 255, 255, 32)
+        painter.setBrush(background)
+        border = "#FBBF24" if self.hasFocus() else ("#B8D9FF" if on else "#536F95")
+        painter.setPen(QPen(QColor(border), 1))
+        painter.drawRoundedRect(QRectF(0.5, 0.5, 31, 31), 8, 8)
+        ink = QColor("#014484" if on else "#E2EAF4")
+        painter.setPen(QPen(ink, 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        for x1, y1, x2, y2 in (
+            (16, 6, 16, 26), (6, 16, 26, 16),
+            (12.5, 9.5, 16, 6), (19.5, 9.5, 16, 6),
+            (12.5, 22.5, 16, 26), (19.5, 22.5, 16, 26),
+            (9.5, 12.5, 6, 16), (9.5, 19.5, 6, 16),
+            (22.5, 12.5, 26, 16), (22.5, 19.5, 26, 16),
+        ):
+            painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+        if not on:
+            painter.setPen(QPen(QColor("#082F61"), 4, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(QPointF(8, 24), QPointF(24, 8))
+            painter.setPen(QPen(ink, 1.5, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(QPointF(8, 24), QPointF(24, 8))
 
 
 class CalendarDayButton(QWidget):
@@ -1090,6 +1143,9 @@ class MainCalendarWindow(QWidget):
         self._calendar_drag_press_global = None
         self._calendar_drag_started = False
         self._calendar_drag_targets = set()
+        self._calendar_move_enabled = db.get_setting(
+            db.SETTING_CALENDAR_MOVE_ENABLED, db.DEFAULT_CALENDAR_MOVE_ENABLED,
+        ) != "0"
         self._watched_screen_ids = set()
         self._keep_desktop_unavailable_warned = False
 
@@ -1397,6 +1453,7 @@ class MainCalendarWindow(QWidget):
 
     def _apply_calendar_scale(self):
         """저장된 compact/medium/large 설정을 즉시 반영."""
+        self._reset_calendar_drag()
         scale = self._current_calendar_scale()
         expanded = scale != "compact"
         screen = self._get_target_screen()
@@ -1498,9 +1555,8 @@ class MainCalendarWindow(QWidget):
         self._calendar_drag_targets = {header_section, self.month_label}
         for target in self._calendar_drag_targets:
             target.installEventFilter(self)
+        self._update_calendar_move_control()
         self.installEventFilter(self)
-        self.month_label.setCursor(Qt.SizeAllCursor)
-        self.month_label.setToolTip("드래그하여 캘린더 이동")
 
         # ── 법령정보 검색 바 (구분선 포함 컨테이너) ──
         self.law_search_container = QWidget(header_section)
@@ -1619,7 +1675,7 @@ class MainCalendarWindow(QWidget):
         # 좌측: 오늘 / 새 항목
         left_widget = QWidget(self)
         left_widget.setObjectName("headerLeftGroup")
-        left_widget.setFixedWidth(92)
+        left_widget.setFixedWidth(104)
         left_group = QHBoxLayout()
         left_group.setContentsMargins(0, 0, 0, 0)
         left_group.setSpacing(8)
@@ -1642,6 +1698,7 @@ class MainCalendarWindow(QWidget):
         self._add_btn.setStyleSheet(header_icon_style)
         self._add_btn.clicked.connect(self._on_add_menu)
         left_group.addWidget(self._add_btn)
+        left_group.addStretch(1)
         top_bar.addWidget(left_widget)
 
         top_bar.addStretch(1)
@@ -1710,10 +1767,10 @@ class MainCalendarWindow(QWidget):
 
         right_widget = QWidget(self)
         right_widget.setObjectName("headerRightGroup")
-        right_widget.setFixedWidth(92)
+        right_widget.setFixedWidth(104)
         right_group = QHBoxLayout()
         right_group.setContentsMargins(0, 0, 0, 0)
-        right_group.setSpacing(6)
+        right_group.setSpacing(4)
         right_group.setAlignment(Qt.AlignRight)
         right_widget.setLayout(right_group)
 
@@ -1727,6 +1784,10 @@ class MainCalendarWindow(QWidget):
         search_btn.setStyleSheet(header_flat_icon_style)
         search_btn.clicked.connect(self._on_search)
         right_group.addWidget(search_btn)
+
+        self.calendar_move_button = CalendarMoveButton(self)
+        self.calendar_move_button.clicked.connect(self._on_calendar_move_clicked)
+        right_group.addWidget(self.calendar_move_button)
 
         self._more_btn = TransparentToolButton(FIF.MORE, self)
         self._more_btn.setObjectName("headerMoreButton")
@@ -1919,7 +1980,7 @@ class MainCalendarWindow(QWidget):
         schedule_input_row = QHBoxLayout()
 
         self.schedule_color_btn = SmoothCircleButton(self)
-        self.schedule_color_btn.setFixedSize(22, 22)
+        self.schedule_color_btn.setFixedSize(SCHEDULE_CONTROL_DIAMETER, SCHEDULE_CONTROL_DIAMETER)
         self.schedule_color_btn.setToolTip("일정 색상 선택 (클릭하여 순환)")
         self.schedule_color_btn.clicked.connect(self._on_cycle_schedule_color)
         self._update_schedule_color_btn()
@@ -3131,6 +3192,7 @@ class MainCalendarWindow(QWidget):
 
     def _discard_data_widgets(self) -> None:
         """초기화 전 모든 이전 데이터 편집기/타이머를 정지하고 폐기한다."""
+        self._reset_calendar_drag()
         self._close_schedule_emoji_popups()
         self._cancel_sticky_file_links()
         if self._finish_current_edit:
@@ -3167,6 +3229,11 @@ class MainCalendarWindow(QWidget):
 
     def _on_import_complete(self):
         """Import 완료 후 DB 설정과 열린 UI를 즉시 다시 동기화한다."""
+        self._reset_calendar_drag()
+        self._calendar_move_enabled = db.get_setting(
+            db.SETTING_CALENDAR_MOVE_ENABLED, db.DEFAULT_CALENDAR_MOVE_ENABLED,
+        ) != "0"
+        self._update_calendar_move_control()
         self._show_lunar = (
             db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1"
         )
@@ -3198,6 +3265,8 @@ class MainCalendarWindow(QWidget):
     # ─── 최소화 (트레이) ─────────────────────────────────────────
     def _minimize_to_tray(self):
         self._hidden_to_tray = True
+        self._reset_calendar_drag()
+        self._update_calendar_move_control()
         self._close_schedule_emoji_popups()
         self.hide()
         for win in self._sticky_windows.values():
@@ -3213,6 +3282,7 @@ class MainCalendarWindow(QWidget):
             self._minimize_to_tray()
         else:
             self._hidden_to_tray = False
+            self._update_calendar_move_control()
             self.show()
             self._sync_to_today_if_changed()
             for windows in (self._sticky_windows, self._dday_windows, self._focus_windows):
@@ -3403,6 +3473,39 @@ class MainCalendarWindow(QWidget):
 
         return super().nativeEvent(event_type, message)
 
+    def _calendar_drag_allowed(self) -> bool:
+        return self._calendar_move_enabled and not self._is_locked and not self._hidden_to_tray
+
+    def _update_calendar_move_control(self) -> None:
+        self.calendar_move_button.setChecked(self._calendar_move_enabled)
+        hint = (
+            "캘린더 이동 ON · 상단을 드래그해 이동 (클릭하여 고정)"
+            if self._calendar_move_enabled else
+            "캘린더 이동 OFF · 클릭하여 이동 허용"
+        )
+        self.calendar_move_button.setToolTip(hint)
+        self.calendar_move_button.setAccessibleDescription(hint)
+        self.calendar_move_button.setEnabled(not self._is_locked)
+        for target in self._calendar_drag_targets:
+            target.setCursor(Qt.SizeAllCursor if self._calendar_drag_allowed() else Qt.ArrowCursor)
+        self.month_label.setToolTip(
+            "드래그하여 캘린더 이동" if self._calendar_drag_allowed() else "캘린더 위치 고정"
+        )
+
+    def _on_calendar_move_clicked(self, enabled: bool) -> None:
+        self._reset_calendar_drag()
+        if not self._is_locked and not self._hidden_to_tray:
+            try:
+                db.save_setting(db.SETTING_CALENDAR_MOVE_ENABLED, "1" if enabled else "0")
+                self._calendar_move_enabled = enabled
+            except (sqlite3.Error, OSError, ValueError) as exc:
+                _logger.error("캘린더 이동 설정 저장 실패: %s", exc)
+                InfoBar.error(
+                    title="설정 저장 실패", content="이동 설정을 저장하지 못했습니다. 다시 시도해 주세요.",
+                    parent=self, position=InfoBarPosition.TOP, duration=4000,
+                )
+        self._update_calendar_move_control()
+
     def eventFilter(self, obj, event) -> bool:
         """헤더 배경/연월 라벨 드래그로 프레임리스 캘린더를 이동한다."""
         event_type = event.type()
@@ -3414,7 +3517,7 @@ class MainCalendarWindow(QWidget):
 
         if obj in self._calendar_drag_targets:
             if (
-                self._current_calendar_scale() == "large"
+                not self._calendar_drag_allowed()
                 and event_type in (
                     QEvent.Type.MouseButtonPress,
                     QEvent.Type.MouseMove,
@@ -3525,6 +3628,8 @@ class MainCalendarWindow(QWidget):
 
     def _lock(self):
         self._is_locked = True
+        self._reset_calendar_drag()
+        self._update_calendar_move_control()
         self._cancel_sticky_file_links()
         self._close_schedule_emoji_popups()
         # 잠금 당시 실행 중인 파일/확인 대화상자는 취소한다.
@@ -3558,6 +3663,7 @@ class MainCalendarWindow(QWidget):
 
     def _unlock(self):
         self._is_locked = False
+        self._update_calendar_move_control()
         if hasattr(self, "lock_overlay"):
             self.lock_overlay.hide()
 

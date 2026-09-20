@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent, QRect, QSize, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt
 from PySide6.QtWidgets import QApplication, QLineEdit
 from shiboken6 import isValid
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
@@ -368,3 +368,43 @@ def test_popup_stays_on_negative_coordinate_monitor(anchor):
     size = QSize(180, 210)
     point = popup_position(anchor, size, available)
     assert available.contains(QRect(point, size))
+
+
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_outline_smile_matches_color_circle_and_preserves_picker(qtbot, scale):
+    win = main_window(qtbot, scale)
+    win.schedule_input.setFocus()
+    qtbot.mouseMove(win.month_label)
+    qtbot.wait(30)
+    smile = win.schedule_emoji_button
+    color = win.schedule_color_btn
+    assert smile.text() == ""
+    assert smile.size() == QSize(26, 26)
+    assert color.size() == QSize(22, 22)
+    smile_center = smile.mapTo(win, QPoint()).y() + smile.height()/2
+    color_center = color.mapTo(win, QPoint()).y() + color.height()/2
+    assert abs(smile_center-color_center) <= 0.5
+    images = [button.grab().toImage() for button in (color, smile)]
+    ink = []
+    for image in images:
+        pixels = [(x,y) for y in range(image.height()) for x in range(image.width())
+                  if image.pixelColor(x,y).alpha() > 0
+                  and max(image.pixelColor(x,y).getRgb()[:3]) < 200]
+        assert pixels
+        ink.append((max(x for x,y in pixels)-min(x for x,y in pixels)+1,
+                    max(y for x,y in pixels)-min(y for x,y in pixels)+1))
+    assert all(abs(a-b) <= 1 for a,b in zip(*ink)), ink
+    assert all(abs(v-22*images[1].devicePixelRatio()) <= 1 for v in ink[1]), ink
+    assert not any(
+        (c := images[1].pixelColor(x,y)).red() > 200 and c.green() > 150 and c.blue() < 130
+        for y in range(images[1].height()) for x in range(images[1].width())
+    )
+    win.schedule_input.setText("일정 본문")
+    popup = open_picker(qtbot, smile)
+    pick(qtbot, popup, "🎯")
+    assert win.schedule_input.text() == "🎯 일정 본문"
+    win.schedule_input.undo()
+    assert win.schedule_input.text() == "일정 본문"
+    appdata = os.environ.get("CLIMATENOTE_TEST_APPDATA")
+    if appdata:
+        assert images[1].save(str(Path(appdata).parent / f"outline-smile-{scale}.png"))

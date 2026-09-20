@@ -1,10 +1,13 @@
 """일정 본문의 선두 이모지를 편집하는 공용 선택 도우미."""
-from PySide6.QtCore import QEvent, QPoint, QTimer, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication, QGridLayout, QHBoxLayout, QLineEdit, QPushButton,
     QVBoxLayout, QWidget,
 )
+
+
+SCHEDULE_CONTROL_DIAMETER = 22
 
 
 SCHEDULE_EMOJIS = (
@@ -133,16 +136,14 @@ class ScheduleEmojiButton(QPushButton):
     popup_closed = Signal()
 
     def __init__(self, edit: QLineEdit, can_edit, parent=None):
-        super().__init__("🙂", parent)
+        super().__init__(parent)
         self.edit = edit
         self._can_edit = can_edit
         self._popup = None
         self.setFixedSize(26, 26)
         self.setToolTip("일정 이모지 선택")
         self.setAccessibleName("일정 이모지 선택")
-        font = QFont("Segoe UI Emoji")
-        font.setPixelSize(20)
-        self.setFont(font)
+        self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet(
             "QPushButton{color:#475569;background:transparent;"
             "border:1px solid transparent;border-radius:5px;}"
@@ -152,6 +153,25 @@ class ScheduleEmojiButton(QPushButton):
         self._restore_timer.setSingleShot(True)
         self._restore_timer.timeout.connect(self._restore_focus)
         self.clicked.connect(self.open_popup)
+
+    def paintEvent(self, event):
+        # 클릭/포커스 영역은 26px, 원의 외경은 왼쪽 색상 버튼과 같은 22px.
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        color = QColor("#475569" if self.isEnabled() else "#94A3B8")
+        painter.setPen(QPen(color, 1.0))
+        painter.setBrush(Qt.NoBrush)
+        diameter = SCHEDULE_CONTROL_DIAMETER
+        x, y = (self.width() - diameter) / 2, (self.height() - diameter) / 2
+        painter.drawEllipse(QRectF(x + 0.5, y + 0.5, diameter - 1, diameter - 1))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        for eye_x in (7.5, 14.5):
+            painter.drawEllipse(QPointF(x + eye_x, y + 8.5), 1.15, 1.15)
+        painter.setPen(QPen(color, 1.4, Qt.SolidLine, Qt.RoundCap))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawArc(QRectF(x + 6, y + 9, 10, 7), 200 * 16, 140 * 16)
 
     def open_popup(self) -> None:
         if not self._can_edit() or not self.isVisible() or self._popup is not None:

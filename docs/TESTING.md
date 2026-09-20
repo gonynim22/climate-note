@@ -115,6 +115,8 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 
 ## Test Suite
 
+- **이동 토글·스마일**: `test_ui_calendar_move.py`는 세 크기 실제 마우스 드래그·Tab/Space/Enter·설정 저장 실패·Import/초기화·잠금/트레이 취소·기본 380px 헤더를 검사한다. `test_ui_calendar_drag.py`는 OFF 차단·화면 간 크기/위치 보정을, `test_ui_schedule_emoji.py`는 색상 원과 스마일의 실제 렌더 외경/중심·선택/Undo를 검사한다. 관련 `quick --tests` 또는 `release`에서 합성 PNG를 남기며 실제 혼합 DPI/KVM 수동 검증을 대신하지 않는다.
+
 - **스티키 파일 링크(v3.7b)**: `test_sticky_file_links.py`의 Qt href/밑줄 메타데이터 왕복·경로 검사, `test_ui_sticky_file_links.py`의 서식·Undo·체크박스·두 보기·외부 실행 가로채기·주의 표시 무변경·8개 기존 테이블 raw/salt 보존, `test_ui_data_lifecycle.py`의 최신 링크 Export/실패·잠금/트레이/폐기/보기 전환 취소를 검사한다. 하네스 실행에는 `sticky-file-links.png` 합성 UI 캡처를 남긴다. 실제 파일 드롭·IME·기본 프로그램·혼합 DPI/KVM은 별도 수동 확인이다.
 
 - **Location**: `tests/` (pytest 기반 전체 테스트)
@@ -125,7 +127,7 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 - **격리 전략**: `app_dir` 픽스처가 `security.APP_DIR`, `SALT_FILE`, `database.DB_FILE` 등을 `monkeypatch`로 `tmp_path`에 패치하고 Fernet 캐시 초기화. 테스트 간 DB/암호화 키 완전 격리.
 - **스트레스 커버**: 1년×3색상 1,095개 일정, 365회 메모 upsert, 10KB 메모, Export/Import 왕복, 100회 추가/삭제 사이클, 백업 회전, VACUUM 무결성
 - **리소스/빌드 커버**: 번들 Fluent UI System Icons 존재 여부, 일반 SVG tint, 컬러 SVG palette 보존, `build.spec` 리소스/라이선스/QtSvg 포함, 설정창 라이선스 고지를 검증한다.
-- **v3.4 무손상 커버**: v16→v17 전후 schedule raw row exact snapshot, 팔레트 설정 Export/Import 왕복, canonical 3슬롯 유지, 음수 모니터 좌표 drag/clamp, large 모드 드래그 비활성, 800×560 설정 최소 크기, sticky HTML/plain-text 불변, Win+D topmost pulse/데스크톱 레이어 재고정/hook 해제를 검증한다.
+- **v3.4 무손상 커버**: v16→v17 전후 schedule raw row exact snapshot, 팔레트 설정 Export/Import 왕복, canonical 3슬롯 유지, 음수 모니터 좌표 drag/clamp, 모든 크기에서 이동 토글 OFF 시 드래그 차단, 800×560 설정 최소 크기, sticky HTML/plain-text 불변, Win+D topmost pulse/데스크톱 레이어 재고정/hook 해제를 검증한다.
 - **의존성**: `pytest`, `pytest-timeout` (`requirements.txt`에 포함)
 
 ```bash

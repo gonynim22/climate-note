@@ -1,3 +1,5 @@
+import pytest
+
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
@@ -251,8 +253,10 @@ def test_small_pointer_jitter_does_not_start_calendar_drag(app_dir, qtbot):
     assert db.get_setting(db.SETTING_CALENDAR_POSITION_MODE) == "corner"
 
 
-def test_header_drag_is_disabled_in_large_mode(app_dir, qtbot):
-    db.save_setting(db.SETTING_CALENDAR_SCALE, "large")
+@pytest.mark.parametrize("scale", ("compact", "medium", "large"))
+def test_header_drag_is_disabled_when_movement_is_off(app_dir, qtbot, scale):
+    db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
+    db.save_setting(db.SETTING_CALENDAR_MOVE_ENABLED, "0")
     db.save_setting(db.SETTING_CALENDAR_POSITION_MODE, "corner")
     win = MainCalendarWindow()
     qtbot.addWidget(win)
