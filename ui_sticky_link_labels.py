@@ -7,7 +7,7 @@ import re
 from PySide6.QtCore import QPointF, QRectF, Qt, QTextBoundaryFinder
 from PySide6.QtGui import (
     QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen,
-    QSyntaxHighlighter, QTextBlockUserData, QTextCharFormat, QTextCursor,
+    QSyntaxHighlighter, QTextBlockUserData, QTextCharFormat, QTextCursor, QTextLayout,
 )
 
 from sticky_file_links import FileLink, PREFIX, decode
@@ -16,8 +16,9 @@ INK = QColor('#164D96')
 PAPER = QColor('#F6F9FE')
 OUTLINE = QColor('#93B0D1')
 BADGE = QColor('#205795')
-WARNING_SPACE = 16
-END_PADDING = 4 + WARNING_SPACE
+LABEL_GAP = 2
+WARNING_SPACE = 14
+END_PADDING = 4 + LABEL_GAP
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ class LabelSpec:
     badge_font: QFont
     badge_width: float
     boundaries: list
+    warning_space: float = 0
 
 
 class LabelBlockData(QTextBlockUserData):
@@ -107,10 +109,10 @@ class FileLabelHighlighter(QSyntaxHighlighter):
             if first_end <= span.start or last_start >= span.end:
                 continue
             badge_font = QFont(self.document().defaultFont())
-            badge_font.setPixelSize(9)
+            badge_font.setPixelSize(8)
             badge_font.setBold(True)
             kind = file_type(span.link)
-            badge_width = math.ceil(QFontMetricsF(badge_font).horizontalAdvance(kind)) + 8
+            badge_width = math.ceil(QFontMetricsF(badge_font).horizontalAdvance(kind)) + 6
             ranges = [(span.start, first_end)]
             if (last_start, span.end) != ranges[0]:
                 ranges.append((last_start, span.end))
@@ -158,7 +160,60 @@ class LabelVisual:
     glyphs: list
 
 
+def refresh_warning_spacing(edit):
+    """Resize only layout formats: rehighlight() would change document revision.
+
+    Preserve IME preedit ranges until composition ends; the dashed outline still
+    reflects the status while the warning icon waits for its layout space.
+    """
+    document = edit.document()
+    block = document.begin()
+    while block.isValid():
+        data = block.userData()
+        layout = block.layout()
+        if isinstance(data, LabelBlockData) and not layout.preeditAreaText():
+            ranges = layout.formats()
+            changed = False
+            for spec in data.labels:
+                span = replace(spec.span, start=spec.span.start + block.position(),
+                               end=spec.span.end + block.position())
+                space = WARNING_SPACE if edit.link_error(span) else 0
+                if space == spec.warning_space:
+                    continue
+                boundary = spec.boundaries[-1]
+                for index, current in enumerate(ranges):
+                    if current.start <= boundary.start and current.start + current.length >= boundary.end:
+                        # Qt can merge equal adjacent ranges; split just this grapheme.
+                        replacements = []
+                        for start, end, is_boundary in (
+                            (current.start, boundary.start, False),
+                            (boundary.start, boundary.end, True),
+                            (boundary.end, current.start + current.length, False),
+                        ):
+                            if start == end:
+                                continue
+                            item = QTextLayout.FormatRange()
+                            item.start, item.length = start, end - start
+                            fmt = QTextCharFormat(current.format)
+                            if is_boundary:
+                                fmt.setFontLetterSpacing(_padding_spacing(
+                                    boundary.font, boundary.text,
+                                    boundary.before + END_PADDING + space))
+                            item.format = fmt
+                            replacements.append(item)
+                        ranges[index:index + 1] = replacements
+                        boundary.after = END_PADDING + space
+                        spec.warning_space = space
+                        changed = True
+                        break
+            if changed:
+                layout.setFormats(ranges)
+                document.markContentsDirty(block.position(), block.length())
+        block = block.next()
+
+
 def label_visuals(edit):
+    refresh_warning_spacing(edit)
     edit.document().documentLayout().documentSize()
     first = edit.cursorForPosition(edit.viewport().rect().topLeft()).block()
     last = edit.cursorForPosition(edit.viewport().rect().bottomRight()).block()
@@ -184,9 +239,9 @@ def label_visuals(edit):
                     left, right = min(x0, x1), max(x0, x1)
                     if end == spec.span.end:
                         if rtl:
-                            left += WARNING_SPACE
+                            left += LABEL_GAP + spec.warning_space
                         else:
-                            right -= WARNING_SPACE
+                            right -= LABEL_GAP + spec.warning_space
                     rect = QRectF(origin.x() + left, origin.y() + line.y() + 1,
                                   max(1, right - left), max(1, line.height() - 2))
                     if not rect.intersects(QRectF(edit.viewport().rect())):
@@ -194,10 +249,12 @@ def label_visuals(edit):
                     badge_rect = None
                     if start == spec.span.start:
                         bx = rect.right() - spec.badge_width - 3 if rtl else rect.left() + 3
-                        badge_rect = QRectF(bx, rect.center().y() - 6.5, spec.badge_width, 13)
+                        badge_height = min(11, max(1, rect.height() - 4))
+                        badge_rect = QRectF(bx, rect.center().y() - badge_height / 2,
+                                            spec.badge_width, badge_height)
                     warning_rect = None
-                    if end == spec.span.end:
-                        wx = rect.left() - WARNING_SPACE + 2 if rtl else rect.right() + 3
+                    if end == spec.span.end and spec.warning_space:
+                        wx = rect.left() - 15 if rtl else rect.right() + 3
                         warning_rect = QRectF(wx, rect.center().y() - 6, 12, 12)
                     glyphs = []
                     for boundary in spec.boundaries:

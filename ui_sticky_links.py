@@ -17,7 +17,7 @@ from security import file_link_origin
 from sticky_file_links import PREFIX, UNSUPPORTED, decode, inspect_file, new_link
 from ui_sticky_link_labels import (
     FileLabelHighlighter, block_link_spans, label_visuals,
-    paint_label_backgrounds, paint_label_details,
+    paint_label_backgrounds, paint_label_details, refresh_warning_spacing,
 )
 
 _CHECK_SLOTS = BoundedSemaphore(4)
@@ -113,6 +113,11 @@ class FileLinkTextEdit(QTextEdit):
     def link_label_visuals(self):
         return label_visuals(self) if self._link_spans else []
 
+    def _refresh_link_display(self):
+        # Apply new status geometry before the next input event, not just on paint.
+        refresh_warning_spacing(self)
+        self.viewport().update()
+
     def paintEvent(self, event):
         visuals = self.link_label_visuals()
         if visuals:
@@ -166,7 +171,7 @@ class FileLinkTextEdit(QTextEdit):
             def finished(errors):
                 for path, error in zip(paths, errors):
                     self._link_cache[path] = (monotonic(), error)
-                self.viewport().update()
+                self._refresh_link_display()
             self._start_check(paths, finished)
 
     def _notice(self, text):
@@ -318,7 +323,7 @@ class FileLinkTextEdit(QTextEdit):
         path = span.link.path
         def finished(errors):
             self._link_cache[path] = (monotonic(), errors[0])
-            self.viewport().update()
+            self._refresh_link_display()
             if errors[0]:
                 self._notice(errors[0])
                 self.choose_file_link(span)
