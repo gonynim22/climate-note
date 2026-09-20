@@ -30,10 +30,13 @@
 | 관련 quick | 통과: 314개 | [20260920-230148-f9aa42d17c](../../output/harness/20260920-230148-f9aa42d17c/summary.md) | 새 주머니·기존 바로가기/일정/잠금/이동/화면 회귀 포함 |
 | 125% 합성 배율 | 통과: 79개 | [20260920-230427-827d3fd1d0](../../output/harness/20260920-230427-827d3fd1d0/summary.md) | QT_SCALE_FACTOR=1.25, 주머니 전체 검사 |
 | 150% 합성 배율 | 통과: 79개 | [20260920-230515-2cdbfcae87](../../output/harness/20260920-230515-2cdbfcae87/summary.md) | QT_SCALE_FACTOR=1.5, 동일 대상 |
+| 포커스 준비 보강 후 quick | 통과: 140개 | [20260920-231015-bbabe65bb5](../../output/harness/20260920-231015-bbabe65bb5/summary.md) | 이모지 전체·미니앱 전체와 기본 회귀 |
 | release | 미실행 | | |
+| 최초 release | 실패: 796 통과 / 1 실패 | [20260920-230650-4f34cbbfc1](../../output/harness/20260920-230650-4f34cbbfc1/summary.md) | 기존 이모지 선택 검사의 포커스 복원 대기 timeout. 빌드/EXE 단계 미실행 |
 | 실제 혼합 DPI/KVM/Win+D/IME·정상 종료·Defender | 미실행 | | 자동 검사와 구분 |
 
 ## 미해결과 인계
 
+- 최초 전체 검사에서 기존 `test_all_palette_choices_can_be_saved[🔥]`가 포커스 대기 timeout으로 실패했다. 테스트 helper가 Windows의 비동기 창 활성화 완료를 확인하지 않고 클릭하던 입력 준비를 `waitExposed`/`isActiveWindow` 대기로 보강했다. 앱 런타임 코드는 변경하지 않고 관련 검사와 release를 새 실행 ID로 다시 검증한다.
 - 단위 환산기 내용/실행 기능은 이번 범위에서 제외한다.
 - 기존 보안 회신·라이선스/SBOM/서명 보류와 GitLab push/게시 미수행 상태를 유지한다.

@@ -46,6 +46,10 @@ def main_window(qtbot, scale="compact", content=None):
     win._refresh_calendar()
     win._on_date_selected("2026-09-09")
     QApplication.processEvents()
+    # Windows 활성화는 show/activateWindow 뒤 비동기로 완료된다.
+    # 입력·팝업 포커스를 검사하기 전에 실제 활성 창이 되었는지 확인한다.
+    qtbot.waitExposed(win)
+    qtbot.waitUntil(win.isActiveWindow)
     return win
 
 
