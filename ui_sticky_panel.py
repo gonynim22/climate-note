@@ -186,6 +186,7 @@ class StickySidePanel(QWidget):
         self._toolbar = StickyFormatToolbar(self)
         self._toolbar.bold_toggled.connect(self._on_bold)
         self._toolbar.todo_requested.connect(self._on_todo)
+        self._toolbar.link_requested.connect(self._on_link)
         self._toolbar.text_color_picked.connect(self._on_text_color)
         self._toolbar.bg_color_picked.connect(self._on_bg_color)
         self._toolbar.setEnabled(False)
@@ -241,6 +242,8 @@ class StickySidePanel(QWidget):
         self._toolbar.setEnabled(False)
 
         for card in self._cards:
+            card.text_edit.cancel_file_links()
+            card.hide()
             self._list_layout.removeWidget(card)
             card.deleteLater()
         self._cards = []
@@ -301,6 +304,10 @@ class StickySidePanel(QWidget):
             return
         from ui_sticky import toggle_bold
         toggle_bold(self._active_card.text_edit, on)
+
+    def _on_link(self):
+        if self._active_card is not None:
+            self._active_card.text_edit.choose_file_link()
 
     def _on_todo(self):
         if self._active_card is None:

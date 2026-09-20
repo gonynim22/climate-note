@@ -3116,14 +3116,23 @@ class MainCalendarWindow(QWidget):
 
     def prepare_for_data_change(self) -> bool:
         """가져오기/초기화 보호백업에 현재 모드의 최신 편집을 담는다."""
+        self._cancel_sticky_file_links()
         return (
             not self._is_locked and self._save_schedule_edit()
             and self.save_all_sticky_notes()
         )
 
+    def _cancel_sticky_file_links(self) -> None:
+        for win in self._sticky_windows.values():
+            win.text_edit.cancel_file_links()
+        if self._sticky_side_panel is not None:
+            for card in self._sticky_side_panel._cards:
+                card.text_edit.cancel_file_links()
+
     def _discard_data_widgets(self) -> None:
         """초기화 전 모든 이전 데이터 편집기/타이머를 정지하고 폐기한다."""
         self._close_schedule_emoji_popups()
+        self._cancel_sticky_file_links()
         if self._finish_current_edit:
             self._finish_current_edit(False)
         # 패널은 숨긴 상태에서도 타이머와 플로팅 원본 참조를 갖는다.
@@ -3239,6 +3248,7 @@ class MainCalendarWindow(QWidget):
 
     def prepare_for_quit(self) -> bool:
         """정상 종료 전에 일정·스티키 저장을 확정하고 실패하면 종료를 보류한다."""
+        self._cancel_sticky_file_links()
         if not self._save_schedule_edit():
             return False
         if self.save_all_sticky_notes():
@@ -3515,6 +3525,7 @@ class MainCalendarWindow(QWidget):
 
     def _lock(self):
         self._is_locked = True
+        self._cancel_sticky_file_links()
         self._close_schedule_emoji_popups()
         # 잠금 당시 실행 중인 파일/확인 대화상자는 취소한다.
         modal = QApplication.activeModalWidget()

@@ -4,7 +4,7 @@ import sqlite3
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QTextEdit, QSizeGrip, QPushButton
+    QSizeGrip, QPushButton
 )
 
 _logger = logging.getLogger("app_error")
@@ -20,6 +20,7 @@ from qfluentwidgets import (
 )
 
 import database as db
+from ui_sticky_links import FileLinkTextEdit
 
 
 # ── 위젯 공통 크기 ────────────────────────────────────────────────
@@ -163,7 +164,7 @@ class _TodoGlyphHighlighter(QSyntaxHighlighter):
                 self.setFormat(index, 1, self._mask_format)
 
 
-class _TodoTextEdit(QTextEdit):
+class _TodoTextEdit(FileLinkTextEdit):
     """체크박스(☐/☑) 클릭 토글을 지원하는 QTextEdit.
 
     저장된 체크박스 문자는 그대로 유지하고, 화면에는 현대적인 벡터
@@ -530,6 +531,7 @@ class StickyFormatToolbar(QWidget):
     """패널 등에서 재사용하는 공용 서식 툴바."""
     bold_toggled = Signal(bool)
     todo_requested = Signal()
+    link_requested = Signal()
     text_color_picked = Signal(str)
     bg_color_picked = Signal(str)
 
@@ -580,6 +582,13 @@ class StickyFormatToolbar(QWidget):
         self.text_color_btn.setFocusPolicy(Qt.NoFocus)
         self.text_color_btn.clicked.connect(self._pick_text_color)
         layout.addWidget(self.text_color_btn)
+
+        self.link_btn = TransparentToolButton(FIF.LINK, self)
+        self.link_btn.setFixedSize(24, 22)
+        self.link_btn.setFocusPolicy(Qt.NoFocus)
+        self.link_btn.setToolTip("파일 연결 (열기: Ctrl+클릭)")
+        self.link_btn.clicked.connect(lambda: self.link_requested.emit())
+        layout.addWidget(self.link_btn)
 
         layout.addStretch()
 
@@ -715,6 +724,13 @@ class StickyNoteWindow(QWidget):
         self.text_color_btn = _TextColorButton(self)
         self.text_color_btn.clicked.connect(self._on_text_color_btn)
         hdr_layout.addWidget(self.text_color_btn)
+
+        self.link_btn = TransparentToolButton(FIF.LINK, self)
+        self.link_btn.setFixedSize(24, 22)
+        self.link_btn.setFocusPolicy(Qt.NoFocus)
+        self.link_btn.setToolTip("파일 연결 (열기: Ctrl+클릭)")
+        self.link_btn.clicked.connect(lambda: self.text_edit.choose_file_link())
+        hdr_layout.addWidget(self.link_btn)
 
         hdr_layout.addStretch()
 

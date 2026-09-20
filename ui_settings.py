@@ -918,8 +918,12 @@ class SettingsWindow(QWidget):
 
     # ─── Export ────────────────────────────────────────────────
     def _on_export(self):
+        if not self.isEnabled():
+            return
         pin = self.export_pin.text().strip()
         if not self._validate_pin(pin):
+            return
+        if not self._prepare_data_change():
             return
 
         try:
@@ -943,7 +947,7 @@ class SettingsWindow(QWidget):
         file_path, _ = QFileDialog.getSaveFileName(
             self, "내보내기 파일 저장", default_name, "암호화 파일 (*.enc)"
         )
-        if not file_path:
+        if not file_path or not self.isEnabled():
             return
 
         try:

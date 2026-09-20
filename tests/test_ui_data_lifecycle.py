@@ -298,3 +298,93 @@ def test_queued_show_cannot_restore_widget_discarded_by_reset(qtbot):
     win._discard_data_widgets()
     QApplication.processEvents()
     assert not isValid(old) or not old.isVisible()
+
+
+@pytest.mark.parametrize('scale', ['compact', 'large'])
+@pytest.mark.parametrize('fail_save', [False, True])
+def test_export_flushes_latest_link_or_preserves_existing_backup(qtbot, app_dir, monkeypatch, scale, fail_save):
+    import ui_sticky_links
+    win, note_id = _main(qtbot, scale)
+    monkeypatch.setattr(ui_sticky_links, 'file_link_origin', lambda: 'a' * 64)
+    editor = win._sticky_side_panel._cards[0] if scale == 'large' else win._sticky_windows[note_id]
+    editor.text_edit.setPlainText('최신 링크')
+    editor.text_edit.selectAll()
+    path = app_dir / 'synthetic.txt'
+    path.write_text('synthetic', encoding='utf-8')
+    editor.text_edit.connect_paths([str(path)])
+    qtbot.waitUntil(lambda: bool(editor.text_edit._link_spans))
+    latest = editor.text_edit.toHtml()
+    win._on_settings()
+    settings = win._settings_window
+    settings.export_pin.setText('1234')
+    target = app_dir / 'export.enc'
+    target.write_bytes(b'existing-backup')
+    dialogs = []
+    def choose(*args):
+        dialogs.append(True)
+        return str(target), ''
+    monkeypatch.setattr(ui_settings.QFileDialog, 'getSaveFileName', choose)
+    if fail_save:
+        original = db.update_sticky_note
+        def fail(note_id, **kwargs):
+            if 'content' in kwargs:
+                raise sqlite3.OperationalError('synthetic write failure')
+            return original(note_id, **kwargs)
+        monkeypatch.setattr(db, 'update_sticky_note', fail)
+    settings._on_export()
+    if fail_save:
+        assert not dialogs and target.read_bytes() == b'existing-backup'
+        assert editor.text_edit.toHtml() == latest and editor._save_timer.isActive()
+    else:
+        payload = json.loads(security.decrypt_with_pin(target.read_bytes(), '1234'))
+        exported = next(n for n in payload['sticky_notes'] if n['content'] == latest)
+        assert 'climatenote-file:' in exported['content']
+        assert payload['format_version'] == 2
+
+
+@pytest.mark.parametrize('scale', ['compact', 'large'])
+@pytest.mark.parametrize('operation', ['lock', 'tray', 'discard', 'handoff'])
+def test_pending_file_picker_cancelled_by_lifecycle(qtbot, app_dir, monkeypatch, scale, operation):
+    import ui_sticky_links
+    monkeypatch.setattr(ui_sticky_links, 'file_link_origin', lambda: 'a' * 64)
+    win, note_id = _main(qtbot, scale)
+    editor = win._sticky_side_panel._cards[0] if scale == 'large' else win._sticky_windows[note_id]
+    text = editor.text_edit
+    before = text.toHtml()
+    text.choose_file_link()
+    dialog = text._link_dialog
+    assert dialog is not None
+    if operation == 'lock':
+        win._lock()
+    elif operation == 'tray':
+        win._minimize_to_tray()
+    elif operation == 'discard':
+        win._discard_data_widgets()
+    else:
+        assert win._apply_sticky_side_panel(scale != 'large')
+    assert not dialog.isVisible()
+    dialog.fileSelected.emit(str(app_dir / 'should-not-connect.txt'))
+    assert text.toHtml() == before and not text._link_pending
+
+
+@pytest.mark.parametrize('scale', ['compact', 'large'])
+def test_delayed_file_open_cancelled_by_lock(qtbot, app_dir, monkeypatch, scale):
+    import ui_sticky_links
+    from threading import Event
+    win, note_id = _main(qtbot, scale)
+    monkeypatch.setattr(ui_sticky_links, 'file_link_origin', lambda: 'a' * 64)
+    text = (win._sticky_side_panel._cards[0] if scale == 'large' else win._sticky_windows[note_id]).text_edit
+    path = app_dir / 'synthetic.txt'
+    path.write_text('synthetic', encoding='utf-8')
+    text.connect_paths([str(path)])
+    qtbot.waitUntil(lambda: bool(text._link_spans))
+    qtbot.waitUntil(lambda: not text._link_poll.isActive())
+    gate = Event()
+    monkeypatch.setattr(ui_sticky_links, 'inspect_file', lambda path: (gate.wait(2), '')[1])
+    opened = []
+    monkeypatch.setattr(ui_sticky_links.QDesktopServices, 'openUrl', lambda url: opened.append(url))
+    text.open_file_link(text._link_spans[0])
+    win._lock()
+    gate.set()
+    qtbot.wait(100)
+    assert not opened and not text._link_pending

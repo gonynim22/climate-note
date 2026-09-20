@@ -74,6 +74,16 @@ def _get_hardware_id() -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def file_link_origin() -> str:
+    """Non-secret link location tag; never reads/creates salt or derives an encryption key."""
+    username = os.environ.get("USERNAME", os.environ.get("USER", ""))
+    if not username:
+        return ""
+    return hashlib.sha256(
+        ("climatenote-file:v1:" + _get_hardware_id()).encode("utf-8")
+    ).hexdigest()
+
+
 def _get_legacy_hardware_id() -> str:
     """기존 MAC 기반 하드웨어 ID (마이그레이션용)"""
     mac = uuid.getnode()

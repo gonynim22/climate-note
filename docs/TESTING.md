@@ -115,6 +115,8 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 
 ## Test Suite
 
+- **스티키 파일 링크(v3.7b)**: `test_sticky_file_links.py`의 Qt href/밑줄 메타데이터 왕복·경로 검사, `test_ui_sticky_file_links.py`의 서식·Undo·체크박스·두 보기·외부 실행 가로채기·주의 표시 무변경·8개 기존 테이블 raw/salt 보존, `test_ui_data_lifecycle.py`의 최신 링크 Export/실패·잠금/트레이/폐기/보기 전환 취소를 검사한다. 하네스 실행에는 `sticky-file-links.png` 합성 UI 캡처를 남긴다. 실제 파일 드롭·IME·기본 프로그램·혼합 DPI/KVM은 별도 수동 확인이다.
+
 - **Location**: `tests/` (pytest 기반 전체 테스트)
 - **구조**: `conftest.py` (격리 픽스처) + DB/보안/스트레스/UI 테스트와 `test_ui_calendar_drag.py`, `test_ui_sticky.py`, `test_show_desktop_guard.py`
 - **데이터 UI 수명**: `test_ui_data_lifecycle.py`는 실제 합성 `.enc` 가져오기 후 편집기·집중 타이머 유지, 최신 저장 실패/보호백업 실패 차단, 초기화 전 플로팅/미니 패널 타이머 폐기와 ID 재사용, PIN 잠금·보조 창·예약된 표시를 검사한다. `data`와 `full`에 포함한다. 이 검사는 실제 Windows 잠금/절전·Win+D 수동 확인을 대체하지 않는다.
