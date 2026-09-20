@@ -86,7 +86,7 @@ def test_plain_legacy_and_arbitrary_anchor_are_unchanged(edit, qtbot):
     assert edit.toHtml() == before
     assert edit.document().isModified() == modified
     assert not edit._link_spans and not edit._link_poll.isActive()
-    assert not edit._warning_rail.isVisible()
+    assert not edit.link_label_visuals() and not edit.warning_visuals()
 
 
 def test_warning_display_does_not_change_document(qtbot, edit, file_path):
@@ -98,7 +98,7 @@ def test_warning_display_does_not_change_document(qtbot, edit, file_path):
     changes = []
     edit.textChanged.connect(lambda: changes.append(True))
     edit._origin = 'b' * 64
-    edit._warning_rail.grab()
+    edit.viewport().grab()
     assert edit.warning_visuals()
     assert (edit.toHtml(), edit.toPlainText()) == before
     assert not changes and not edit.document().isModified()
@@ -255,7 +255,7 @@ def test_toolbar_both_owners_and_encrypted_roundtrip(qtbot, app_dir, file_path, 
     assert card.text_edit._link_spans[0].link.path == file_path
 
 
-def test_minimum_width_gutter_wrap_and_scroll(qtbot, edit, file_path):
+def test_minimum_width_inline_warning_wrap_and_scroll(qtbot, edit, file_path):
     edit.resize(200, 100)
     edit.setPlainText('아주 긴 연결 문구 ' * 12)
     edit.selectAll()
@@ -263,11 +263,14 @@ def test_minimum_width_gutter_wrap_and_scroll(qtbot, edit, file_path):
     edit._origin = 'b' * 64
     edit.verticalScrollBar().setValue(edit.verticalScrollBar().maximum())
     qtbot.wait(10)
-    edit._position_rail()
-    assert edit._warning_rail.geometry().left() > edit.viewport().geometry().right()
-    assert edit._warning_rail.geometry().right() < edit.width()
     assert edit.warning_visuals()
-    assert edit._warning_rail.grab().width() > 0
+    rect, spans = edit.warning_visuals()[0]
+    visual = next(v for v in edit.link_label_visuals() if v.warning_rect == rect)
+    assert rect.left() > visual.rect.right()
+    assert rect.right() <= edit.viewport().width()
+    assert rect.top() >= 0 and rect.bottom() <= edit.viewport().height()
+    assert spans == [edit._link_spans[0]]
+    assert edit.viewport().grab().width() > 0
 
 
 def test_real_missing_file_keeps_text_and_warning(qtbot, edit, file_path, monkeypatch):
@@ -301,7 +304,7 @@ def test_no_selection_add_and_warning_capture(qtbot, app_dir, file_path):
     window.resize(220, 180)
     qtbot.wait(10)
     assert window.link_btn.geometry().right() < window.width()
-    assert window.link_btn.width() == 24
+    assert window.link_btn.size() == window.todo_btn.size()
 
 
 def test_old_dataset_view_never_rewrites_any_row(qtbot, app_dir, file_path):

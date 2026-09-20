@@ -8,10 +8,10 @@ from PySide6.QtWidgets import (
 )
 
 _logger = logging.getLogger("app_error")
-from PySide6.QtCore import Qt, QTimer, QPoint, Signal, QRect, QRectF
+from PySide6.QtCore import Qt, QTimer, QPoint, Signal, QRect, QRectF, QSize
 from PySide6.QtGui import (
     QColor, QGuiApplication, QFont, QTextCharFormat, QPainter, QTextCursor,
-    QSyntaxHighlighter, QPen, QPainterPath,
+    QPen, QPainterPath,
 )
 
 from qfluentwidgets import (
@@ -151,20 +151,6 @@ class _TextColorButton(QPushButton):
         painter.end()
 
 
-class _TodoGlyphHighlighter(QSyntaxHighlighter):
-    """저장 문자는 유지한 채 기본 글리프만 화면에서 숨긴다."""
-
-    def __init__(self, document):
-        super().__init__(document)
-        self._mask_format = QTextCharFormat()
-        self._mask_format.setForeground(QColor(0, 0, 0, 0))
-
-    def highlightBlock(self, text):
-        for index, char in enumerate(text):
-            if char in _ALL_UNCHECKED or char in _ALL_CHECKED:
-                self.setFormat(index, 1, self._mask_format)
-
-
 class _TodoTextEdit(FileLinkTextEdit):
     """체크박스(☐/☑) 클릭 토글을 지원하는 QTextEdit.
 
@@ -186,7 +172,8 @@ class _TodoTextEdit(FileLinkTextEdit):
         self._hovered_todo_pos = None
         # QSyntaxHighlighter의 표시용 서식은 QTextDocument/toHtml에 저장되지
         # 않는다. 기존 FA/유니코드 문자는 호환 sentinel로 그대로 남긴다.
-        self._todo_glyph_highlighter = _TodoGlyphHighlighter(self.document())
+        self._todo_glyph_highlighter = self._link_highlighter
+        self._todo_glyph_highlighter.todo_characters = _ALL_UNCHECKED + _ALL_CHECKED
         self.viewport().setMouseTracking(True)
 
     @staticmethod
@@ -584,8 +571,10 @@ class StickyFormatToolbar(QWidget):
         self.text_color_btn.clicked.connect(self._pick_text_color)
         layout.addWidget(self.text_color_btn)
 
-        self.link_btn = TransparentToolButton(fluent_icon("link"), self)
+        self.link_btn = QPushButton(fluent_icon("link"), "", self)
         self.link_btn.setFixedSize(24, 22)
+        self.link_btn.setIconSize(QSize(14, 14))
+        self.link_btn.setStyleSheet(self._BTN_STYLE)
         self.link_btn.setFocusPolicy(Qt.NoFocus)
         self.link_btn.setToolTip("선택한 텍스트에 파일 링크 연결 (열기: Ctrl+클릭)")
         self.link_btn.clicked.connect(lambda: self.link_requested.emit())
@@ -726,8 +715,10 @@ class StickyNoteWindow(QWidget):
         self.text_color_btn.clicked.connect(self._on_text_color_btn)
         hdr_layout.addWidget(self.text_color_btn)
 
-        self.link_btn = TransparentToolButton(fluent_icon("link"), self)
+        self.link_btn = QPushButton(fluent_icon("link"), "", self)
         self.link_btn.setFixedSize(24, 22)
+        self.link_btn.setIconSize(QSize(14, 14))
+        self.link_btn.setStyleSheet(_fmt_style)
         self.link_btn.setFocusPolicy(Qt.NoFocus)
         self.link_btn.setToolTip("선택한 텍스트에 파일 링크 연결 (열기: Ctrl+클릭)")
         self.link_btn.clicked.connect(lambda: self.text_edit.choose_file_link())

@@ -3,18 +3,22 @@
 Workers only inspect synthetic/user-selected paths and return strings to a queue.
 They never retain a widget, write a database, or launch another application.
 """
-from dataclasses import dataclass, replace
+from dataclasses import replace
 import ntpath
 from queue import Empty, Queue
 from threading import BoundedSemaphore, Thread
 from time import monotonic
 
-from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, QTimer, QUrl
-from PySide6.QtGui import QColor, QContextMenuEvent, QDesktopServices, QPainter, QPainterPath, QTextCharFormat, QTextCursor
-from PySide6.QtWidgets import QFileDialog, QMenu, QTextEdit, QToolTip, QWidget
+from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, QUrl
+from PySide6.QtGui import QContextMenuEvent, QDesktopServices, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import QFileDialog, QMenu, QTextEdit, QToolTip
 
 from security import file_link_origin
-from sticky_file_links import FileLink, PREFIX, UNSUPPORTED, decode, inspect_file, new_link
+from sticky_file_links import PREFIX, UNSUPPORTED, decode, inspect_file, new_link
+from ui_sticky_link_labels import (
+    FileLabelHighlighter, block_link_spans, label_visuals,
+    paint_label_backgrounds, paint_label_details,
+)
 
 _CHECK_SLOTS = BoundedSemaphore(4)
 _CHECK_TIMEOUT = 3.0
@@ -26,49 +30,6 @@ def _check_paths(paths, results):
         results.put([inspect_file(path) for path in paths])
     finally:
         _CHECK_SLOTS.release()
-
-
-@dataclass(frozen=True)
-class LinkSpan:
-    start: int
-    end: int
-    href: str
-    link: FileLink | None
-
-
-class _WarningRail(QWidget):
-    """Separate gutter: the warning never occupies a document character/hit target."""
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        for rect, _spans in self.parent().warning_visuals():
-            shape = QPainterPath()
-            shape.moveTo(rect.center().x(), rect.top())
-            shape.lineTo(rect.right(), rect.bottom())
-            shape.lineTo(rect.left(), rect.bottom())
-            shape.closeSubpath()
-            painter.setPen(QColor('#9A6700'))
-            painter.setBrush(QColor('#FFD166'))
-            painter.drawPath(shape)
-            painter.drawText(rect.adjusted(0, 2, 0, 0), Qt.AlignCenter, '!')
-        painter.end()
-
-    def event(self, event):
-        if event.type() == QEvent.ToolTip:
-            for rect, spans in self.parent().warning_visuals():
-                if rect.adjusted(-2, -2, 2, 2).contains(event.pos()):
-                    edit = self.parent()
-                    QToolTip.showText(event.globalPos(), '\n'.join(edit.link_tip(s) for s in spans), self)
-                    return True
-        return super().event(event)
-
-    def mousePressEvent(self, event):
-        for rect, spans in self.parent().warning_visuals():
-            if rect.adjusted(-2, -2, 2, 2).contains(event.position()):
-                self.parent().show_link_menu(spans, event.globalPosition().toPoint())
-                event.accept()
-                return
-        super().mousePressEvent(event)
 
 
 class FileLinkTextEdit(QTextEdit):
@@ -84,10 +45,8 @@ class FileLinkTextEdit(QTextEdit):
         self._link_poll = QTimer(self)
         self._link_poll.setInterval(50)
         self._link_poll.timeout.connect(self._poll_checks)
-        self._warning_rail = _WarningRail(self)
-        self._warning_rail.hide()
+        self._link_highlighter = FileLabelHighlighter(self.document())
         self.document().contentsChanged.connect(self._links_changed)
-        self.verticalScrollBar().valueChanged.connect(self._warning_rail.update)
         self.viewport().setMouseTracking(True)
 
     def _allowed(self):
@@ -122,34 +81,12 @@ class FileLinkTextEdit(QTextEdit):
         spans = []
         block = self.document().begin()
         while block.isValid():
-            it = block.begin()
-            while not it.atEnd():
-                fragment = it.fragment()
-                href = fragment.charFormat().anchorHref()
-                if href.startswith(PREFIX):
-                    link = decode(href)
-                    span = LinkSpan(fragment.position(), fragment.position() + fragment.length(), href, link)
-                    if (spans and spans[-1].end == span.start and link is not None
-                            and spans[-1].link is not None
-                            and replace(spans[-1].link, underline=link.underline) == link):
-                        spans[-1] = replace(spans[-1], end=span.end)
-                    else:
-                        spans.append(span)
-                it += 1
+            spans.extend(block_link_spans(block))
             block = block.next()
         self._link_spans = spans
         keys = {s.link.path for s in spans if s.link is not None}
         self._link_cache = {k: v for k, v in self._link_cache.items() if k in keys}
-        selections = []
-        for span in spans:
-            selection = QTextEdit.ExtraSelection()
-            selection.cursor = self._span_cursor(span)
-            selection.format.setForeground(QColor('#1565C0'))
-            selection.format.setFontUnderline(True)
-            selections.append(selection)
-        self.setExtraSelections(selections)
-        self.setViewportMargins(0, 0, 18 if spans else 0, 0)
-        self._position_rail()
+        self.viewport().update()
         self._check_visible_links()
 
     def _span_cursor(self, span):
@@ -173,25 +110,23 @@ class FileLinkTextEdit(QTextEdit):
         path = span.link.path if span.link else '연결 정보 확인 필요'
         return f'{self._span_cursor(span).selectedText()}\n{path}\n{self.link_error(span) or "Ctrl+클릭으로 파일 열기"}'
 
-    def _position_rail(self):
-        rect = self.viewport().geometry()
-        self._warning_rail.setGeometry(rect.right() + 1, rect.top(), 18, rect.height())
-        self._warning_rail.setVisible(bool(self._link_spans))
-        self._warning_rail.update()
+    def link_label_visuals(self):
+        return label_visuals(self) if self._link_spans else []
+
+    def paintEvent(self, event):
+        visuals = self.link_label_visuals()
+        if visuals:
+            paint_label_backgrounds(self, visuals)
+        super().paintEvent(event)
+        if visuals:
+            paint_label_details(self, visuals)
 
     def warning_visuals(self):
-        rows = {}
-        for span in self._link_spans:
-            if not self.link_error(span):
-                continue
-            cursor = self._span_cursor(span)
-            cursor.setPosition(span.end - 1)
-            rect = self.cursorRect(cursor)
-            if rect.bottom() < 0 or rect.top() >= self.viewport().height():
-                continue
-            y = rect.center().y()
-            rows.setdefault(y, []).append(span)
-        return [(QRectF(2, y - 6, 13, 12), spans) for y, spans in rows.items()]
+        return [(visual.warning_rect, [visual.span]) for visual in self.link_label_visuals()
+                if visual.warning_rect is not None and self.link_error(visual.span)]
+
+    def _span_at_point(self, point):
+        return next((v.span for v in self.link_label_visuals() if v.rect.contains(point)), None)
 
     def _start_check(self, paths, callback):
         if not self._allowed():
@@ -231,7 +166,7 @@ class FileLinkTextEdit(QTextEdit):
             def finished(errors):
                 for path, error in zip(paths, errors):
                     self._link_cache[path] = (monotonic(), error)
-                self._warning_rail.update()
+                self.viewport().update()
             self._start_check(paths, finished)
 
     def _notice(self, text):
@@ -383,7 +318,7 @@ class FileLinkTextEdit(QTextEdit):
         path = span.link.path
         def finished(errors):
             self._link_cache[path] = (monotonic(), errors[0])
-            self._warning_rail.update()
+            self.viewport().update()
             if errors[0]:
                 self._notice(errors[0])
                 self.choose_file_link(span)
@@ -428,30 +363,36 @@ class FileLinkTextEdit(QTextEdit):
             return super().contextMenuEvent(event)
         keyboard = event.reason() == QContextMenuEvent.Reason.Keyboard
         position = self.textCursor().position() if keyboard else self.cursorForPosition(event.pos()).position()
-        span = self._link_at(position) or (self._link_at(position - 1) if keyboard else None)
+        span = (self._link_at(position) or self._link_at(position - 1)) if keyboard else self._span_at_point(event.pos())
         self.show_link_menu([span] if span else [],
                             self.viewport().mapToGlobal(self.cursorRect().center()) if keyboard else event.globalPos(), True)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and event.modifiers() & Qt.ControlModifier:
-            point = event.position().toPoint()
-            if self.anchorAt(point).startswith(PREFIX):
-                position = self.cursorForPosition(point).position()
-                span = self._link_at(position) or self._link_at(position - 1)
-                if span:
-                    self.open_file_link(span)
+        if event.button() == Qt.LeftButton:
+            for rect, spans in self.warning_visuals():
+                if rect.contains(event.position()):
+                    self.show_link_menu(spans, event.globalPosition().toPoint())
                     event.accept()
                     return
+        if event.button() == Qt.LeftButton and event.modifiers() & Qt.ControlModifier:
+            point = event.position().toPoint()
+            span = self._span_at_point(point)
+            if span:
+                self.open_file_link(span)
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
-        if self.anchorAt(event.position().toPoint()).startswith(PREFIX) and event.modifiers() & Qt.ControlModifier:
+        if self._span_at_point(event.position()) and event.modifiers() & Qt.ControlModifier:
             self.viewport().setCursor(Qt.PointingHandCursor)
 
     def viewportEvent(self, event):
         if event.type() == QEvent.ToolTip and self._allowed():
-            span = self._link_at(self.cursorForPosition(event.pos()).position())
+            span = self._span_at_point(event.pos())
+            if span is None:
+                span = next((spans[0] for rect, spans in self.warning_visuals() if rect.contains(event.pos())), None)
             if span:
                 self._check_visible_links()
                 QToolTip.showText(event.globalPos(), self.link_tip(span), self)
@@ -500,10 +441,6 @@ class FileLinkTextEdit(QTextEdit):
             event.acceptProposedAction()
             return
         super().dropEvent(event)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._position_rail()
 
     def showEvent(self, event):
         super().showEvent(event)
