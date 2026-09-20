@@ -115,6 +115,8 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 
 ## Test Suite
 
+- **미니앱 주머니**: `test_ui_mini_apps.py`는 세 크기/짧은 화면의 6슬롯 접근·주머니 렌더·실제 클릭/키보드/반복 열기·음수 좌표 모니터 위치 보정·일정 저장 실패 게이트·잠금/트레이/보기 전환 취소·기존 DB 전체 dump/Export/바로가기/salt 불변을 검사한다. 기존 `test_ui.py`의 바로가기 등록/관리/드롭과 `test_ui_data_lifecycle.py`·`test_ui_schedule_emoji.py`의 수명 회귀를 함께 실행한다. 합성 PNG와 실제 EXE 자동 smoke·실제 혼합 DPI/KVM 수동 확인을 구분한다.
+
 - **이동 토글·스마일**: `test_ui_calendar_move.py`는 세 크기 실제 마우스 드래그·Tab/Space/Enter·설정 저장 실패·Import/초기화·잠금/트레이 취소·기본 380px 헤더를 검사한다. `test_ui_calendar_drag.py`는 OFF 차단·화면 간 크기/위치 보정을, `test_ui_schedule_emoji.py`는 색상 원과 스마일의 실제 렌더 외경/중심·선택/Undo를 검사한다. 관련 `quick --tests` 또는 `release`에서 합성 PNG를 남기며 실제 혼합 DPI/KVM 수동 검증을 대신하지 않는다.
 
 - **스티키 파일 링크(v3.7b)**: `test_sticky_file_links.py`의 Qt href/밑줄 메타데이터 왕복·경로 검사, `test_ui_sticky_file_links.py`의 서식·Undo·체크박스·두 보기·외부 실행 가로채기·주의 표시 무변경·8개 기존 테이블 raw/salt 보존, `test_ui_data_lifecycle.py`의 최신 링크 Export/실패·잠금/트레이/폐기/보기 전환 취소를 검사한다. 하네스 실행에는 `sticky-file-links.png` 합성 UI 캡처를 남긴다. 실제 파일 드롭·IME·기본 프로그램·혼합 DPI/KVM은 별도 수동 확인이다.

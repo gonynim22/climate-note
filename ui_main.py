@@ -9,13 +9,15 @@ _logger = logging.getLogger("app_error")
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QListWidget, QListWidgetItem, QApplication, QLabel,
-    QSizePolicy, QLineEdit, QPushButton, QDialog, QFileDialog, QInputDialog
+    QSizePolicy, QLineEdit, QPushButton, QDialog, QFileDialog, QInputDialog,
+    QScrollArea, QFrame,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QUrl, QPoint, QPointF, QRectF
 from PySide6.QtGui import QFont, QDesktopServices, QPainter, QBrush, QPen, QColor
 
 import ctypes
 from ctypes import wintypes
+from shiboken6 import isValid
 
 # ─── Windows 메시지 상수 ───────────────────────────────────────
 WM_POWERBROADCAST = 0x0218
@@ -409,6 +411,7 @@ from ui_schedule_emoji import (
 )
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
+from ui_mini_apps import MiniAppsButton, MiniAppsPocket, pocket_position
 
 import database as db
 from show_desktop_guard import ShowDesktopKeeper
@@ -1070,6 +1073,8 @@ class ShortcutSlot(QWidget):
         self._persist("", "")
 
 class ShortcutSidebarWidget(QWidget):
+    mini_apps_requested = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("shortcutSidebar")
@@ -1087,22 +1092,51 @@ class ShortcutSidebarWidget(QWidget):
             }
         """)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 16, 8, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(0, 16, 0, 16)
+        layout.setSpacing(6)
+
+        self.mini_apps_button = MiniAppsButton(self)
+        self.mini_apps_button.clicked.connect(self.mini_apps_requested)
+        layout.addWidget(self.mini_apps_button, 0, Qt.AlignHCenter)
+        divider = QFrame(self)
+        divider.setFixedSize(56, 1)
+        divider.setStyleSheet("background:#DCE2EA;")
+        layout.addWidget(divider, 0, Qt.AlignHCenter)
 
         # Title
         title = QLabel("바로가기")
         title.setAlignment(Qt.AlignCenter)
+        title.setFixedHeight(16)
         title.setStyleSheet("font-size: 11px; color: #212121; font-weight: bold;")
         layout.addWidget(title)
 
+        # 최상단 미니앱은 고정하고, 짧은 화면에서만 기존 6개 목록을 스크롤한다.
+        self.shortcuts_scroll = QScrollArea(self)
+        self.shortcuts_scroll.setObjectName("shortcutsScroll")
+        self.shortcuts_scroll.setFrameShape(QFrame.NoFrame)
+        self.shortcuts_scroll.setWidgetResizable(True)
+        self.shortcuts_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.shortcuts_scroll.setStyleSheet(
+            "QScrollArea{background:transparent;border:0;}"
+            "QScrollBar:vertical{width:6px;background:transparent;margin:0;}"
+            "QScrollBar::handle:vertical{background:#B7C5D5;border-radius:3px;min-height:24px;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+            "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent;}"
+        )
+        slots_content = QWidget()
+        slots_content.setStyleSheet("background:transparent;")
+        slots_layout = QVBoxLayout(slots_content)
+        slots_layout.setContentsMargins(8, 0, 0, 0)
+        slots_layout.setSpacing(6)
         self.slots = []
         for i in range(1, 7):
-            slot = ShortcutSlot(i, self)
+            slot = ShortcutSlot(i, slots_content)
             self.slots.append(slot)
-            layout.addWidget(slot)
-
-        layout.addStretch()
+            slots_layout.addWidget(slot, 0, Qt.AlignLeft)
+        slots_layout.addStretch()
+        self.shortcuts_scroll.setWidget(slots_content)
+        self.shortcuts_scroll.viewport().setAutoFillBackground(False)
+        layout.addWidget(self.shortcuts_scroll, 1)
 
     def load_shortcuts(self):
         shortcuts = db.get_shortcuts()
@@ -1137,6 +1171,11 @@ class MainCalendarWindow(QWidget):
         self._is_locked = False
         self._hidden_to_tray = False
         self._search_window = None
+        self._mini_apps_popup = None
+        self._mini_apps_previous_focus = None
+        self._mini_apps_focus_timer = QTimer(self)
+        self._mini_apps_focus_timer.setSingleShot(True)
+        self._mini_apps_focus_timer.timeout.connect(self._restore_mini_apps_focus)
         self._show_lunar = db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1"
         self._schedule_color = db.DEFAULT_SCHEDULE_COLOR
         self._calendar_drag_offset = None
@@ -1232,6 +1271,7 @@ class MainCalendarWindow(QWidget):
             self._apply_sidebar_visibility()
 
     def _apply_sidebar_visibility(self):
+        self._close_mini_apps()
         show_sidebar = db.get_setting(db.SETTING_SHOW_SIDEBAR, "0") == "1"
         
         # 시각적 업데이트 중단 (최소화)
@@ -1453,6 +1493,7 @@ class MainCalendarWindow(QWidget):
 
     def _apply_calendar_scale(self):
         """저장된 compact/medium/large 설정을 즉시 반영."""
+        self._close_mini_apps()
         self._reset_calendar_drag()
         scale = self._current_calendar_scale()
         expanded = scale != "compact"
@@ -1517,6 +1558,7 @@ class MainCalendarWindow(QWidget):
         main_layout.setSpacing(0)
 
         self.sidebar = ShortcutSidebarWidget(self.container)
+        self.sidebar.mini_apps_requested.connect(self._toggle_mini_apps)
         main_layout.addWidget(self.sidebar)
         self.sidebar.load_shortcuts()
 
@@ -3192,6 +3234,7 @@ class MainCalendarWindow(QWidget):
 
     def _discard_data_widgets(self) -> None:
         """초기화 전 모든 이전 데이터 편집기/타이머를 정지하고 폐기한다."""
+        self._close_mini_apps()
         self._reset_calendar_drag()
         self._close_schedule_emoji_popups()
         self._cancel_sticky_file_links()
@@ -3264,6 +3307,7 @@ class MainCalendarWindow(QWidget):
 
     # ─── 최소화 (트레이) ─────────────────────────────────────────
     def _minimize_to_tray(self):
+        self._close_mini_apps()
         self._hidden_to_tray = True
         self._reset_calendar_drag()
         self._update_calendar_move_control()
@@ -3318,6 +3362,7 @@ class MainCalendarWindow(QWidget):
 
     def prepare_for_quit(self) -> bool:
         """정상 종료 전에 일정·스티키 저장을 확정하고 실패하면 종료를 보류한다."""
+        self._close_mini_apps()
         self._cancel_sticky_file_links()
         if not self._save_schedule_edit():
             return False
@@ -3384,6 +3429,7 @@ class MainCalendarWindow(QWidget):
 
     def _on_screen_changed(self):
         """화면 구성 변경 시 모든 창의 위치를 DB 저장값으로 복원하고, 화면 밖이면 보정"""
+        self._close_mini_apps()
         screens = QApplication.screens()
         if not screens:
             return
@@ -3473,6 +3519,62 @@ class MainCalendarWindow(QWidget):
 
         return super().nativeEvent(event_type, message)
 
+    def _mini_apps_allowed(self) -> bool:
+        return not self._is_locked and not self._hidden_to_tray and self.sidebar.isVisible()
+
+    def _toggle_mini_apps(self) -> None:
+        button = self.sidebar.mini_apps_button
+        if self._mini_apps_popup is not None:
+            self._mini_apps_popup.dismiss()
+            return
+        button.setChecked(False)
+        if not self._mini_apps_allowed() or not self._save_schedule_edit():
+            return
+        self._close_schedule_emoji_popups()
+        self._mini_apps_focus_timer.stop()
+        self._mini_apps_previous_focus = QApplication.focusWidget()
+        popup = MiniAppsPocket(self)
+        self._mini_apps_popup = popup
+        popup.dismissed.connect(lambda restore: self._on_mini_apps_dismissed(popup, restore))
+        anchor = button.rect().translated(button.mapToGlobal(QPoint()))
+        screen = QApplication.screenAt(anchor.center()) or self.screen()
+        available = screen.availableGeometry()
+        popup.resize(min(300, available.width()), min(220, available.height()))
+        popup.move(pocket_position(anchor, popup.size(), available))
+        button.setChecked(True)
+        popup.show()
+        popup.close_button.setFocus(Qt.PopupFocusReason)
+
+    def _on_mini_apps_dismissed(self, popup, restore: bool) -> None:
+        if self._mini_apps_popup is not popup:
+            return
+        self._mini_apps_popup = None
+        self.sidebar.mini_apps_button.setChecked(False)
+        popup.deleteLater()
+        if restore and self._mini_apps_allowed():
+            self._mini_apps_focus_timer.start(0)
+        else:
+            self._mini_apps_previous_focus = None
+
+    def _restore_mini_apps_focus(self) -> None:
+        target = self._mini_apps_previous_focus
+        self._mini_apps_previous_focus = None
+        if not self._mini_apps_allowed() or self._mini_apps_popup is not None:
+            return
+        if target is None or not isValid(target) or not target.isVisible() or not target.isEnabled():
+            target = self.sidebar.mini_apps_button
+        target.setFocus(Qt.PopupFocusReason)
+
+    def _close_mini_apps(self) -> None:
+        self._mini_apps_focus_timer.stop()
+        self._mini_apps_previous_focus = None
+        popup = self._mini_apps_popup
+        self._mini_apps_popup = None
+        if popup is not None:
+            self.sidebar.mini_apps_button.setChecked(False)
+            popup.close()
+            popup.deleteLater()
+
     def _calendar_drag_allowed(self) -> bool:
         return self._calendar_move_enabled and not self._is_locked and not self._hidden_to_tray
 
@@ -3509,6 +3611,8 @@ class MainCalendarWindow(QWidget):
     def eventFilter(self, obj, event) -> bool:
         """헤더 배경/연월 라벨 드래그로 프레임리스 캘린더를 이동한다."""
         event_type = event.type()
+        if obj is self and event_type in (QEvent.Move, QEvent.Resize, QEvent.Hide):
+            self._close_mini_apps()
         if event_type in (
             QEvent.Type.WindowDeactivate,
             QEvent.Type.UngrabMouse,
@@ -3627,6 +3731,7 @@ class MainCalendarWindow(QWidget):
             _logger.error("캘린더 위치 저장 실패: %s", e)
 
     def _lock(self):
+        self._close_mini_apps()
         self._is_locked = True
         self._reset_calendar_drag()
         self._update_calendar_move_control()
