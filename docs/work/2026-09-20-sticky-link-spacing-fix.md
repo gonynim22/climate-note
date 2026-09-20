@@ -1,6 +1,6 @@
 # 작업 기록: 스티키 링크 배지·간격 개선
 
-작성일: 2026-09-20 / 상태: 구현·관련 검사 완료, 소스 커밋 후 빌드 예정
+작성일: 2026-09-20 / 상태: 구현·관련 검사·소스 커밋·release·dist 배치 완료
 
 ## 목표와 범위
 
@@ -14,8 +14,8 @@
 
 - [x] 두 편집기의 배지 크기·테두리 여유와 정상 링크 뒤 간격 개선.
 - [x] 상태 전환·줄바꿈·연속 링크·Unicode·복사·선택·Undo·저장 보존 검증.
-- [ ] UI/아키텍처 계약·AGENTS.md 갱신과 관련 검사 후 소스 커밋.
-- [ ] 커밋 후 release 전체 검사·격리 EXE 시나리오·해시/Qt 대조 및 dist 배치.
+- [x] UI/아키텍처 계약·AGENTS.md 갱신과 관련 검사 후 소스 커밋.
+- [x] 커밋 후 release 전체 검사·격리 EXE 시나리오·해시/Qt 대조 및 dist 배치.
 
 ## 결정과 진행
 
@@ -26,6 +26,9 @@
 - 경고가 필요한 경우만 외부 공간 14px를 추가하며 다른 링크/체크박스 표시 서식을 유지한다. 상태 변화로 줄바꿈은 바뀔 수 있으나 본문·HTML·복사·revision·Undo는 바뀌지 않는다. 조합 중 블록의 preedit 서식은 건드리지 않고 조합 종료 뒤 공간/아이콘을 반영한다.
 - 최초 관련 검사 1건은 테스트가 정상 캐시를 넣은 뒤 이전 경고 공간 좌표로 마우스를 드래그해 뒤 문구까지 선택한 실패다. 캐시 상태가 바뀐 뒤 페인트를 기다리지 않고 기하를 갱신하도록 실제 비동기 콜백과 합성 상태 helper를 맞췄다. 별도 회귀 검사로 결과 콜백 직후 네이티브 커서 위치를 확인한다.
 - 100/125/150% 합성 배율의 실제 Qt 캡처를 확인했다. 11/12/13px 본문에서 배지가 테두리와 분리되고 정상 링크 뒤의 공백이 축소됐다. 합성 IME preedit 검사는 실제 한글 키보드/혼합 모니터 실기 확인을 대신하지 않는다.
+- 최종 관련/배율 검사 입력 해시와 현재 파일이 같고 버전·DB·암호화·lock에 diff가 없음을 확인한 뒤, 이번 변경만 `085fd78`로 커밋했다. 이후 `release` 실행 `20260920-205858-837fd234ab`를 시작했다. 이전 사용자 변경은 인덱스에 넣지 않았다.
+- 해당 release에서 755개 테스트·새 EXE 빌드·격리 시나리오 3개가 모두 통과했고 검사 전후 입력이 같았다. 최종 앱 코드/테스트/리소스는 이 실행 후 변경하지 않았다. 이후 변경은 이 결과·다운로드 경로를 반영하는 문서뿐이다.
+- 실제 EXE의 Qt6Core/Gui/Widgets는 모두 6.11.2.0이며 검증 venv와 바이트/해시가 같았다. 파일 라벨 모듈 5개와 체인 SVG 포함을 확인했다. 검증한 EXE를 표준 `dist/기후노트_v3.7b.exe`로 배치하고 SHA-256 일치를 확인했다. 배치 시 dist 루트의 기존 표준/별도 이름 EXE 대상이 없어 기존 파일을 덮어쓰지 않았다. 사용자 실행 중인 앱을 종료하거나 사용자 AppData를 검사하지 않았다.
 
 ## 검증 증거
 
@@ -35,12 +38,26 @@
 | 최종 관련 quick | 통과: 166개 | [20260920-205445-b49a843d96](../../output/harness/20260920-205445-b49a843d96/summary.md), [result.json](../../output/harness/20260920-205445-b49a843d96/result.json) |
 | 125% quick | 통과: 89개 | [20260920-205532-2c2933eb1b](../../output/harness/20260920-205532-2c2933eb1b/summary.md), [result.json](../../output/harness/20260920-205532-2c2933eb1b/result.json) |
 | 150% quick | 통과: 89개 | [20260920-205614-70fb806907](../../output/harness/20260920-205614-70fb806907/summary.md), [result.json](../../output/harness/20260920-205614-70fb806907/result.json) |
-| release | 미실행 | 소스 커밋 후 실행 |
+| release | 통과: 755개 + EXE 3개 시나리오 | [20260920-205858-837fd234ab](../../output/harness/20260920-205858-837fd234ab/summary.md), [result.json](../../output/harness/20260920-205858-837fd234ab/result.json): 커밋 `085fd78`, 검사 전후 입력 불변 |
+| 실제 번들/배치 | 통과 | [artifact-check/summary.md](../../output/harness/20260920-205858-837fd234ab/artifact-check/summary.md), [result.json](../../output/harness/20260920-205858-837fd234ab/artifact-check/result.json): Qt DLL 버전/바이트·모듈·SVG·dist 해시 |
 
 관련 검사 명령: `.\.venv\Scripts\python.exe tools/verify.py quick --tests tests/test_ui_sticky_link_labels.py tests/test_ui_sticky_file_links.py tests/test_ui_sticky.py tests/test_ui_sticky_panel.py`.
-배율별 검사는 별도 PowerShell 프로세스에서 `QT_SCALE_FACTOR=1.25`/`1.5`를 지정해 `quick --tests tests/test_ui_sticky_link_labels.py`로 실행했다. 각 실행의 `compact-label-*.png`와 기존 두 보기 캡처를 보존한다. 앱 코드/테스트/계약 문서는 최종 quick 이후 변경하지 않았다.
+배율별 검사는 별도 PowerShell 프로세스에서 `QT_SCALE_FACTOR=1.25`/`1.5`를 지정해 `quick --tests tests/test_ui_sticky_link_labels.py`로 실행했다. 각 실행의 `compact-label-*.png`와 기존 두 보기 캡처를 보존한다. 런타임 코드/테스트와 UI·아키텍처 동작 계약은 최종 quick 이후 변경하지 않았다.
+
+최종 빌드 명령: `.\.venv\Scripts\python.exe tools/verify.py release`.
+산출물: `dist/기후노트_v3.7b.exe`, **57,939,983 bytes**, Windows `3.7.2.0`, `NotSigned`.
+SHA-256: **`3BEE70A22C92656EE25E681725C7C33DCAA297D13ACF18B3B5849AA572282B19`**.
+
+수동 배포 확인(2026-09-20):
+
+| 범위 | 결과 | 근거/제한 |
+|---|---|---|
+| 합성 소스 UI 100/125/150% | 확인 | 두 편집기 배지 여백/간격 캡처 및 자동 기하 검사 |
+| 합성 EXE 신규/기존 데이터/손상 salt | 자동 통과 | 강제 정리 방식이며 정상 종료 확인을 뜻하지 않음 |
+| 실제 IME·혼합 DPI·KVM·Win+D·설정/휴지통·정상 종료 | 미확인 | 이번 자동 검사로 대체하지 않음 |
+| Defender·라이선스/SBOM·Qt 고지·서명 후속 | 미확인/기존 보류 | 기존 과제 유지 |
 
 ## 미해결과 인계
 
 - 실제 IME/혼합 DPI/KVM·Win+D·보안/라이선스/서명 보류는 별도다.
-- push·게시 제외. 기존 EXE 보존 후 새 산출물을 배치한다.
+- 소스/AGENTS.md 커밋 `085fd78` 이후 빌드했고 결과 문서는 별도 후속 커밋한다. push·GitLab 게시 미수행.
