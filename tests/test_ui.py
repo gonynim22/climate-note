@@ -583,13 +583,13 @@ def test_settings_simplified_card_text_and_data_folder_button(qtbot, app_dir, qa
     assert win.open_data_folder_btn.toolTip() == "저장 폴더 열기"
 
 
-def test_settings_credit_uses_v37b_metadata(qtbot, app_dir, qapp):
-    """v3.7b의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
+def test_settings_credit_uses_v38_metadata(qtbot, app_dir, qapp):
+    """v3.8의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
     win = SettingsWindow()
     qtbot.addWidget(win)
 
-    assert APP_VERSION == "v3.7b"
-    assert win.author_label.text().startswith("v3.7b  ·  2026. 9. 20.")
+    assert APP_VERSION == "v3.8"
+    assert win.author_label.text().startswith("v3.8  ·  2026. 9. 21.")
 
 
 def test_update_guide_text_uses_current_version():
@@ -836,7 +836,7 @@ def test_main_window_settings_brought_to_foreground(qtbot, app_dir, qapp, monkey
 
     class _FakeSettings:
         def __init__(self, **kwargs):
-            pass
+            self.reset_succeeded = MagicMock()
 
         def isVisible(self):
             return False
@@ -871,6 +871,7 @@ def test_main_window_settings_brought_to_foreground(qtbot, app_dir, qapp, monkey
     assert "show" in calls
     assert "raise" in calls
     assert "activate" in calls
+    win._settings_window.reset_succeeded.connect.assert_called_once_with(win._discard_unit_converter)
 
 
 def test_settings_font_combo_persists_and_requires_restart(qtbot, app_dir, qapp, monkeypatch):
