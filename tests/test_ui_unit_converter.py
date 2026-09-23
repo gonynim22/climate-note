@@ -255,6 +255,8 @@ def test_calculations_preserve_all_existing_data(qtbot, tmp_path):
     db.create_dday_widget("기념일", "2026-12-31")
     db.create_focus_widget("기존 목표")
     main = main_window(qtbot)
+    # 기동 시 예약된 스티키 크기 스냅 저장을 환산기 조작과 구분한다.
+    qtbot.waitUntil(lambda: all(not w._resize_timer.isActive() for w in main._sticky_windows.values()))
     with db._connection() as conn:
         before = tuple(conn.iterdump())
     salt = security.SALT_FILE.read_bytes()

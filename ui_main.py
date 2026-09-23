@@ -3594,7 +3594,7 @@ class MainCalendarWindow(QWidget):
         screen = QApplication.screenAt(anchor.center()) or self.screen()
         available = screen.availableGeometry()
         popup.resize(min(popup.width(), available.width()), min(popup.height(), available.height()))
-        popup.move(pocket_position(anchor, popup.size(), available))
+        popup.move(pocket_position(anchor, popup.size(), available, shadow_margin=popup.shadow_margin))
         button.setChecked(True)
         popup.show()
         popup.close_button.setFocus(Qt.PopupFocusReason)
