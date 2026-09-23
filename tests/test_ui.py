@@ -130,6 +130,12 @@ def test_settings_monitor_change_persists_and_calls_position_callback(qtbot, app
         def geometry(self):
             return self._rect
 
+        def availableGeometry(self):
+            return self._rect
+
+        def name(self):
+            return str(self._rect.x())
+
     class FakeApplication:
         @staticmethod
         def screens():

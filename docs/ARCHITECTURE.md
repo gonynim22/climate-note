@@ -38,6 +38,7 @@
   - `SETTING_CALENDAR_SCALE = "calendar_scale"` (default: `"compact"`, values: compact/medium/large)
   - `SETTING_CALENDAR_X = "calendar_x"`, `SETTING_CALENDAR_Y = "calendar_y"` — 캘린더 창 위치 저장/복원
   - `SETTING_CALENDAR_POSITION_MODE = "calendar_position_mode"` (default: `"corner"`, values: corner/free)
+  - `SETTING_CALENDAR_SCREEN = "calendar_screen"` — 명시적 드래그·모니터/모서리 선택 때만 저장하는 v1 JSON(화면 이름·serial·제조사·모델·저장 당시 작업 영역 원점). 기존 `target_screen` 인덱스와 전역 `calendar_x/y`는 유지한다. 키가 없거나 잘못된 경우 기존 인덱스를 사용하며 시작/화면 복구에서 새 행을 만들지 않는다.
   - `SETTING_CALENDAR_MOVE_ENABLED = "calendar_move_enabled"` (missing/invalid fallback: `"1"`, OFF: `"0"`). 사용자 토글에만 새 행을 쓰고 스키마/기존 행은 변경하지 않는다. Export v2 설정 왕복을 사용하며 Import 후 UI를 재동기화한다.
   - `SETTING_SCHEDULE_COLOR_1/2/3` — 기존 일정 슬롯 3개의 표시색
 - **v13→v14**: Adds only `app_opacity` and `calendar_scale` settings via `INSERT OR IGNORE`; no table or column changes.
@@ -107,6 +108,9 @@ build.bat
 | `build_app.py` | PyInstaller build script. 출력 exe 이름은 `app_info.py`의 `APP_DISPLAY_NAME`/`APP_VERSION` 기반 |
 
 ## 데이터·빌드 상세 계약
+
+- **KVM 화면·위치 복원(v3.8 후속)**: `screen_placement.py`가 화면 식별 정보를 캡처/검증한다. serial+제조사/모델의 유일한 일치를 우선하며, serial이 없거나 중복이면 이름과 장치 정보 조합이 유일할 때만 사용한다. 다른 serial을 가진 화면을 이름만 같다는 이유로 채택하지 않는다. 실행 중 기존 화면 객체를 계속 사용할 수 있으면 유지한다. 대상 부재/모호함은 기본 화면 임시 표시로 처리하고 선호 정보는 보존한다. 구형 인덱스 설정은 유효한 대상이 나타났을 때 메모리에서만 식별 정보를 기억한다. Import/초기화는 캐시를 다시 읽는다.
+- **자동 위치 보정은 저장 아님**: 크기·작업 영역·DPI·화면 분리로 보정한 캘린더 좌표는 `calendar_x/y`에 쓰지 않는다. 같은 대상 화면의 원점이 바뀌면 저장 당시 원점과의 차이만큼 상대 위치를 옮기고 작업 영역 안으로 보정한다. 명시적 드래그/모서리·모니터 선택 때만 화면 정보와 위치를 `save_settings()`의 한 트랜잭션으로 저장한다. 스티키/D-Day/집중도 화면 변경 때 원래 DB 좌표로 복원하고 임시 clamp 좌표는 DB에 쓰지 않으며 수동 이동 저장은 유지한다. DB v17·Export v2·salt·본문 형식은 바꾸지 않는다. 구현·검증·실제 KVM 미확인은 [복원 개선 기록](work/2026-09-22-kvm-window-position-fix.md)을 따른다.
 
 - **일정 이모지 저장**: 선택 도우미는 기존 `schedules.content` 앞에 `이모지 + ASCII 공백 한 칸`을 넣고 기존 Fernet 경로로 본문과 함께 암호화한다. DB v17·Export v2·canonical 색상 3슬롯·설정 키·salt는 유지하며 마이그레이션이나 기존 행 일괄 갱신은 하지 않는다. 알려진 선두 표식 하나만 명시적 선택 시 교체하고, 본문 안의 임의 Unicode는 보존한다. 직접 입력한 동일한 선두 표식과 도우미가 붙인 표식은 구별하지 않는다. 검색·복사·PIN Export/Import에는 이모지가 포함된 같은 본문을 사용한다.
 - **일정 인라인 편집 저장**: 입력창·이모지 버튼·선택창은 하나의 편집 영역이다. 팝업을 열었다는 이유로 저장하지 않으며 편집 확정 시 시작 당시 ID·날짜에만 적용한다. 저장 실패는 편집 내용 유지와 날짜/월/검색 이동·목록 재생성·가져오기/초기화·정상 종료 보류로 처리한다. 데이터 작업 준비는 일정 편집 저장 → 현재 스티키 원본 저장 순서이며, 초기화의 객체 폐기 단계는 일정 편집과 이모지 팝업도 취소한다. 원문을 바꾸지 않은 편집과 복호화 실패 행은 다시 암호화하거나 덮어쓰지 않는다.

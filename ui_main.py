@@ -18,6 +18,7 @@ from PySide6.QtGui import QFont, QDesktopServices, QPainter, QBrush, QPen, QColo
 import ctypes
 from ctypes import wintypes
 from shiboken6 import isValid
+from screen_placement import decode_screen, describe_screen, encode_screen, match_screen
 
 # ─── Windows 메시지 상수 ───────────────────────────────────────
 WM_POWERBROADCAST = 0x0218
@@ -1188,6 +1189,9 @@ class MainCalendarWindow(QWidget):
             db.SETTING_CALENDAR_MOVE_ENABLED, db.DEFAULT_CALENDAR_MOVE_ENABLED,
         ) != "0"
         self._watched_screen_ids = set()
+        self._screen_preference_key = None
+        self._screen_preference = None
+        self._preferred_screen = None
         self._keep_desktop_unavailable_warned = False
 
         # 위젯 개수 상한 정리(집중 1·D-Day 5). 로드/패널 적용 이전에 1회.
@@ -1426,6 +1430,11 @@ class MainCalendarWindow(QWidget):
                     screen = QApplication.screenAt(QPoint(x, y))
                 screen = screen or QApplication.primaryScreen()
                 if screen is not None:
+                    if screen is self._preferred_screen and self._screen_preference:
+                        origin = self._screen_preference["origin"]
+                        geometry = screen.availableGeometry()
+                        x += geometry.x() - origin[0]
+                        y += geometry.y() - origin[1]
                     return _clamp_calendar_xy(
                         x, y, width, height, screen.availableGeometry()
                     )
@@ -1440,11 +1449,8 @@ class MainCalendarWindow(QWidget):
         """현재 위치 모드에 맞게 크기와 좌표를 함께 적용한다."""
         x, y = self._calendar_xy_for_size(width, height, screen)
         self.setGeometry(x, y, width, height)
-        if self._calendar_position_mode() == "free":
-            saved = self._saved_calendar_xy()
-            if saved != (x, y):
-                db.save_setting(db.SETTING_CALENDAR_X, str(x))
-                db.save_setting(db.SETTING_CALENDAR_Y, str(y))
+        # 화면 분리·해상도/DPI 변경 중의 임시 보정은 사용자 좌표가 아니다.
+        # 명시적 드래그/설정 선택만 원래 위치와 화면 정보를 함께 저장한다.
 
     def _reparent_schedule_panel(self, scale: str):
         """일정 패널을 compact 하단과 expanded 우측 컬럼 사이에서 이동."""
@@ -3183,6 +3189,7 @@ class MainCalendarWindow(QWidget):
                 on_lunar_changed=self._refresh_calendar,
                 on_law_search_changed=self._on_law_search_changed,
                 on_position_changed=self._position_to_corner,
+                on_monitor_selected=self._position_to_corner,
                 on_sidebar_changed=self._on_sidebar_setting_changed,
                 on_opacity_changed=self._apply_app_opacity,
                 on_scale_changed=self._apply_calendar_scale,
@@ -3280,6 +3287,9 @@ class MainCalendarWindow(QWidget):
 
     def _on_import_complete(self):
         """Import 완료 후 DB 설정과 열린 UI를 즉시 다시 동기화한다."""
+        self._screen_preference_key = None
+        self._screen_preference = None
+        self._preferred_screen = None
         self._reset_calendar_drag()
         self._calendar_move_enabled = db.get_setting(
             db.SETTING_CALENDAR_MOVE_ENABLED, db.DEFAULT_CALENDAR_MOVE_ENABLED,
@@ -3393,28 +3403,65 @@ class MainCalendarWindow(QWidget):
         return False
 
     def _get_target_screen(self):
-        """환경설정에 지정된 타겟 모니터 객체를 반환합니다. (범위 초과 시 메인 모니터)"""
+        """선호 화면을 식별하고, 없을 때만 기본 화면에 임시 표시한다."""
         screens = QApplication.screens()
+        key = (db.get_setting(db.SETTING_TARGET_SCREEN, "0"),
+               db.get_setting(db.SETTING_CALENDAR_SCREEN, ""))
+        if key != self._screen_preference_key:
+            self._screen_preference_key = key
+            self._screen_preference = decode_screen(key[1])
+            self._preferred_screen = None
+        if self._screen_preference is not None:
+            if self._preferred_screen in screens:
+                return self._preferred_screen
+            self._preferred_screen = match_screen(self._screen_preference, screens)
+            return self._preferred_screen or QApplication.primaryScreen()
+
+        # 구형 설정은 세션 중 처음 발견한 대상의 정보를 메모리에서만 기억한다.
+        # 인덱스가 아직 없으면 기본 화면을 선호 화면으로 잘못 채택하지 않는다.
         try:
-            target_idx = int(db.get_setting(db.SETTING_TARGET_SCREEN, "0"))
+            target_idx = int(key[0])
             if 0 <= target_idx < len(screens):
-                return screens[target_idx]
+                self._preferred_screen = screens[target_idx]
+                self._screen_preference = describe_screen(self._preferred_screen)
+                return self._preferred_screen
         except ValueError:
-            pass
+            _logger.warning("유효하지 않은 대상 화면 설정: 기본 화면에 임시 표시합니다")
         return QApplication.primaryScreen()
 
     # ─── 모서리 고정 배치 ─────────────────────────────────────────
-    def _position_to_corner(self):
+    def _position_to_corner(self, screen=None) -> bool:
         """설정된 모서리 위치로 지정된 화면의 모서리에 캘린더 배치 (5mm 스냅 그리드 적용)"""
-        screen = self._get_target_screen()
+        screen = screen or self._get_target_screen()
         if not screen:
-            return
+            return False
+        previous_geometry = self.geometry()
+        previous_minimum = self.minimumSize()
+        width, height = self._calendar_scale_geometry(self._current_calendar_scale(), screen)
+        if self._current_calendar_scale() != "compact":
+            self.setMinimumSize(min(width, 600), 500)
+        self.resize(width, height)
         pos = db.get_setting(db.SETTING_CALENDAR_POSITION, "bottom-right")
         x, y = _calendar_corner_coordinates(screen, self.width(), self.height(), pos)
+        screens = QApplication.screens()
+        values = {
+            db.SETTING_CALENDAR_X: str(x), db.SETTING_CALENDAR_Y: str(y),
+            db.SETTING_CALENDAR_POSITION_MODE: "corner",
+            db.SETTING_CALENDAR_SCREEN: encode_screen(screen),
+        }
+        if screen in screens:
+            values[db.SETTING_TARGET_SCREEN] = str(screens.index(screen))
+        try:
+            db.save_settings(values)
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            self.setMinimumSize(previous_minimum)
+            self.setGeometry(previous_geometry)
+            _logger.error("캘린더 위치 저장 실패: %s", exc)
+            InfoBar.error(title="저장 실패", content="창 위치를 저장하지 못했습니다.",
+                          parent=self, position=InfoBarPosition.TOP, duration=3000)
+            return False
         self.move(x, y)
-        db.save_setting(db.SETTING_CALENDAR_X, str(x))
-        db.save_setting(db.SETTING_CALENDAR_Y, str(y))
-        db.save_setting(db.SETTING_CALENDAR_POSITION_MODE, "corner")
+        return True
 
     def _watch_screen_geometry(self, screen) -> None:
         """새로 연결된 화면까지 geometryChanged 감시에 포함한다."""
@@ -3428,6 +3475,10 @@ class MainCalendarWindow(QWidget):
         screen.availableGeometryChanged.connect(
             lambda *_args: self._screen_change_timer.start()
         )
+        for name in ("logicalDotsPerInchChanged", "physicalDotsPerInchChanged"):
+            signal = getattr(screen, name, None)
+            if signal is not None:
+                signal.connect(lambda *_args: self._screen_change_timer.start())
 
     def _on_screen_added(self, screen) -> None:
         self._watch_screen_geometry(screen)
@@ -3440,6 +3491,7 @@ class MainCalendarWindow(QWidget):
     def _on_screen_changed(self):
         """화면 구성 변경 시 모든 창의 위치를 DB 저장값으로 복원하고, 화면 밖이면 보정"""
         self._close_mini_apps()
+        self._reset_calendar_drag()
         screens = QApplication.screens()
         if not screens:
             return
@@ -3473,11 +3525,7 @@ class MainCalendarWindow(QWidget):
             note_data = note_map.get(note_id)
             if note_data:
                 win.move(note_data["x_pos"], note_data["y_pos"])
-            if _clamp_window_to_available_screens(win, screens):
-                try:
-                    db.update_sticky_note(note_id, x_pos=win.x(), y_pos=win.y())
-                except (sqlite3.Error, OSError) as e:
-                    _logger.warning("스티키 노트 위치 보정 저장 실패 (id=%s): %s", note_id, e)
+            _clamp_window_to_available_screens(win, screens)
 
         # 3) D-Day 위젯 위치 복원
         try:
@@ -3490,11 +3538,7 @@ class MainCalendarWindow(QWidget):
             widget_data = widget_map.get(widget_id)
             if widget_data:
                 win.move(widget_data["x_pos"], widget_data["y_pos"])
-            if _clamp_window_to_available_screens(win, screens):
-                try:
-                    db.update_dday_widget(widget_id, x_pos=win.x(), y_pos=win.y())
-                except (sqlite3.Error, OSError) as e:
-                    _logger.warning("D-Day 위젯 위치 보정 저장 실패 (id=%s): %s", widget_id, e)
+            _clamp_window_to_available_screens(win, screens)
 
         # 4) 집중 모드 위젯 위치 복원
         try:
@@ -3507,11 +3551,7 @@ class MainCalendarWindow(QWidget):
             widget_data = focus_map.get(widget_id)
             if widget_data:
                 win.move(widget_data["x_pos"], widget_data["y_pos"])
-            if _clamp_window_to_available_screens(win, screens):
-                try:
-                    db.update_focus_widget(widget_id, x_pos=win.x(), y_pos=win.y())
-                except (sqlite3.Error, OSError) as e:
-                    _logger.warning("집중 모드 위젯 위치 보정 저장 실패 (id=%s): %s", widget_id, e)
+            _clamp_window_to_available_screens(win, screens)
 
     # ─── 잠금 기능 ──────────────────────────────────────────────
     def nativeEvent(self, event_type, message):
@@ -3767,12 +3807,13 @@ class MainCalendarWindow(QWidget):
         nearest_corner = _nearest_corner_for_rect(calendar_rect, screen_rect)
 
         try:
-            # mode는 마지막에 기록한다. 좌표 저장 중 중단돼도 기존 corner 동작이 남는다.
-            db.save_setting(db.SETTING_CALENDAR_X, str(x))
-            db.save_setting(db.SETTING_CALENDAR_Y, str(y))
-            db.save_setting(db.SETTING_TARGET_SCREEN, str(screen_index))
-            db.save_setting(db.SETTING_CALENDAR_POSITION, nearest_corner)
-            db.save_setting(db.SETTING_CALENDAR_POSITION_MODE, "free")
+            db.save_settings({
+                db.SETTING_CALENDAR_X: str(x), db.SETTING_CALENDAR_Y: str(y),
+                db.SETTING_TARGET_SCREEN: str(screen_index),
+                db.SETTING_CALENDAR_SCREEN: encode_screen(screen),
+                db.SETTING_CALENDAR_POSITION: nearest_corner,
+                db.SETTING_CALENDAR_POSITION_MODE: "free",
+            })
         except (sqlite3.Error, OSError, ValueError) as e:
             _logger.error("캘린더 위치 저장 실패: %s", e)
 

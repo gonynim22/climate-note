@@ -37,6 +37,7 @@ SETTING_CALENDAR_X = "calendar_x"
 SETTING_CALENDAR_Y = "calendar_y"
 SETTING_CALENDAR_POSITION = "calendar_position"  # top-left, top-right, bottom-left, bottom-right
 SETTING_TARGET_SCREEN = "target_screen"
+SETTING_CALENDAR_SCREEN = "calendar_screen"  # 화면 식별 정보와 저장 당시 작업 영역 원점
 SETTING_SHOW_SIDEBAR = "show_sidebar"
 SETTING_APP_FONT = "app_font"
 SETTING_APP_OPACITY = "app_opacity"          # 전체 창 투명도 "30"~"100" (v3.0)
@@ -1817,6 +1818,16 @@ def get_setting(key: str, default: str = "") -> str:
 def save_setting(key: str, value: str) -> None:
     with _connection() as conn:
         conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+
+
+def save_settings(values: dict[str, str]) -> None:
+    """서로 연결된 위치·화면 설정을 모두 저장하거나 모두 보존한다."""
+    with _connection() as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+            values.items(),
+        )
         conn.commit()
 
 

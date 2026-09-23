@@ -32,6 +32,7 @@ from app_fonts import (
     system_font_key,
 )
 from app_info import APP_DISPLAY_NAME, app_credit_text
+from screen_placement import decode_screen, describe_screen, encode_screen, match_screen
 import database as db
 from security import (
     encrypt_with_pin, decrypt_with_pin, audit, APP_DIR, reset_salt,
@@ -420,7 +421,8 @@ class SettingsWindow(QWidget):
                  on_position_changed=None, on_sidebar_changed=None,
                  on_opacity_changed=None, on_scale_changed=None,
                  on_keep_changed=None, on_schedule_colors_changed=None,
-                 on_prepare_data_change=None, on_before_reset=None):
+                 on_prepare_data_change=None, on_before_reset=None,
+                 on_monitor_selected=None):
         super().__init__(parent)
         self.on_reset_callback = on_reset_callback
         self.on_import_callback = on_import_callback
@@ -428,6 +430,7 @@ class SettingsWindow(QWidget):
         self.on_lunar_changed = on_lunar_changed
         self.on_law_search_changed = on_law_search_changed
         self.on_position_changed = on_position_changed
+        self.on_monitor_selected = on_monitor_selected
         self.on_sidebar_changed = on_sidebar_changed
         self.on_opacity_changed = on_opacity_changed
         self.on_scale_changed = on_scale_changed
@@ -591,15 +594,23 @@ class SettingsWindow(QWidget):
         # 모니터 (콤보 단독 행)
         self.monitor_combo = ComboBox(self)
         self.monitor_combo.setFixedWidth(210)
-        for index, screen in enumerate(QApplication.screens()):
+        self._monitor_screens = list(QApplication.screens())
+        self._monitor_records = [describe_screen(screen) for screen in self._monitor_screens]
+        for index, screen in enumerate(self._monitor_screens):
             geometry = screen.geometry()
             self.monitor_combo.addItem(
                 f"모니터 {index + 1} ({geometry.width()}x{geometry.height()})",
                 userData=str(index),
             )
         monitor_index = self.monitor_combo.findData(db.get_setting(db.SETTING_TARGET_SCREEN, "0"))
+        preferred = match_screen(
+            decode_screen(db.get_setting(db.SETTING_CALENDAR_SCREEN, "")), self._monitor_screens,
+        )
+        if preferred is not None:
+            monitor_index = self._monitor_screens.index(preferred)
         if monitor_index >= 0:
             self.monitor_combo.setCurrentIndex(monitor_index)
+        self._monitor_selection_index = self.monitor_combo.currentIndex()
         self.monitor_combo.currentIndexChanged.connect(self._on_monitor_changed)
         self._add_row(disp_body, "모니터", self.monitor_combo)
 
@@ -893,11 +904,45 @@ class SettingsWindow(QWidget):
             self.on_schedule_colors_changed()
 
     def _on_monitor_changed(self, index: int):
-        # 콤보박스의 UserData에서 screen index를 뽑아냄
-        screen_idx = self.monitor_combo.itemData(index)
-        db.save_setting(db.SETTING_TARGET_SCREEN, screen_idx)
+        if not 0 <= index < len(self._monitor_screens):
+            return
+        screens = QApplication.screens()
+        selected = self._monitor_screens[index]
+        if selected not in screens:
+            selected = match_screen(self._monitor_records[index], screens)
+        if selected is None:
+            self._restore_monitor_selection()
+            InfoBar.warning(
+                title="모니터 연결 변경", content="선택한 모니터가 없습니다. 설정을 다시 열어 주세요.",
+                parent=self, position=InfoBarPosition.TOP, duration=3000,
+            )
+            return
+        if self.on_monitor_selected:
+            if self.on_monitor_selected(selected):
+                self._monitor_selection_index = index
+            else:
+                self._restore_monitor_selection()
+            return
+        try:
+            db.save_settings({
+                db.SETTING_TARGET_SCREEN: str(screens.index(selected)),
+                db.SETTING_CALENDAR_SCREEN: encode_screen(selected),
+            })
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            self._restore_monitor_selection()
+            import logging
+            logging.getLogger("app_error").error("모니터 설정 저장 실패: %s", exc)
+            InfoBar.error(title="저장 실패", content="모니터 설정을 저장하지 못했습니다.",
+                          parent=self, position=InfoBarPosition.TOP, duration=3000)
+            return
+        self._monitor_selection_index = index
         if self.on_position_changed:
             self.on_position_changed()
+
+    def _restore_monitor_selection(self):
+        blocked = self.monitor_combo.blockSignals(True)
+        self.monitor_combo.setCurrentIndex(self._monitor_selection_index)
+        self.monitor_combo.blockSignals(blocked)
 
     # ─── 시작프로그램 토글 ──────────────────────────────────────
     def _on_startup_toggled(self, checked: bool):
