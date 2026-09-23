@@ -78,6 +78,7 @@ def open_converter(qtbot, main, keyboard=False):
 
 
 def capture(win, name):
+    QApplication.processEvents()
     appdata = os.environ.get("CLIMATENOTE_TEST_APPDATA")
     if appdata:
         assert win.grab().save(str(Path(appdata).parent / f"unit-converter-{name}.png"))
@@ -310,6 +311,14 @@ def test_calculations_preserve_all_existing_data(qtbot, tmp_path):
     for cid in ("len", "temp", "db", "fuel", "co2", "gas_fraction", "mass_fraction", "water", "flow"):
         win = open_converter(qtbot, main)
         win.select_category(cid)
+        if cid == "gas_fraction":
+            win.to_combo.setCurrentIndex(win.to_combo.findData("mgm3"))
+            win.conditions_panel.gas_picker.setCurrentIndex(win.conditions_panel.gas_picker.findData("co2"))
+        elif cid == "temp":
+            win.conditions_panel.temperature_mode.setCurrentIndex(1)
+        elif cid == "water":
+            win.conditions_panel.water_approximation = False
+            win.conditions_panel.density_input.setText("1.2")
         win.input.setText("12.3456789")
         win.swap()
         win.save_recent()
@@ -375,8 +384,8 @@ def test_disconnected_screen_and_smaller_work_area_are_clamped(qtbot, monkeypatc
 @pytest.mark.parametrize("cid,text,result,basis", [
     ("gas_fraction", "400", 400000, "몰분율"),
     ("mass_fraction", "5", 5, "질량분율"),
-    ("water", "2.5", 2500, "밀도"),
-    ("flow", "6", 100, "표준상태"),
+    ("water", "2.5", 2.5, "밀도"),
+    ("flow", "6", 100, "실제 부피"),
 ])
 def test_environment_basis_input_and_recent_restore(qtbot, cid, text, result, basis):
     win = converter(qtbot)
@@ -389,7 +398,7 @@ def test_environment_basis_input_and_recent_restore(qtbot, cid, text, result, ba
     assert win._result == pytest.approx(result)
     qtbot.keyClick(win.input, Qt.Key_Return)
     win.select_category("len")
-    assert not win.basis_label.isVisible()
+    assert "척관법" in win.basis_label.text()
     chip = win.recent_content.findChild(QPushButton, "recentCalculation")
     qtbot.mouseClick(chip, Qt.LeftButton)
     assert win.category_id == cid
@@ -400,3 +409,183 @@ def test_environment_basis_input_and_recent_restore(qtbot, cid, text, result, ba
     assert not win.swap_button.isEnabled()
     win.save_recent()
     assert len(win.history.items) == 1
+
+
+def enter_text(qtbot, edit, text):
+    edit.setFocus()
+    qtbot.waitUntil(edit.hasFocus)
+    qtbot.keyClick(QApplication.focusWidget(), Qt.Key_A, Qt.ControlModifier)
+    qtbot.keyClicks(QApplication.focusWidget(), text)
+
+
+def test_water_conditions_edit_reset_history_and_swap(qtbot):
+    win = converter(qtbot)
+    win.select_category("water")
+    panel = win.conditions_panel
+    assert not panel.details.isVisible()
+    enter_text(qtbot, win.input, "10")
+    assert win._result == 10
+    assert win.result_label.text() == "≈ 10"
+    win.save_recent()
+    qtbot.mouseClick(panel.toggle, Qt.LeftButton)
+    enter_text(qtbot, panel.density_input, "1.2")
+    assert win._result == pytest.approx(12)
+    assert win.result_label.text() == "12"
+    assert "직접 입력" in panel.summary.text()
+    assert win._row_widgets["ugl"][1].text() == "12,000"
+    win.save_recent()
+    assert len(win.history.items) == 2
+    qtbot.mouseClick(panel.toggle, Qt.LeftButton)
+    assert "1.2" in panel.summary.text()
+    qtbot.mouseClick(win.swap_button, Qt.LeftButton)
+    assert win._result == pytest.approx(10)
+    win.select_category("len")
+    win.restore_recent(win.history.items[0])
+    assert panel.density_input.text() == "1.2"
+    assert win._result == pytest.approx(12)
+    win.restore_recent(win.history.items[1])
+    assert win.result_label.text() == "≈ 10"
+    qtbot.mouseClick(panel.toggle, Qt.LeftButton)
+    enter_text(qtbot, panel.density_input, "0")
+    assert win._result is None
+    assert not win.swap_button.isEnabled()
+    assert panel.error.isVisible()
+    win.save_recent()
+    assert len(win.history.items) == 2
+    qtbot.mouseClick(panel.reset_button, Qt.LeftButton)
+    assert win._result == 10
+    assert panel.water_approximation
+    QApplication.processEvents()
+    capture(win, "water-conditions")
+
+
+def test_gas_selection_custom_conditions_and_recent_restore(qtbot):
+    win = converter(qtbot)
+    win.select_category("gas_fraction")
+    panel = win.conditions_panel
+    assert not panel.gas_picker.isVisible()
+    enter_text(qtbot, win.input, "400")
+    win.to_combo.setCurrentIndex(win.to_combo.findData("mgm3"))
+    assert panel.gas_picker.isVisible()
+    assert win._result is None  # 선택하지 않은 물질을 임의로 추정하지 않는다.
+    panel.gas_picker.setFocus()
+    qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Down)
+    assert panel.gas_picker.currentData() == "co2"
+    assert win._result == pytest.approx(719.538504984129)
+    assert win.result_label.text().startswith("≈")
+    win.save_recent()
+    qtbot.mouseClick(panel.toggle, Qt.LeftButton)
+    enter_text(qtbot, panel.gas_pressure_input, "202.65")
+    assert win._result == pytest.approx(1439.077009968258)
+    win.save_recent()
+    assert len(win.history.items) == 2
+    panel.gas_picker.setCurrentIndex(panel.gas_picker.findData("custom"))
+    assert win._result is None
+    enter_text(qtbot, panel.molar_mass_input, "44.0095")
+    assert win._result == pytest.approx(1439.077009968258)
+    enter_text(qtbot, panel.gas_temperature_input, "-273.15")
+    assert win._result is None
+    win.restore_recent(win.history.items[1])
+    assert panel.gas_picker.currentData() == "co2"
+    assert panel.gas_pressure_input.text() == "101.325"
+    assert win._result == pytest.approx(719.538504984129)
+    assert not panel.details.isVisible()
+    qtbot.mouseClick(win.swap_button, Qt.LeftButton)
+    assert win._result == pytest.approx(400)
+    QApplication.processEvents()
+    capture(win, "gas-conditions")
+
+
+def test_temperature_difference_mode_and_history(qtbot):
+    win = converter(qtbot)
+    win.select_category("temp")
+    panel = win.conditions_panel
+    enter_text(qtbot, win.input, "10")
+    assert win._result == pytest.approx(50, abs=1e-12)
+    win.save_recent()
+    panel.temperature_mode.setFocus()
+    qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Down)
+    assert win._result == 18
+    win.save_recent()
+    enter_text(qtbot, win.input, "-500")
+    assert win._result == pytest.approx(-900, abs=1e-12)
+    win.restore_recent(win.history.items[0])
+    assert panel.temperature_mode.currentIndex() == 1
+    assert win._result == 18
+    win.restore_recent(win.history.items[1])
+    assert panel.temperature_mode.currentIndex() == 0
+    assert win._result == pytest.approx(50, abs=1e-12)
+    QApplication.processEvents()
+    capture(win, "temperature-mode")
+
+
+@pytest.mark.parametrize("cid", ["water", "gas_fraction", "temp", "press", "db", "time"])
+def test_conditions_accessible_in_small_work_area(qtbot, monkeypatch, cid):
+    win = converter(qtbot)
+    win.select_category(cid)
+    panel = win.conditions_panel
+    available = QRect(0, 0, 340, 400)
+    class Screen:
+        def availableGeometry(self):
+            return available
+    monkeypatch.setattr(QApplication, "screenAt", lambda point: Screen())
+    win.fit_to_screen()
+    panel.toggle.setFocus()
+    qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Return)
+    if cid == "gas_fraction":
+        panel.gas_picker.setCurrentIndex(panel.gas_picker.findData("custom"))
+    QApplication.processEvents()
+    assert panel.details.isVisible()
+    assert available.contains(win.geometry())
+    assert win.body_scroll.horizontalScrollBar().maximum() == 0
+    for control in (panel.toggle, panel.note, win.input, win.result_label, win.recent_content):
+        win.body_scroll.ensureWidgetVisible(control)
+        QApplication.processEvents()
+        point = control.mapTo(win.body_scroll.viewport(), QPoint())
+        assert point.x() >= 0
+        assert point.x()+control.width() <= win.body_scroll.viewport().width()
+        assert point.y() < win.body_scroll.viewport().height()
+        assert point.y()+control.height() > 0
+    capture(win, "conditions-small-" + cid)
+
+
+def test_lock_closes_gas_picker_and_preserves_conditions(qtbot):
+    main = main_window(qtbot)
+    win = open_converter(qtbot, main)
+    win.select_category("gas_fraction")
+    win.to_combo.setCurrentIndex(win.to_combo.findData("mgm3"))
+    panel = win.conditions_panel
+    panel.gas_picker.setCurrentIndex(panel.gas_picker.findData("co2"))
+    win.input.setText("400")
+    panel.gas_picker.showPopup()
+    qtbot.waitUntil(panel.gas_picker.view().isVisible)
+    main._lock()
+    assert not panel.gas_picker.view().isVisible()
+    assert not win.isVisible()
+    main._unlock()
+    main._open_unit_converter()
+    assert win._result == pytest.approx(719.538504984129)
+
+
+def test_condition_history_chips_do_not_overlap_or_clip_text(qtbot):
+    win = converter(qtbot)
+    win.select_category("water")
+    for density in (1, 1.2, 1.5):
+        win.conditions_panel.water_approximation = False
+        win.conditions_panel.density_input.setText(str(density))
+        win.input.setText("123.456789")
+        win.save_recent()
+    QApplication.processEvents()
+    previous = None
+    for index in range(win.recent_layout.count()-1):
+        button = win.recent_layout.itemAt(index).widget()
+        assert button.fontMetrics().horizontalAdvance(button.text()) + 14 <= button.width()
+        if previous is not None:
+            assert button.x() >= previous.x() + previous.width() + win.recent_layout.spacing()
+        previous = button
+    assert win.recent_scroll.horizontalScrollBar().maximum() > 0
+    win.recent_scroll.ensureWidgetVisible(previous)
+    QApplication.processEvents()
+    qtbot.mouseClick(previous, Qt.LeftButton)
+    assert win.conditions_panel.density_input.text() == "1.0"
+    capture(win, "condition-history")

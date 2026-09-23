@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from unit_converter import CATEGORIES, CATEGORY_BY_ID, RecentHistory, convert, format_number, parse_number
+from unit_converter import CATEGORIES, CATEGORY_BY_ID, ConversionConditions, GASES, RecentHistory, convert, format_number, parse_number
 
 
 # 각 단위 1의 기준 단위 값. 구현의 factor를 기대값으로 읽지 않는다.
@@ -31,9 +31,10 @@ GOLDEN = {
     "force": ("n", [1, 1000, 9.80665, 4.4482216152605, .00001]),
     "freq": ("hz", [1, 1000, 1e6, 1e9, .0166666666666667]),
     "co2": ("kgco2", [.001, 1, 1000]),
-    "gas_fraction": ("molmol", [1e-6, 1e-9, 1e-12, .01, 1e-6, 1e-9, 1]),
+    "gas_fraction": ("molmol", [1e-6, 1e-9, 1e-12, .01, 1e-6, 1e-9, 1,
+                                5.559118757776873e-7, 5.559118757776873e-10]),
     "mass_fraction": ("kgkg", [1e-6, 1e-9, 1e-12, .01, 1e-6, 1e-9, 1e-12, .001, 1]),
-    "water": ("mgl", [1, .001, 1e-6, 1000, 1000, 1000, 1]),
+    "water": ("mgl", [1, .001, 1e-6, 1000, 1000, 1000, 1, 1, .001]),
     "flow": ("m3s", [1, .0166666666666667, .000277777777777778, .0000115740740740741,
                         .001, .0000166666666666667, .000000277777777777778, .0000000166666666666667]),
     "pm": ("ugm3", [.001, 1, 1000, 1e6]),
@@ -45,12 +46,20 @@ GOLDEN = {
 }
 
 
+def reference_conditions(cid):
+    if cid == "water":
+        return ConversionConditions(density_kg_l=1)
+    if cid == "gas_fraction":
+        return ConversionConditions(molar_mass=44.0095, temperature_c=25, pressure_kpa=101.325)
+    return ConversionConditions()
+
+
 @pytest.mark.parametrize("category", CATEGORIES, ids=lambda c: c.id)
 def test_all_units_against_independent_reference_values(category):
     base, expected = GOLDEN[category.id]
     assert len(category.units) == len(expected)
     for unit, value in zip(category.units, expected):
-        assert convert(category.id, unit.id, base, 1) == pytest.approx(value, rel=5e-10, abs=0), unit.id
+        assert convert(category.id, unit.id, base, 1, conditions=reference_conditions(category.id)) == pytest.approx(value, rel=5e-10, abs=0), unit.id
 
 
 @pytest.mark.parametrize("category", CATEGORIES, ids=lambda c: c.id)
@@ -58,8 +67,8 @@ def test_every_unit_pair_round_trip(category):
     value = .123456789 if category.id in ("gas_fraction", "mass_fraction") else 123.456789
     for source in category.units:
         for target in category.units:
-            result = convert(category.id, source.id, target.id, value)
-            restored = convert(category.id, target.id, source.id, result)
+            result = convert(category.id, source.id, target.id, value, conditions=reference_conditions(category.id))
+            restored = convert(category.id, target.id, source.id, result, conditions=reference_conditions(category.id))
             assert restored == pytest.approx(value, rel=2e-12, abs=1e-11)
 
 
@@ -158,7 +167,7 @@ def test_recents_use_identity_not_rounded_label_and_keep_twelve():
 
 def test_registry_has_only_the_approved_categories_and_complete_defaults():
     assert len(CATEGORIES) == 25
-    assert sum(len(c.units) for c in CATEGORIES) == 178
+    assert sum(len(c.units) for c in CATEGORIES) == 182
     assert len(CATEGORY_BY_ID) == len(CATEGORIES)
     ids = {u.id for c in CATEGORIES for u in c.units}
     assert not ids.intersection({"shoe", "tree", "cig", "xray", "mach", "majigi", "spoon", "elec"})
@@ -173,9 +182,9 @@ def test_fraction_zero_and_pure_substance_boundaries(cid):
     category = CATEGORY_BY_ID[cid]
     # 100%는 단위 교환 시 부동소수점 오차 때문에 잘못 거절하지 않는다.
     for unit in category.units:
-        assert convert(cid, unit.id, "ppm", 0) == 0
-        pure = convert(cid, "percent", unit.id, 100)
-        assert convert(cid, unit.id, "percent", pure) == pytest.approx(100)
+        assert convert(cid, unit.id, "ppm", 0, conditions=reference_conditions(cid)) == 0
+        pure = convert(cid, "percent", unit.id, 100, conditions=reference_conditions(cid))
+        assert convert(cid, unit.id, "percent", pure, conditions=reference_conditions(cid)) == pytest.approx(100)
 
 
 def test_recent_ppm_retains_its_concentration_basis():
@@ -184,3 +193,75 @@ def test_recent_ppm_retains_its_concentration_basis():
     history.add("mass_fraction", "ppm", "ppb", "1")
     assert len(history.items) == 2
     assert {entry.category_id for entry in history.items} == {"gas_fraction", "mass_fraction"}
+
+
+@pytest.mark.parametrize("source,target,value,density,expected", [
+    ("ppm", "mgl", 10, 1, 10), ("ppm", "mgl", 10, 1.2, 12),
+    ("mgl", "ppm", 8, .8, 10), ("ppb", "ugl", 10, 1.2, 12),
+    ("ppm", "ppb", 1, None, 1000), ("mgl", "ugl", 10, None, 10000),
+    ("ppm", "mgl", 1000000, 1.2, 1200000),
+])
+def test_water_density_reference_values(source, target, value, density, expected):
+    assert convert("water", source, target, value, conditions=ConversionConditions(density_kg_l=density)) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("density", [None, 0, -1, math.nan, math.inf, 1e308])
+def test_invalid_density_does_not_produce_a_result(density):
+    with pytest.raises(ValueError):
+        convert("water", "ppm", "mgl", 10, conditions=ConversionConditions(density_kg_l=density))
+
+
+@pytest.mark.parametrize("source,target,value", [("ppm", "ppm", 1000001), ("ppb", "mgl", 1e9+1),
+    ("mgl", "ppm", 1000001), ("ppm", "mgl", -1)])
+def test_water_fraction_boundaries(source, target, value):
+    with pytest.raises(ValueError):
+        convert("water", source, target, value, conditions=ConversionConditions(density_kg_l=1))
+    assert convert("water", "mgl", "ugl", 1000001) == 1000001000
+
+
+def test_gas_reference_temperature_pressure_and_reverse():
+    base = ConversionConditions(molar_mass=44.0095, temperature_c=25, pressure_kpa=101.325)
+    # 독립 고정밀도 기준값: SI의 k_B·N_A, 25°C, 101325Pa, NIST CO₂ 몰질량.
+    assert convert("gas_fraction", "ppm", "mgm3", 400, conditions=base) == pytest.approx(719.538504984129, rel=2e-14)
+    assert convert("gas_fraction", "mgm3", "ppm", 719.538504984129, conditions=base) == pytest.approx(400)
+    doubled = ConversionConditions(molar_mass=44.0095, temperature_c=25, pressure_kpa=202.65)
+    warmer = ConversionConditions(molar_mass=44.0095, temperature_c=323.15, pressure_kpa=101.325)
+    assert convert("gas_fraction", "ppm", "mgm3", 400, conditions=doubled) == pytest.approx(1439.077009968258)
+    assert convert("gas_fraction", "ppm", "mgm3", 400, conditions=warmer) == pytest.approx(359.7692524920645)
+    assert convert("gas_fraction", "mgm3", "ugm3", 2) == 2000
+    assert GASES == {"co2": ("이산화탄소 · CO₂", 44.0095), "co": ("일산화탄소 · CO", 28.0101),
+        "no2": ("이산화질소 · NO₂", 46.0055), "so2": ("이산화황 · SO₂", 64.064),
+        "nh3": ("암모니아 · NH₃", 17.0305), "h2s": ("황화수소 · H₂S", 34.081)}
+
+
+@pytest.mark.parametrize("field,value", [("molar_mass", None), ("molar_mass", 0), ("molar_mass", math.nan),
+    ("temperature_c", None), ("temperature_c", -273.15), ("temperature_c", math.inf),
+    ("pressure_kpa", None), ("pressure_kpa", -1), ("pressure_kpa", math.inf)])
+def test_invalid_gas_conditions(field, value):
+    values = dict(molar_mass=44.0095, temperature_c=25, pressure_kpa=101.325)
+    values[field] = value
+    with pytest.raises(ValueError):
+        convert("gas_fraction", "ppm", "mgm3", 1, conditions=ConversionConditions(**values))
+
+
+@pytest.mark.parametrize("source,target,value,expected", [("c", "f", 10, 18), ("f", "c", 18, 10),
+    ("c", "k", -500, -500), ("k", "r", 0, 0), ("r", "c", -18, -10)])
+def test_temperature_difference_has_no_offset_or_absolute_zero_limit(source, target, value, expected):
+    assert convert("temp", source, target, value, conditions=ConversionConditions(temperature_difference=True)) == pytest.approx(expected)
+    assert convert("temp", "c", "f", 10) == pytest.approx(50, abs=1e-12)
+
+
+def test_context_history_deduplication_and_repeated_swap():
+    history = RecentHistory()
+    for density in (1, 1.2):
+        conditions = ConversionConditions(density_kg_l=density, water_approximation=density == 1)
+        history.add("water", "ppm", "mgl", "10", conditions=conditions)
+        value = 10
+        for _ in range(100):
+            value = convert("water", "ppm", "mgl", value, conditions=conditions)
+            value = convert("water", "mgl", "ppm", value, conditions=conditions)
+        assert value == pytest.approx(10, rel=2e-14)
+    assert len(history.items) == 2
+    history.add("water", "ppm", "mgl", "10.0", conditions=history.items[0].conditions)
+    assert len(history.items) == 2
+    assert [convert(r.category_id, r.from_id, r.to_id, r.value, conditions=r.conditions) for r in history.items] == [12, 10]

@@ -32,6 +32,29 @@ class Category:
         raise ValueError("이 분류에 없는 단위입니다.")
 
 
+@dataclass(frozen=True)
+class ConversionConditions:
+    density_kg_l: float | None = None
+    water_approximation: bool = False
+    molar_mass: float | None = None
+    temperature_c: float | None = None
+    pressure_kpa: float | None = None
+    gas_id: str = ""
+    temperature_difference: bool = False
+
+
+# NIST Chemistry WebBook, g/mol. 출처와 확인일은 단위 계약에 보존한다.
+GASES = {
+    "co2": ("이산화탄소 · CO₂", 44.0095),
+    "co": ("일산화탄소 · CO", 28.0101),
+    "no2": ("이산화질소 · NO₂", 46.0055),
+    "so2": ("이산화황 · SO₂", 64.064),
+    "nh3": ("암모니아 · NH₃", 17.0305),
+    "h2s": ("황화수소 · H₂S", 34.081),
+}
+GAS_CONSTANT = 8.31446261815324  # J/(mol K), N_A × k, SI exact
+
+
 U = Unit
 INCH = 0.0254
 FOOT = 12 * INCH
@@ -82,7 +105,7 @@ CATEGORIES = (
     Category("temp", "온도", "°", "기본", (
         U("c", "섭씨", "°C", 1, 273.15), U("f", "화씨", "°F", 5/9, 459.67),
         U("k", "켈빈", "K"), U("r", "랭킨", "°R", 5/9),
-    ), ("c", "f"), "절대영도(0 K) 이상의 온도만 환산합니다."),
+    ), ("c", "f"), "온도값은 절대영도(0 K) 이상입니다. 온도차는 오프셋 없이 환산하며 음수도 허용합니다."),
     Category("speed", "속도", "m/s", "기본", (
         U("ms", "미터/초", "m/s"), U("kmh", "킬로미터/시", "km/h", 1/3.6),
         U("mph", "마일/시", "mph", MILE/3600), U("kn", "노트", "kn", 1852/3600),
@@ -108,7 +131,7 @@ CATEGORIES = (
         U("mmhg", "수은주 (0°C)", "mmHg", 13595.1*GRAVITY*.001),
         U("psi", "파운드힘/제곱인치", "psi", POUND*GRAVITY/INCH**2),
         U("kgfcm2", "킬로그램힘/제곱센티미터", "kgf/cm²", GRAVITY*10000),
-    ), ("hpa", "atm")),
+    ), ("hpa", "atm"), "같은 압력 기준의 단위만 바꿉니다. 절대압과 게이지압의 기준 전환은 하지 않습니다."),
     Category("energy", "에너지", "J", "물리", (
         U("j", "줄", "J"), U("kj", "킬로줄", "kJ", 1000), U("cal", "칼로리 (열화학)", "cal", 4.184),
         U("kcal", "킬로칼로리 (열화학)", "kcal", 4184), U("wh", "와트시", "Wh", 3600),
@@ -148,7 +171,9 @@ CATEGORIES = (
         U("umolmol", "마이크로몰/몰", "µmol/mol", 1e-6, source="nist_fraction"),
         U("nmolmol", "나노몰/몰", "nmol/mol", 1e-9, source="nist_fraction"),
         U("molmol", "몰/몰", "mol/mol", source="nist_fraction"),
-    ), ("ppm", "ppb"), "몰분율 기준 · 1 ppm = 1 µmol/mol. mg/m³ 환산에는 분자량·온도·압력이 필요합니다."),
+        U("mgm3", "밀리그램/세제곱미터", "mg/m³", kind="mass_concentration"),
+        U("ugm3", "마이크로그램/세제곱미터", "µg/m³", .001, kind="mass_concentration"),
+    ), ("ppm", "ppb"), "ppm은 몰분율입니다. 질량 농도는 선택 물질의 몰질량·온도·절대압으로 이상기체를 가정해 계산합니다. 응축·반응·건습 보정은 포함하지 않습니다."),
     Category("mass_fraction", "질량비", "mg/kg", "환경", (
         U("ppm", "ppm (질량분율·10⁻⁶)", "ppm", 1e-6, source="nist_fraction"),
         U("ppb", "ppb (질량분율·10⁻⁹)", "ppb", 1e-9, source="nist_fraction"),
@@ -168,7 +193,9 @@ CATEGORIES = (
         U("mgml", "밀리그램/밀리리터", "mg/mL", 1000),
         U("kgm3", "킬로그램/세제곱미터", "kg/m³", 1000),
         U("gm3", "그램/세제곱미터", "g/m³"),
-    ), ("mgl", "ugl"), "질량/부피 기준 · 1 mg/L = 1 g/m³. ppm과의 환산에는 용액 밀도가 필요합니다."),
+        U("ppm", "ppm (질량분율·mg/kg)", "ppm", 1e-6, kind="mass_fraction", source="nist_fraction"),
+        U("ppb", "ppb (질량분율·µg/kg)", "ppb", 1e-9, kind="mass_fraction", source="nist_fraction"),
+    ), ("ppm", "mgl"), "ppm은 질량분율입니다. mg/L = ppm × 용액 밀도(kg/L). 물 기준은 묽은 수용액을 밀도 1로 근사합니다. 직접 입력에는 용질이 아닌 용액 전체의 밀도를 사용하세요."),
     Category("flow", "유량", "m³/h", "환경", (
         U("m3s", "세제곱미터/초", "m³/s"),
         U("m3min", "세제곱미터/분", "m³/min", 1/60),
@@ -219,6 +246,17 @@ GROUP_COLORS = {
     "생활": ("#B8912C", "#7D670F", "#FBF3DE"),
 }
 
+BASIS_SUMMARIES = {
+    "len": "척관법·광년 정의 확인", "mass": "질량 기준 · 근 600g",
+    "vol": "US liquid · 척관법", "time": "개월 30일 · 년 365일 고정",
+    "data": "십진 / 이진 단위 구분", "press": "같은 압력 기준",
+    "energy": "열화학 cal · IT BTU", "power": "영국 / 미터법 마력",
+    "force": "힘 단위 · 표준중력 정의", "freq": "회전 빈도 기준",
+    "co2": "이미 산정된 CO₂e", "mass_fraction": "질량분율 · ppm = mg/kg",
+    "flow": "실제 부피 기준", "pm": "질량 농도 기준", "rad": "Sv / rem 선량 기준",
+    "db": "dB SPL · 20µPa 기준", "cook": "표시된 계량 용량 기준", "fuel": "US / UK 갤런 구분",
+}
+
 _MANTISSA = r"[+-]?(?:(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]*)?|\.[0-9]+)"
 _NUMBER = re.compile(_MANTISSA + r"(?:[eE][+-]?[0-9]+)?\Z")
 _PARTIAL = re.compile(_MANTISSA + r"[eE][+-]?\Z")
@@ -246,7 +284,25 @@ def _finite(value: float, nonzero: bool = False) -> float:
     return value
 
 
-def convert(category_id: str, from_id: str, to_id: str, value: float) -> float:
+def _positive(value: float | None, name: str) -> float:
+    if value is None or not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name}은 유한한 양수를 입력하세요.")
+    return value
+
+
+def _check_fraction(value: float, factor: float) -> None:
+    maximum = 1 / factor
+    if value > maximum and not math.isclose(value, maximum, rel_tol=2e-15):
+        raise ValueError("분율은 100% 이하를 입력하세요.")
+
+
+def crosses_concentration_basis(category_id: str, from_id: str, to_id: str) -> bool:
+    category = CATEGORY_BY_ID[category_id]
+    return category_id in ("water", "gas_fraction") and category.unit(from_id).kind != category.unit(to_id).kind
+
+
+def convert(category_id: str, from_id: str, to_id: str, value: float,
+            *, conditions: ConversionConditions = ConversionConditions()) -> float:
     category = CATEGORY_BY_ID.get(category_id)
     if category is None:
         raise ValueError("알 수 없는 분류입니다.")
@@ -254,11 +310,10 @@ def convert(category_id: str, from_id: str, to_id: str, value: float) -> float:
     _finite(value)
     if category_id in ("gas_fraction", "mass_fraction", "water", "flow") and value < 0:
         raise ValueError("농도·유량은 0 이상을 입력하세요.")
-    if category_id in ("gas_fraction", "mass_fraction"):
-        maximum = 1 / source.factor
-        if value > maximum and not math.isclose(value, maximum, rel_tol=2e-15):
-            raise ValueError("분율은 100% 이하를 입력하세요.")
-    if category_id == "temp" and value < -source.shift:
+    if (category_id == "mass_fraction" or source.kind == "mass_fraction"
+            or (category_id == "gas_fraction" and source.kind == "linear")):
+        _check_fraction(value, source.factor)
+    if category_id == "temp" and not conditions.temperature_difference and value < -source.shift:
         raise ValueError("절대영도(0 K) 이상을 입력하세요.")
     if category_id == "fuel" and value <= 0:
         raise ValueError("연비는 0보다 큰 값을 입력하세요.")
@@ -267,6 +322,27 @@ def convert(category_id: str, from_id: str, to_id: str, value: float) -> float:
     if source.id == target.id:
         return value
     try:
+        if category_id == "temp" and conditions.temperature_difference:
+            return _finite(value * (source.factor / target.factor), value != 0)
+        if crosses_concentration_basis(category_id, from_id, to_id):
+            if category_id == "water":
+                bridge = _finite(_positive(conditions.density_kg_l, "용액 밀도") * 1e6, True)
+                source_is_fraction = source.kind == "mass_fraction"
+            else:
+                mass = _positive(conditions.molar_mass, "물질의 몰질량")
+                pressure = _positive(conditions.pressure_kpa, "절대압")
+                temperature = conditions.temperature_c
+                if temperature is None or not math.isfinite(temperature) or temperature <= -273.15:
+                    raise ValueError("기체 온도는 -273.15°C보다 커야 합니다.")
+                bridge = _finite(pressure * 1e6 * mass / GAS_CONSTANT / (temperature + 273.15), True)
+                source_is_fraction = source.kind == "linear"
+            scale = bridge if source_is_fraction else 1 / bridge
+            result = _finite(value * _finite(source.factor / target.factor * scale, True), value != 0)
+            if not source_is_fraction:
+                _check_fraction(result, target.factor)
+            return result
+        if source.kind == target.kind and source.kind in ("mass_fraction", "mass_concentration"):
+            return _finite(value * (source.factor / target.factor), value != 0)
         if source.kind == target.kind == "linear" and category_id != "temp":
             return _finite(value * (source.factor / target.factor), value != 0)
         if source.kind == "inverse":
@@ -306,6 +382,7 @@ class RecentConversion:
     to_id: str
     text: str
     value: float
+    conditions: ConversionConditions = ConversionConditions()
 
 
 class RecentHistory:
@@ -313,12 +390,13 @@ class RecentHistory:
     def __init__(self):
         self.items: list[RecentConversion] = []
 
-    def add(self, category_id: str, from_id: str, to_id: str, text: str) -> None:
+    def add(self, category_id: str, from_id: str, to_id: str, text: str,
+            *, conditions: ConversionConditions = ConversionConditions()) -> None:
         value = parse_number(text)
         if value is None:
             return
-        convert(category_id, from_id, to_id, value)
-        entry = RecentConversion(category_id, from_id, to_id, text, value)
-        key = (category_id, from_id, to_id, value)
+        convert(category_id, from_id, to_id, value, conditions=conditions)
+        entry = RecentConversion(category_id, from_id, to_id, text, value, conditions)
+        key = (category_id, from_id, to_id, value, conditions)
         self.items = [entry] + [r for r in self.items if
-            (r.category_id, r.from_id, r.to_id, r.value) != key][:11]
+            (r.category_id, r.from_id, r.to_id, r.value, r.conditions) != key][:11]

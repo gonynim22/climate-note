@@ -2,18 +2,25 @@
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractButton, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractButton, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
 from unit_converter import (
-    CATEGORIES, CATEGORY_BY_ID, GROUP_COLORS, RecentHistory,
-    convert, format_number, parse_number,
+    CATEGORIES, CATEGORY_BY_ID, GROUP_COLORS, ConversionConditions, RecentHistory,
+    convert, crosses_concentration_basis, format_number, parse_number,
 )
+from ui_conversion_conditions import ConversionConditionsPanel, condition_summary
 
 CONVERTER_WIDTH = 440
 CONVERTER_HEIGHT = 580
 CONVERTER_SHADOW_MARGIN = 24
+
+
+def result_text(category_id, from_id, to_id, value, conditions):
+    approximate = crosses_concentration_basis(category_id, from_id, to_id) and (
+        category_id == "gas_fraction" or conditions.water_approximation)
+    return ("≈ " if approximate else "") + format_number(value)
 
 
 class UnitCombo(QComboBox):
@@ -55,6 +62,9 @@ class UnitConverterWindow(QWidget):
         self._drag_origin = None
         self._row_widgets = {}
         self._result = None
+        self._conditions = ConversionConditions()
+        self._selecting_category = False
+        self._restoring_recent = False
         self.setStyleSheet("""
             QWidget { color:#292C33; }
             QWidget#converterSurface { background:#FDFDFB; border-radius:16px; }
@@ -176,13 +186,9 @@ class UnitConverterWindow(QWidget):
         for target in (self.header, self.title_label):
             target.installEventFilter(self)
         body_layout.addWidget(self.header)
-        self.basis_label = QLabel(body)
-        self.basis_label.setObjectName("conversionBasis")
-        self.basis_label.setWordWrap(True)
-        self.basis_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.basis_label.setContentsMargins(16, 0, 16, 8)
-        self.basis_label.setStyleSheet("color:#527166;font-size:11px;")
-        body_layout.addWidget(self.basis_label)
+        self.conditions_panel = ConversionConditionsPanel(body)
+        self.basis_label = self.conditions_panel.summary
+        body_layout.addWidget(self.conditions_panel)
 
         fields = QWidget(body)
         fields_layout = QVBoxLayout(fields)
@@ -224,7 +230,10 @@ class UnitConverterWindow(QWidget):
         self.to_card = self._card("TO", self.to_combo, self.result_label)
         fields_layout.addWidget(self.to_card)
         body_layout.addWidget(fields)
-        self.status_label = QLabel()
+        self.status_label = QPushButton()
+        self.status_label.setAccessibleName("환산 기준 설명")
+        self.status_label.clicked.connect(self.conditions_panel.toggle.click)
+        self.status_label.installEventFilter(self)
         self.status_label.setFixedHeight(23)
         self.status_label.setContentsMargins(14, 0, 10, 0)
         self.status_label.setStyleSheet("color:#7B818C;font-size:11px;")
@@ -252,6 +261,7 @@ class UnitConverterWindow(QWidget):
         self.recent_scroll = self._scroll(recent, horizontal=True)
         self.recent_content = QWidget()
         self.recent_layout = QHBoxLayout(self.recent_content)
+        self.recent_layout.setSizeConstraint(QLayout.SetMinimumSize)
         self.recent_layout.setContentsMargins(0, 0, 0, 0)
         self.recent_layout.setSpacing(5)
         self.recent_scroll.setWidget(self.recent_content)
@@ -265,6 +275,9 @@ class UnitConverterWindow(QWidget):
         self.input.returnPressed.connect(self.save_recent)
         self.from_combo.currentIndexChanged.connect(self.update_results)
         self.to_combo.currentIndexChanged.connect(self.update_results)
+        self.conditions_panel.changed.connect(self.update_results)
+        for button in (self.conditions_panel.toggle, self.conditions_panel.reset_button):
+            button.installEventFilter(self)
         self.select_category("len")
         self._render_recent()
 
@@ -313,13 +326,12 @@ class UnitConverterWindow(QWidget):
                 item.widget().deleteLater()
 
     def select_category(self, category_id):
+        self._selecting_category = True
         category = CATEGORY_BY_ID[category_id]
         self.category_id = category_id
         self.title_label.setText(category.name)
         self.title_label.setToolTip(category.note)
-        show_basis = category_id in ("gas_fraction", "mass_fraction", "water", "flow")
-        self.basis_label.setText(category.note if show_basis else "")
-        self.basis_label.setVisible(show_basis)
+        self.conditions_panel.set_category(category_id)
         for cid, button in self.category_buttons.items():
             button.setChecked(cid == category_id)
         self.category_scroll.ensureWidgetVisible(self.category_buttons[category_id])
@@ -361,31 +373,39 @@ class UnitConverterWindow(QWidget):
             self.other_layout.addWidget(button)
             self._row_widgets[unit.id] = (button, value)
         self.other_layout.addStretch()
+        self._selecting_category = False
         self.update_results()
 
     def update_results(self):
+        if self._selecting_category or self._restoring_recent:
+            return
         from_id, to_id = self.from_combo.currentData(), self.to_combo.currentData()
         if not from_id or not to_id:
             return
         self._result = None
         error = ""
         number = None
+        self.conditions_panel.set_units(from_id, to_id)
+        self._conditions = None
         try:
+            self._conditions = self.conditions_panel.conditions()
             number = parse_number(self.input.text())
             if number is not None:
-                self._result = convert(self.category_id, from_id, to_id, number)
+                self._result = convert(self.category_id, from_id, to_id, number, conditions=self._conditions)
         except ValueError as exc:
             error = str(exc)
-        self.result_label.setText(format_number(self._result) if self._result is not None else "—")
+        self.result_label.setText(result_text(self.category_id, from_id, to_id, self._result, self._conditions)
+                                 if self._result is not None else "—")
         self.result_label.setToolTip(repr(self._result) if self._result is not None else error)
         self._fit_result_font()
         self.swap_button.setEnabled(self._result is not None)
-        message = error or ("숫자를 입력하세요" if number is None else ("환산 기준 ⓘ" if self.category.note else ""))
+        message = error or ("숫자를 입력하세요" if number is None else "환산 기준 ⓘ")
         metrics = self.status_label.fontMetrics()
         self.status_label.setText(metrics.elidedText(message, Qt.ElideRight, max(50, self.status_label.width()-24)))
         self.status_label.setToolTip(error or self.category.note)
         self.status_label.setAccessibleDescription(error or self.category.note)
-        self.status_label.setStyleSheet(f"color:{'#BB4040' if error else '#7B818C'};font-size:11px;")
+        self.status_label.setStyleSheet(f"color:{'#BB4040' if error else '#7B818C'};font-size:11px;"
+                                       "background:transparent;border:0;text-align:left;padding-left:14px;")
         for combo in (self.from_combo, self.to_combo):
             combo.setToolTip(combo.currentData(Qt.ToolTipRole))
         for unit in self.category.units:
@@ -393,10 +413,11 @@ class UnitConverterWindow(QWidget):
             button.setVisible(unit.id not in (from_id, to_id))
             text = "—"
             detail = ""
-            if number is not None:
+            if number is not None and self._conditions is not None:
                 try:
-                    value = convert(self.category_id, from_id, unit.id, number)
-                    text, detail = format_number(value), repr(value)
+                    value = convert(self.category_id, from_id, unit.id, number, conditions=self._conditions)
+                    text = result_text(self.category_id, from_id, unit.id, value, self._conditions)
+                    detail = repr(value)
                 except ValueError as exc:
                     detail = str(exc)
             label.setText(text)
@@ -426,7 +447,8 @@ class UnitConverterWindow(QWidget):
     def save_recent(self):
         if self._result is None:
             return
-        self.history.add(self.category_id, self.from_combo.currentData(), self.to_combo.currentData(), self.input.text())
+        self.history.add(self.category_id, self.from_combo.currentData(), self.to_combo.currentData(), self.input.text(),
+                         conditions=self._conditions)
         self._render_recent()
 
     def _render_recent(self):
@@ -438,21 +460,36 @@ class UnitConverterWindow(QWidget):
         for entry in self.history.items:
             category = CATEGORY_BY_ID[entry.category_id]
             source, target = category.unit(entry.from_id), category.unit(entry.to_id)
-            result = convert(entry.category_id, source.id, target.id, entry.value)
-            text = f"{format_number(entry.value)} {source.symbol} → {format_number(result)} {target.symbol}"
+            result = convert(entry.category_id, source.id, target.id, entry.value, conditions=entry.conditions)
+            rendered = result_text(entry.category_id, source.id, target.id, result, entry.conditions)
+            text = f"{format_number(entry.value)} {source.symbol} → {rendered} {target.symbol}"
+            if entry.category_id == "water":
+                text += " · 물 기준" if entry.conditions.water_approximation else f" · 밀도 {format_number(entry.conditions.density_kg_l)}"
+            elif entry.category_id == "gas_fraction" and entry.conditions.molar_mass is not None:
+                text += f" · {entry.conditions.gas_id or '기체'}"
+            elif entry.conditions.temperature_difference:
+                text += " · 온도차"
             button = QPushButton(text)
             button.setObjectName("recentCalculation")
             button.installEventFilter(self)
-            button.setToolTip(f"{category.name} · {source.label} → {target.label}\n{entry.text}")
+            button.setToolTip(f"{category.name} · {source.label} → {target.label}\n{entry.text}\n"
+                              + condition_summary(entry.category_id, entry.conditions))
             button.clicked.connect(lambda checked=False, r=entry: self.restore_recent(r))
             self.recent_layout.addWidget(button)
+            button.ensurePolished()
+            button.setMinimumWidth(button.fontMetrics().horizontalAdvance(text) + 20)
         self.recent_layout.addStretch()
 
     def restore_recent(self, entry):
-        self.select_category(entry.category_id)
-        self.from_combo.setCurrentIndex(self.from_combo.findData(entry.from_id))
-        self.to_combo.setCurrentIndex(self.to_combo.findData(entry.to_id))
-        self.input.setText(entry.text)
+        self._restoring_recent = True
+        try:
+            self.select_category(entry.category_id)
+            self.conditions_panel.restore(entry.conditions)
+            self.from_combo.setCurrentIndex(self.from_combo.findData(entry.from_id))
+            self.to_combo.setCurrentIndex(self.to_combo.findData(entry.to_id))
+            self.input.setText(entry.text)
+        finally:
+            self._restoring_recent = False
         self.update_results()
         self.input.setFocus()
 
@@ -508,6 +545,8 @@ class UnitConverterWindow(QWidget):
         self._drag_origin = None
         self.from_combo.hidePopup()
         self.to_combo.hidePopup()
+        self.conditions_panel.gas_picker.hidePopup()
+        self.conditions_panel.temperature_mode.hidePopup()
         super().hideEvent(event)
 
     def resizeEvent(self, event):
