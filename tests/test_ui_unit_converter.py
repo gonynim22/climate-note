@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
 from shiboken6 import isValid
 
@@ -139,8 +139,10 @@ def test_render_categories_and_actual_geometry(qtbot, cid):
     win.input.setText("123456.789")
     win.save_recent()
     QApplication.processEvents()
-    assert win.size().width() == 440
-    assert win.size().height() == 580
+    assert win.surface.size().width() == 440
+    assert win.surface.size().height() == 580
+    assert win.size().width() == 488
+    assert win.size().height() == 628
     for control in (win.input, win.from_combo, win.to_combo, win.result_label, win.close_button):
         point = control.mapTo(win, QPoint())
         assert win.rect().contains(point)
@@ -151,6 +153,50 @@ def test_render_categories_and_actual_geometry(qtbot, cid):
     assert win.body_scroll.verticalScrollBar().maximum() == 0
     assert win.from_combo.currentData(Qt.ToolTipRole)
     capture(win, cid)
+
+
+def test_shadow_render_and_margin_click_preserve_calculation(qtbot):
+    win = converter(qtbot)
+    win.input.setText("42")
+    win.save_recent()
+    rendered = win.grab().toImage()
+    dpr = rendered.devicePixelRatio()
+    surface = win.surface.geometry()
+    assert 0 < rendered.pixelColor(round((surface.left()-3)*dpr), round(surface.center().y()*dpr)).alpha() < 255
+    for x, y in ((0, 0), (rendered.width()-1, 0), (0, rendered.height()-1),
+                 (rendered.width()-1, rendered.height()-1)):
+        assert rendered.pixelColor(x, y).alpha() == 0
+    qtbot.mouseClick(win, Qt.LeftButton, pos=QPoint(5, win.height()//2))
+    assert win.isVisible()
+    assert win.input.text() == "42"
+    assert len(win.history.items) == 1
+    capture(win, "shadow")
+
+
+def test_category_rail_is_compact_and_larger_text_fits(qtbot):
+    win = converter(qtbot)
+    groups = {}
+    for category in win.category_buttons:
+        button = win.category_buttons[category]
+        win.category_scroll.ensureWidgetVisible(button)
+        QApplication.processEvents()
+        assert button.height() == 28
+        labels = button.findChildren(QLabel)
+        assert labels[-1].font().pixelSize() == 13
+        for label in labels:
+            assert label.fontMetrics().horizontalAdvance(label.text()) <= label.width()
+            assert label.fontMetrics().height() <= label.height()
+        button.setFocus()
+        qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Return)
+        assert win.category_id == category
+        group = win.category.group
+        previous = groups.get(group)
+        if previous is not None:
+            assert button.y() - (previous.y()+previous.height()) == 0
+        groups[group] = button
+    win.select_category("len")
+    QApplication.processEvents()
+    capture(win, "compact-rail")
 
 
 def test_combo_escape_closes_dropdown_before_window(qtbot):
@@ -317,6 +363,13 @@ def test_disconnected_screen_and_smaller_work_area_are_clamped(qtbot, monkeypatc
     QApplication.processEvents()
     assert win.body_scroll.horizontalScrollBar().maximum() == 0
     capture(win, "small-screen")
+    available = QRect(-1280, 20, 1280, 700)
+    win.fit_to_screen()
+    QApplication.processEvents()
+    assert win.surface.width() == 440
+    assert win.surface.height() == 580
+    assert win.layout().contentsMargins().left() == 24
+    assert available.contains(win.geometry())
 
 
 @pytest.mark.parametrize("cid,text,result,basis", [

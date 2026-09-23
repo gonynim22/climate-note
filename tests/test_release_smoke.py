@@ -33,11 +33,14 @@ def test_smoke_accepts_only_this_run_binary():
 
 def test_job_kills_its_descendants_but_not_other_processes(tmp_path):
     pid_file = tmp_path / "child.pid"
+    pid_temp = tmp_path / "child.pid.tmp"
     child_command = (
-        "import subprocess, sys\n"
+        "import os, subprocess, sys\n"
         "with subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']) as child:\n"
-        f"    with open({str(pid_file)!r}, 'w') as stream:\n"
+        f"    with open({str(pid_temp)!r}, 'w') as stream:\n"
         "        stream.write(str(child.pid))\n"
+        # exists()가 참이면 PID 내용도 완전히 기록되어 있어야 한다.
+        f"    os.replace({str(pid_temp)!r}, {str(pid_file)!r})\n"
         "    child.wait()\n"
     )
     command = [sys.executable, str(verify.ROOT / "tools/smoke_release.py"), "_launch",

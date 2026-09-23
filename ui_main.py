@@ -3620,7 +3620,8 @@ class MainCalendarWindow(QWidget):
             button = self.sidebar.mini_apps_button
             anchor = button.rect().translated(button.mapToGlobal(QPoint()))
             screen = QApplication.screenAt(anchor.center()) or self.screen()
-            self._unit_converter.move(pocket_position(anchor, self._unit_converter.size(), screen.availableGeometry()))
+            self._unit_converter.move(pocket_position(anchor, self._unit_converter.size(), screen.availableGeometry(),
+                                                      shadow_margin=self._unit_converter.shadow_margin))
         win = self._unit_converter
         win.setEnabled(True)
         win.fit_to_screen()

@@ -2,7 +2,7 @@
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractButton, QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractButton, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -13,6 +13,7 @@ from unit_converter import (
 
 CONVERTER_WIDTH = 440
 CONVERTER_HEIGHT = 580
+CONVERTER_SHADOW_MARGIN = 24
 
 
 class UnitCombo(QComboBox):
@@ -39,14 +40,16 @@ class UnitCombo(QComboBox):
 
 
 class UnitConverterWindow(QWidget):
+    shadow_margin = CONVERTER_SHADOW_MARGIN
+
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint)
+        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setObjectName("unitConverter")
         self.setWindowTitle("단위 환산기 · 기후노트")
         self.setAccessibleName("단위 환산기")
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowOpacity(1.0)
-        self.resize(CONVERTER_WIDTH, CONVERTER_HEIGHT)
+        self.resize(CONVERTER_WIDTH + 2 * self.shadow_margin, CONVERTER_HEIGHT + 2 * self.shadow_margin)
         self.category_id = "len"
         self.history = RecentHistory()
         self._drag_origin = None
@@ -54,6 +57,7 @@ class UnitConverterWindow(QWidget):
         self._result = None
         self.setStyleSheet("""
             QWidget { color:#292C33; }
+            QWidget#converterSurface { background:#FDFDFB; border-radius:16px; }
             QWidget#converterBody { background:#FDFDFB; border-top-right-radius:16px; border-bottom-right-radius:16px; }
             QWidget#converterRail { background:#23252B; border-top-left-radius:16px; border-bottom-left-radius:16px; }
             QScrollArea { background:transparent; border:0; }
@@ -74,32 +78,44 @@ class UnitConverterWindow(QWidget):
             QPushButton#recentCalculation { background:#FFFFFF; border:1px solid #E1E3DF; border-radius:6px; padding:4px 7px; font-size:11px; color:#5C616A; }
             QPushButton#recentCalculation:hover, QPushButton#recentCalculation:focus { border-color:#8099BB; color:#33549E; }
         """)
-        root = QHBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(self.shadow_margin, self.shadow_margin, self.shadow_margin, self.shadow_margin)
+        self.surface = QWidget(self)
+        self.surface.setObjectName("converterSurface")
+        self.surface.setAttribute(Qt.WA_StyledBackground)
+        outer.addWidget(self.surface)
+        shadow = QGraphicsDropShadowEffect(self.surface)
+        shadow.setBlurRadius(20)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(24, 46, 76, 80))
+        self.surface.setGraphicsEffect(shadow)
+        root = QHBoxLayout(self.surface)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        rail = QWidget(self)
+        rail = QWidget(self.surface)
+        self.category_rail = rail
         rail.setObjectName("converterRail")
-        rail.setFixedWidth(124)
+        rail.setFixedWidth(132)
         rail_layout = QVBoxLayout(rail)
         rail_layout.setContentsMargins(6, 12, 5, 8)
         rail_layout.setSpacing(6)
         brand = QLabel("▪  단위 환산", rail)
-        brand.setStyleSheet("color:#F4F5F2;font-size:13px;font-weight:bold;padding:0 2px 5px;")
+        brand.setStyleSheet("color:#F4F5F2;font-size:14px;font-weight:bold;padding:0 2px 5px;")
         rail_layout.addWidget(brand)
         self.category_scroll = self._scroll(rail)
         category_content = QWidget()
         categories_layout = QVBoxLayout(category_content)
         categories_layout.setContentsMargins(0, 0, 1, 0)
-        categories_layout.setSpacing(3)
+        categories_layout.setSpacing(0)
         self.category_buttons = {}
         for group, (cover, _, _) in GROUP_COLORS.items():
             group_label = QLabel(group)
-            group_label.setStyleSheet("color:#A1A5AF;font-size:11px;padding:5px 5px 1px;")
+            group_label.setStyleSheet("color:#A1A5AF;font-size:12px;padding:6px 5px 2px;")
             categories_layout.addWidget(group_label)
             for category in (c for c in CATEGORIES if c.group == group):
                 button = QToolButton(category_content)
                 button.setCheckable(True)
-                button.setFixedHeight(32)
+                button.setFixedHeight(28)
                 button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
                 button.setAccessibleName(category.name)
                 button.setToolTip(category.name)
@@ -116,11 +132,11 @@ class UnitConverterWindow(QWidget):
                 row.setContentsMargins(3, 0, 3, 0)
                 row.setSpacing(3)
                 symbol = QLabel(category.symbol)
-                symbol.setFixedWidth(32)
+                symbol.setFixedWidth(40)
                 symbol.setAlignment(Qt.AlignCenter)
-                symbol.setStyleSheet("font-size:10px;font-weight:bold;")
+                symbol.setStyleSheet("font-size:12px;font-weight:bold;")
                 name = QLabel(category.name)
-                name.setStyleSheet("font-size:11px;")
+                name.setStyleSheet("font-size:13px;")
                 for label in (symbol, name):
                     label.setAttribute(Qt.WA_TransparentForMouseEvents)
                     row.addWidget(label)
@@ -133,7 +149,7 @@ class UnitConverterWindow(QWidget):
         rail_layout.addWidget(self.category_scroll)
         root.addWidget(rail)
 
-        body = QWidget(self)
+        body = QWidget(self.surface)
         body.setObjectName("converterBody")
         body.setMinimumHeight(520)
         body_layout = QVBoxLayout(body)
@@ -242,7 +258,7 @@ class UnitConverterWindow(QWidget):
         self.recent_scroll.setToolTip("Enter로 최근 기록에 추가 · 앱을 종료하면 기록이 사라집니다.")
         recent_layout.addWidget(self.recent_scroll)
         body_layout.addWidget(recent)
-        self.body_scroll = self._scroll(self)
+        self.body_scroll = self._scroll(self.surface)
         self.body_scroll.setWidget(body)
         root.addWidget(self.body_scroll, 1)
         self.input.textChanged.connect(self.update_results)
@@ -445,7 +461,17 @@ class UnitConverterWindow(QWidget):
         if screen is None:
             return
         available = screen.availableGeometry()
-        self.resize(min(CONVERTER_WIDTH, available.width()), min(CONVERTER_HEIGHT, available.height()))
+        # 좁은 화면에서는 내용의 최소 너비를 먼저 확보하고 그림자 여백/blur를 줄인다.
+        content_width = (self.category_rail.width() + self.body_scroll.widget().minimumSizeHint().width()
+                         + self.body_scroll.verticalScrollBar().sizeHint().width())
+        margin = min(self.shadow_margin, max(0, (available.width()-content_width)//2))
+        self.layout().setContentsMargins(margin, margin, margin, margin)
+        shadow = self.surface.graphicsEffect()
+        shadow.setBlurRadius(max(0, margin-4))
+        shadow.setOffset(0, min(4, margin))
+        shadow.setEnabled(margin > 0)
+        self.resize(min(CONVERTER_WIDTH + 2 * margin, available.width()),
+                    min(CONVERTER_HEIGHT + 2 * margin, available.height()))
         self.move(
             max(available.left(), min(self.x(), available.right()+1-self.width())),
             max(available.top(), min(self.y(), available.bottom()+1-self.height())),
