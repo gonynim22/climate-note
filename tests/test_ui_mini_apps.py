@@ -80,7 +80,7 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
     assert popup.card.size() == QSize(240, 280)
     assert popup.converter_card.size() == QSize(92, 92)
     assert popup.apps_grid.count() == 4
-    assert len(popup.pending_cards) == 3
+    assert len(popup.pending_cards) == 2
     assert popup.apps_scroll.horizontalScrollBar().maximum() == 0
     assert popup.apps_scroll.verticalScrollBar().maximum() == 0
     for index in range(4):
@@ -90,6 +90,10 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
     assert popup.screen().availableGeometry().contains(popup.geometry())
     assert popup.converter_card.isVisible()
     assert "단위 환산기" in popup.converter_card.text()
+    assert popup.date_time_card.isVisible()
+    assert popup.date_time_card.text() == "날짜·시간\n계산기"
+    assert popup.apps_grid.itemAtPosition(0, 1).widget() is popup.date_time_card
+    assert not popup.date_time_card.icon().isNull()
     assert button.isChecked()
     appdata = os.environ.get("CLIMATENOTE_TEST_APPDATA")
     if appdata:
@@ -147,9 +151,11 @@ def test_upcoming_tiles_do_not_launch_or_receive_keyboard_focus(qtbot):
         assert focused not in popup.pending_cards
         visited.append(focused)
     assert popup.converter_card in visited
+    assert popup.date_time_card in visited
     assert popup.close_button in visited
     assert not clicked
     assert win._unit_converter is None
+    assert win._date_time_calculator is None
 
 
 def test_short_screen_scroll_keeps_button_and_sixth_shortcut_accessible(qtbot):
@@ -313,7 +319,7 @@ def test_more_developer_apps_use_two_columns_and_scroll_without_resizing(qtbot):
     win = window(qtbot)
     popup = open_pocket(qtbot, win)
     clicked = []
-    cards = [popup.converter_card]
+    cards = [popup.converter_card, popup.date_time_card]
     for index in range(1, 7):
         cards.append(popup.add_app(f"합성 앱 {index}", "apps", "격자 확인용",
                                   lambda checked=False, i=index: clicked.append(i)))

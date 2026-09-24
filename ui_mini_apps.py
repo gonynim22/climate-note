@@ -71,6 +71,7 @@ class MiniAppTile(QToolButton):
 class MiniAppsPocket(QWidget):
     dismissed = Signal(bool)
     unit_converter_requested = Signal()
+    date_time_calculator_requested = Signal()
     shadow_margin = SHADOW_MARGIN
 
     def __init__(self, parent=None):
@@ -162,7 +163,15 @@ class MiniAppsPocket(QWidget):
             icon=QIcon(str(resource_root() / "resources" / "images" / "mini_apps" / "unit_converter_tile.png")),
         )
         self.converter_card.setObjectName("unitConverterCard")
-        for index in range(1, 4):
+        self.date_time_card = self.add_app(
+            "날짜·시간\n계산기", "date_time", "날짜·근무일·시간 차이·시간 합산",
+            self.date_time_calculator_requested.emit,
+            icon=QIcon(str(resource_root() / "resources" / "icons" / "date_time.svg")),
+        )
+        self.date_time_card.setObjectName("dateTimeCalculatorCard")
+        self.date_time_card.setAccessibleName("날짜·시간 계산기 실행")
+        self.date_time_card.setIconSize(QSize(42, 42))
+        for index in range(2, 4):
             card = self._make_tile("곧 출시\n예정", fluent_icon("apps", "#9BAABC", 64))
             card.setObjectName(f"upcomingMiniApp{index}")
             card.setIconSize(QSize(26, 26))
