@@ -6,7 +6,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractButton, QApplication, QCheckBox, QFrame, QGraphicsDropShadowEffect,
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea,
+    QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -42,19 +42,17 @@ class DateTimeCalculatorWindow(QWidget):
         self._copy_text = None
         self._valid = False
         self._sum_rows = []
+        self._sum_index = 0
+        self._sum_indices = {'duration': 0, 'interval': 0}
+        self._form_notes = []
         self.setStyleSheet('''
             QWidget { color:#292C33; }
             QWidget#dateTimeSurface { background:#FDFDFB; border-radius:16px; }
             QWidget#dateTimeRail { background:#23252B; border-bottom-left-radius:16px; }
-            QScrollArea, QScrollArea > QWidget > QWidget { background:transparent; border:0; }
-            QScrollBar:vertical { width:6px; background:transparent; }
-            QScrollBar::handle:vertical { background:#CDD0D2; border-radius:3px; min-height:20px; }
-            QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical { height:0; }
-            QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical { background:transparent; }
-            QLineEdit { background:white; border:1px solid #CDD5E0; border-radius:6px; padding:6px 8px; }
+            QLineEdit { background:white; border:1px solid #CDD5E0; border-radius:6px; padding:4px 8px; }
             QLineEdit:focus { border:1px solid #577AAA; }
             QLineEdit:disabled { background:#F0F2F4; color:#86909C; }
-            QPushButton { background:#FFFFFF; border:1px solid #CDD5E0; border-radius:6px; padding:6px 8px; }
+            QPushButton { background:#FFFFFF; border:1px solid #CDD5E0; border-radius:6px; padding:4px 8px; }
             QPushButton:hover { background:#EDF3FB; border-color:#91AACA; }
             QPushButton:focus { border:1px solid #315C98; }
             QPushButton:disabled { color:#959CA6; background:#F3F4F6; }
@@ -121,19 +119,16 @@ class DateTimeCalculatorWindow(QWidget):
         area.addWidget(self.rail)
         right = QWidget()
         right_layout = QVBoxLayout(right)
+        self.right_layout = right_layout
         right_layout.setContentsMargins(18, 17, 18, 16)
-        right_layout.setSpacing(9)
+        right_layout.setSpacing(7)
         self.mode_title = QLabel()
         self.mode_title.setStyleSheet('font-size:18px;font-weight:bold;')
         right_layout.addWidget(self.mode_title)
-        self.body_scroll = QScrollArea()
-        self.body_scroll.setWidgetResizable(True)
-        self.body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.body_scroll.setFrameShape(QFrame.NoFrame)
         self.body = QWidget()
         body_layout = QVBoxLayout(self.body)
-        body_layout.setContentsMargins(0, 0, 4, 0)
-        body_layout.setSpacing(12)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
         self.pages = QStackedWidget()
         self.pages.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         body_layout.addWidget(self.pages)
@@ -142,7 +137,7 @@ class DateTimeCalculatorWindow(QWidget):
             page = QWidget()
             layout = QVBoxLayout(page)
             layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(11)
+            layout.setSpacing(7)
             self.page_widgets[mode] = page
             self.pages.addWidget(page)
         self._build_difference()
@@ -154,14 +149,15 @@ class DateTimeCalculatorWindow(QWidget):
         self.error_label.setStyleSheet('color:#AA2828;font-size:12px;')
         self.error_label.setAccessibleName('계산 오류')
         body_layout.addStretch()
-        self.body_scroll.setWidget(self.body)
-        right_layout.addWidget(self.body_scroll, 1)
+        right_layout.addWidget(self.body, 1)
         right_layout.addWidget(self.error_label)
         result = QFrame()
         result.setObjectName('dateTimeResult')
         result_layout = QVBoxLayout(result)
+        self.result_layout = result_layout
+        self.result_card = result
         result_layout.setContentsMargins(14, 12, 14, 12)
-        result_layout.setSpacing(7)
+        result_layout.setSpacing(4)
         self.result_caption = QLabel('계산 결과 · 총 분')
         self.result_caption.setStyleSheet('color:#315C98;font-size:11px;')
         self.result_label = QLabel()
@@ -218,6 +214,11 @@ class DateTimeCalculatorWindow(QWidget):
         label.setWordWrap(True)
         return label
 
+    def _form_note(self, text):
+        label = self._note(text)
+        self._form_notes.append(label)
+        return label
+
     def _input(self, mode, key, label, value, *, time=False):
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -272,10 +273,13 @@ class DateTimeCalculatorWindow(QWidget):
         self.date_fields = QWidget()
         dates = QVBoxLayout(self.date_fields)
         dates.setContentsMargins(0, 0, 0, 0)
-        dates.setSpacing(8)
+        dates.setSpacing(5)
         today = date.today().isoformat()
-        dates.addWidget(self._input(mode, 'start_date', '시작 날짜', today))
-        dates.addWidget(self._input(mode, 'end_date', '종료 날짜', today))
+        date_pair = QHBoxLayout()
+        date_pair.setSpacing(8)
+        date_pair.addWidget(self._input(mode, 'start_date', '시작 날짜', today))
+        date_pair.addWidget(self._input(mode, 'end_date', '종료 날짜', today))
+        dates.addLayout(date_pair)
         dates.addWidget(self._check(mode, 'date_only', '시간 없이 날짜만 비교'))
         layout.addWidget(self.date_fields)
         self.clock_fields = QWidget()
@@ -305,7 +309,7 @@ class DateTimeCalculatorWindow(QWidget):
         layout.addWidget(self.break_field)
         self.date_swap_button = self._button('시작 / 종료 바꾸기', self.swap_dates)
         layout.addWidget(self.date_swap_button)
-        layout.addWidget(self._note('초까지 입력 가능 · 종료가 이르면 다음 날을 직접 선택하세요.'))
+        layout.addWidget(self._form_note('초까지 입력 가능 · 자정을 넘으면 다음 날 종료를 선택하세요.'))
 
     def _build_calendar(self):
         mode = 'calendar'
@@ -321,14 +325,17 @@ class DateTimeCalculatorWindow(QWidget):
         for i, (key, label) in enumerate([('years', '년'), ('months', '월'), ('days', '일'), ('hours', '시간'), ('minutes', '분'), ('seconds', '초')]):
             grid.addWidget(self._input(mode, key, label, 0), i // 3, i % 3)
         layout.addLayout(grid)
-        layout.addWidget(self._note('년·월을 먼저 계산 · 없는 날짜는 대상 월의 말일로 조정'))
+        layout.addWidget(self._form_note('년·월을 먼저 계산 · 없는 날짜는 대상 월의 말일로 조정'))
 
     def _build_workdays(self):
         mode = 'workdays'
         layout = self.page_widgets[mode].layout()
         today = date.today().isoformat()
-        layout.addWidget(self._input(mode, 'start_date', '시작 날짜', today))
-        layout.addWidget(self._input(mode, 'end_date', '종료 날짜', today))
+        dates = QHBoxLayout()
+        dates.setSpacing(8)
+        dates.addWidget(self._input(mode, 'start_date', '시작 날짜', today))
+        dates.addWidget(self._input(mode, 'end_date', '종료 날짜', today))
+        layout.addLayout(dates)
         ends = QHBoxLayout()
         ends.addWidget(self._check(mode, 'include_start', '시작일 포함', True))
         ends.addWidget(self._check(mode, 'include_end', '종료일 포함', True))
@@ -340,7 +347,8 @@ class DateTimeCalculatorWindow(QWidget):
             weekdays.addWidget(self._check(mode, f'day_{i}', label, i >= 5))
         layout.addLayout(weekdays)
         layout.addWidget(self._check(mode, 'holidays', '공휴일 제외', True))
-        layout.addWidget(self._note('공휴일 자료: 2025–2027년 · 범위 밖은 공휴일 제외를 끄고 계산'))
+        self.fields[mode]['holidays'].setToolTip('공휴일 자료: 2025–2027년 · 범위 밖은 공휴일 제외를 끄고 계산')
+        layout.addWidget(self._form_note('공휴일 자료: 2025–2027년'))
         self.workdays_swap_button = self._button('시작 / 종료 바꾸기', lambda: self.swap_dates('workdays'))
         layout.addWidget(self.workdays_swap_button)
 
@@ -350,15 +358,36 @@ class DateTimeCalculatorWindow(QWidget):
         self.sum_kind = self._combo(mode, 'kind', [('기간 합산', 'duration'), ('근무 구간 합산', 'interval')])
         self.sum_kind.currentIndexChanged.disconnect(self.update_results)
         self.sum_kind.currentIndexChanged.connect(self._sum_kind_changed)
-        layout.addWidget(self.sum_kind)
+        kind_row = QHBoxLayout()
+        kind_row.addWidget(self.sum_kind, 1)
+        self.sum_kind.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.sum_kind.setMinimumWidth(0)
+        self.add_row_button = self._button('+ 추가', lambda: self.add_sum_row())
+        kind_row.addWidget(self.add_row_button)
+        layout.addLayout(kind_row)
+        navigation = QHBoxLayout()
+        navigation.setSpacing(4)
+        self.previous_row_button = self._button('‹', lambda: self.select_sum_row(self._sum_index - 1))
+        self.previous_row_button.setAccessibleName('이전 합산 항목')
+        self.next_row_button = self._button('›', lambda: self.select_sum_row(self._sum_index + 1))
+        self.next_row_button.setAccessibleName('다음 합산 항목')
+        for button in (self.previous_row_button, self.next_row_button):
+            button.setFixedWidth(28)
+        self.row_position = self._note('')
+        self.row_position.setAlignment(Qt.AlignCenter)
+        navigation.addWidget(self.previous_row_button)
+        navigation.addWidget(self.row_position, 1)
+        navigation.addWidget(self.next_row_button)
+        self.remove_row_button = self._button('삭제', self._remove_current_row)
+        self.remove_row_button.setAccessibleName('이 행 삭제')
+        navigation.addWidget(self.remove_row_button)
+        layout.addLayout(navigation)
         self.sum_rows_widget = QWidget()
         self.sum_rows_layout = QVBoxLayout(self.sum_rows_widget)
         self.sum_rows_layout.setContentsMargins(0, 0, 0, 0)
-        self.sum_rows_layout.setSpacing(12)
+        self.sum_rows_layout.setSpacing(0)
         layout.addWidget(self.sum_rows_widget)
-        self.add_row_button = self._button('+ 기간 추가', lambda: self.add_sum_row())
-        layout.addWidget(self.add_row_button)
-        layout.addWidget(self._note('기간은 일·시간·분·초로 합산합니다. 년·월은 날짜 연산에서 계산하세요.'))
+        layout.addWidget(self._form_note('전체 항목을 합산합니다. 년·월은 날짜 연산에서 계산하세요.'))
         self._sum_saved = {'duration': None, 'interval': None}
         self._sum_current_kind = 'duration'
         self.add_sum_row()
@@ -367,9 +396,27 @@ class DateTimeCalculatorWindow(QWidget):
         if not hasattr(self, '_sum_saved') or self._updating:
             return
         self._sum_saved[self._sum_current_kind] = self._row_values()
+        self._sum_indices[self._sum_current_kind] = self._sum_index
         self._sum_current_kind = self.sum_kind.currentData()
         self._replace_rows(self._sum_saved[self._sum_current_kind])
+        self.select_sum_row(self._sum_indices[self._sum_current_kind])
         self.update_results()
+
+    def select_sum_row(self, index):
+        self._sum_index = max(0, min(index, len(self._sum_rows) - 1))
+        for i, (panel, _) in enumerate(self._sum_rows):
+            panel.setVisible(i == self._sum_index)
+        count = len(self._sum_rows)
+        self.row_position.setText(f'{self._sum_index + 1} / {count}' if count else '항목 없음')
+        self.previous_row_button.setEnabled(count > 0 and self._sum_index > 0)
+        self.next_row_button.setEnabled(self._sum_index + 1 < count)
+        self.remove_row_button.setEnabled(count > 0)
+        self.add_row_button.setEnabled(count < 24)
+        self.page_widgets['sum'].updateGeometry()
+
+    def _remove_current_row(self):
+        if self._sum_rows:
+            self.remove_sum_row(self._sum_rows[self._sum_index][0])
 
     def add_sum_row(self, values=None):
         if len(self._sum_rows) >= 24:
@@ -381,14 +428,6 @@ class DateTimeCalculatorWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
         controls = {}
-        header = QHBoxLayout()
-        caption = self._note('기간' if self.sum_kind.currentData() == 'duration' else '근무 구간')
-        header.addWidget(caption)
-        header.addStretch()
-        remove = self._button('삭제', lambda: self.remove_sum_row(panel))
-        remove.setAccessibleName('이 행 삭제')
-        header.addWidget(remove)
-        layout.addLayout(header)
         grid = QGridLayout()
         grid.setSpacing(6)
         if self.sum_kind.currentData() == 'duration':
@@ -405,7 +444,7 @@ class DateTimeCalculatorWindow(QWidget):
             names = [('start_date', '시작 날짜', today), ('end_date', '종료 날짜', today), ('start_time', '시작 시각', '18:00'), ('end_time', '종료 시각', '19:00'), ('break_minutes', '휴게 (분)', '0')]
         for i, (key, label, default) in enumerate(names):
             wrapper = QWidget()
-            pair = QVBoxLayout(wrapper)
+            pair = QHBoxLayout(wrapper) if key == 'break_minutes' else QVBoxLayout(wrapper)
             pair.setContentsMargins(0, 0, 0, 0)
             pair.setSpacing(4)
             pair.addWidget(self._note(label))
@@ -426,8 +465,7 @@ class DateTimeCalculatorWindow(QWidget):
         if values:
             self._set_controls(controls, values)
         self._updating = previous
-        self.add_row_button.setEnabled(len(self._sum_rows) < 24)
-        self.add_row_button.setText('+ 근무 구간 추가' if self.sum_kind.currentData() == 'interval' else '+ 기간 추가')
+        self.select_sum_row(len(self._sum_rows) - 1)
         self.update_results()
 
     def remove_sum_row(self, panel):
@@ -436,7 +474,7 @@ class DateTimeCalculatorWindow(QWidget):
         self.sum_rows_layout.removeWidget(panel)
         panel.hide()
         panel.deleteLater()
-        self.add_row_button.setEnabled(True)
+        self.select_sum_row(self._sum_index)
         self.update_results()
 
     def _replace_rows(self, rows):
@@ -449,8 +487,7 @@ class DateTimeCalculatorWindow(QWidget):
         self._sum_rows = []
         for values in ([{}] if rows is None else rows):
             self.add_sum_row(values)
-        self.add_row_button.setEnabled(len(self._sum_rows) < 24)
-        self.add_row_button.setText('+ 근무 구간 추가' if self.sum_kind.currentData() == 'interval' else '+ 기간 추가')
+        self.select_sum_row(0)
         self._updating = previous
 
     @staticmethod
@@ -496,7 +533,6 @@ class DateTimeCalculatorWindow(QWidget):
         for key, page in self.page_widgets.items():
             page.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred if key == mode else QSizePolicy.Ignored)
         self.update_results()
-        self.body_scroll.verticalScrollBar().setValue(0)
 
     def swap_dates(self, mode='difference'):
         # clicked(bool)의 인자가 들어오면 현재 시간 차이 페이지를 사용한다.
@@ -556,12 +592,15 @@ class DateTimeCalculatorWindow(QWidget):
             else:
                 rows = self._row_values()
                 values = []
-                for row in rows:
-                    if d['kind'] == 'duration':
-                        seconds = sum(self._integer(row[key]) * factor for key, factor in [('days', 86400), ('hours', 3600), ('minutes', 60), ('seconds', 1)])
-                        values.append(row['sign'] * seconds)
-                    else:
-                        values.append(interval_seconds(self._datetime(row['start_date'], row['start_time']), self._datetime(row['end_date'], row['end_time']), self._integer(row['break_minutes'])))
+                for index, row in enumerate(rows, 1):
+                    try:
+                        if d['kind'] == 'duration':
+                            seconds = sum(self._integer(row[key]) * factor for key, factor in [('days', 86400), ('hours', 3600), ('minutes', 60), ('seconds', 1)])
+                            values.append(row['sign'] * seconds)
+                        else:
+                            values.append(interval_seconds(self._datetime(row['start_date'], row['start_time']), self._datetime(row['end_date'], row['end_time']), self._integer(row['break_minutes'])))
+                    except (ValueError, OverflowError) as exc:
+                        raise ValueError(f'{index}번째 항목: {exc}') from exc
                 self._show_seconds(sum_durations(values), f'{len(rows)}개 ' + ('기간 합산' if d['kind'] == 'duration' else '구간 합산 · 각 구간을 개별 합산'))
             self.error_label.hide()
             self._valid = True
@@ -572,6 +611,7 @@ class DateTimeCalculatorWindow(QWidget):
             self.result_label.setText('—')
             self.result_detail.setText('입력을 확인하세요.')
             self.result_note.clear()
+            self.result_card.setToolTip(self.error_label.text())
         self.copy_button.setEnabled(self._valid)
         self.save_button.setEnabled(self._valid)
         self.copy_mode.setEnabled(self._seconds is not None)
@@ -593,6 +633,7 @@ class DateTimeCalculatorWindow(QWidget):
         self.result_label.setText(main)
         self.result_detail.setText(detail)
         self.result_note.setText(note)
+        self.result_card.setToolTip('\n'.join([caption, main, detail, note]))
         self._seconds = seconds
         self._copy_text = '\n'.join([MODES[self.mode], main, detail, note])
 
@@ -628,6 +669,7 @@ class DateTimeCalculatorWindow(QWidget):
         self._updating = True
         if entry['mode'] == 'sum':
             self._sum_saved[self._sum_current_kind] = self._row_values()
+            self._sum_indices[self._sum_current_kind] = self._sum_index
         self._set_controls(self.fields[entry['mode']], entry['values'])
         if entry['mode'] == 'sum':
             self._sum_current_kind = entry['values']['kind']
@@ -660,12 +702,32 @@ class DateTimeCalculatorWindow(QWidget):
             if screen is None:
                 return
             available = screen.availableGeometry()
-        margin = min(SHADOW_MARGIN, max(0, (available.width() - 420) // 2))
+        compact = available.height() < 620
+        margin = min(SHADOW_MARGIN, max(0, (available.width() - 420) // 2), max(0, (available.height() - 620) // 2))
+        self.header.setFixedHeight(40 if compact else 52)
+        self.right_layout.setContentsMargins(12 if compact else 18, 6 if compact else 17, 12 if compact else 18, 6 if compact else 16)
+        self.right_layout.setSpacing(4 if compact else 7)
+        self.mode_title.setVisible(not compact)
+        self.status_label.setVisible(not compact)
+        self.result_note.setVisible(not compact)
+        self.result_label.setMinimumHeight(32 if compact else 43)
+        self.result_layout.setContentsMargins(10 if compact else 14, 6 if compact else 12, 10 if compact else 14, 6 if compact else 12)
+        for note in self._form_notes:
+            note.setVisible(not compact)
+            note.parentWidget().setToolTip(note.text())
+        for page in self.page_widgets.values():
+            page.layout().setSpacing(4 if compact else 7)
         self.layout().setContentsMargins(margin, margin, margin, margin)
         shadow = self.surface.graphicsEffect()
         shadow.setBlurRadius(max(0, margin - 4))
         shadow.setOffset(0, min(4, margin))
         shadow.setEnabled(margin > 0)
+        # 숨김/여백 변경의 최소 높이를 안쪽부터 반영한 뒤 native 창을 줄인다.
+        for widget in reversed(self.findChildren(QWidget)):
+            if widget.layout() is not None:
+                widget.layout().activate()
+                widget.updateGeometry()
+        self.layout().activate()
         self.resize(min(WINDOW_WIDTH + margin * 2, available.width()), min(WINDOW_HEIGHT + margin * 2, available.height()))
         self.move(max(available.left(), min(self.x(), available.right() + 1 - self.width())), max(available.top(), min(self.y(), available.bottom() + 1 - self.height())))
 
@@ -694,8 +756,6 @@ class DateTimeCalculatorWindow(QWidget):
             if not event.isAutoRepeat():
                 watched.click()
             return True
-        if event.type() == QEvent.FocusIn and isinstance(watched, QLineEdit) and hasattr(self, 'body_scroll'):
-            self.body_scroll.ensureWidgetVisible(watched, 8, 12)
         if watched in (getattr(self, 'header', None), getattr(self, 'title_label', None)):
             if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
                 self._drag_origin = (event.globalPosition().toPoint(), self.pos())

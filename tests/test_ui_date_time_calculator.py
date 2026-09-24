@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QLineEdit, QPushButton, QStyle,
+    QApplication, QCheckBox, QComboBox, QLabel, QLineEdit, QPushButton, QScrollArea, QStyle,
     QStyleOptionButton, QWidget,
 )
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
@@ -36,8 +36,7 @@ def calculator(qtbot):
 
 
 def click(qtbot, win, widget):
-    if win.body.isAncestorOf(widget):
-        win.body_scroll.ensureWidgetVisible(widget, 8, 12)
+    assert widget.isVisible()
     if isinstance(widget, QCheckBox):
         # 늘어난 행의 빈 여백은 QCheckBox 클릭 영역이 아니므로 표시된 박스를 누른다.
         option = QStyleOptionButton()
@@ -269,7 +268,7 @@ def test_duration_sum_signs_switching_and_actual_row_delete(qtbot):
     first['minutes'].setText('30')
     first['seconds'].setText('30')
     click(qtbot, win, win.add_row_button)
-    second_panel, second = win._sum_rows[1]
+    second = win._sum_rows[1][1]
     second['minutes'].setText('20')
     choose(second['sign'], -1)
     assert win.result_label.text() == '70분 30초'
@@ -282,9 +281,8 @@ def test_duration_sum_signs_switching_and_actual_row_delete(qtbot):
     choose(win.sum_kind, 'duration')
     assert win.result_label.text() == '70분 30초'
     assert len(win._sum_rows) == 2
-    second_panel = win._sum_rows[1][0]
-    remove = next(button for button in second_panel.findChildren(QPushButton) if button.text() == '삭제')
-    click(qtbot, win, remove)
+    assert win.row_position.text() == '2 / 2'
+    click(qtbot, win, win.remove_row_button)
     assert len(win._sum_rows) == 1
     assert win.result_label.text() == '90분 30초'
     win.restore_recent(entry)
@@ -312,9 +310,7 @@ def test_restoring_other_sum_kind_keeps_current_unsaved_inputs(qtbot):
 def test_empty_sum_record_restores_zero_rows_and_kind_switch_preserves_it(qtbot):
     win = calculator(qtbot)
     win.select_mode('sum')
-    panel = win._sum_rows[0][0]
-    remove = next(button for button in panel.findChildren(QPushButton) if button.text() == '삭제')
-    click(qtbot, win, remove)
+    click(qtbot, win, win.remove_row_button)
     assert win._sum_rows == []
     assert win.result_label.text() == '0분'
     win.save_recent()
@@ -353,6 +349,118 @@ def test_work_intervals_use_dates_and_reject_reverse_order(qtbot):
     assert '시작보다' in win.error_label.text()
 
 
+def test_sum_navigation_adds_and_deletes_without_losing_hidden_rows(qtbot):
+    win = calculator(qtbot)
+    click(qtbot, win, win.mode_buttons['sum'])
+    for number in range(1, 25):
+        if number > 1:
+            click(qtbot, win, win.add_row_button)
+        assert win.row_position.text() == f'{number} / {number}'
+        visible = [controls for panel, controls in win._sum_rows if panel.isVisible()]
+        assert len(visible) == 1
+        visible[0]['minutes'].setText(str(number))
+    assert win.result_label.text() == '300분'
+    assert not win.add_row_button.isEnabled()
+    assert not win.next_row_button.isEnabled()
+    click(qtbot, win, win.previous_row_button)
+    assert win.row_position.text() == '23 / 24'
+    type_text(qtbot, win, win._sum_rows[22][1]['minutes'], '99')
+    assert win.result_label.text() == '376분'
+    click(qtbot, win, win.next_row_button)
+    assert win._sum_rows[23][1]['minutes'].text() == '24'
+    click(qtbot, win, win.remove_row_button)
+    assert win.row_position.text() == '23 / 23'
+    assert win.result_label.text() == '352분'
+    assert win.add_row_button.isEnabled()
+    click(qtbot, win, win.add_row_button)
+    assert win.row_position.text() == '24 / 24'
+    assert win._sum_rows[23][1]['minutes'].text() == '0'
+    click(qtbot, win, win.previous_row_button)
+    click(qtbot, win, win.remove_row_button)
+    assert win.row_position.text() == '23 / 23'
+    assert win._sum_rows[22][1]['minutes'].text() == '0'
+    assert win.result_label.text() == '253분'
+    for _ in range(23):
+        click(qtbot, win, win.remove_row_button)
+    assert not win._sum_rows
+    assert win.result_label.text() == '0분'
+    assert not win.previous_row_button.isEnabled()
+    assert not win.next_row_button.isEnabled()
+    assert not win.remove_row_button.isEnabled()
+    click(qtbot, win, win.add_row_button)
+    assert win.row_position.text() == '1 / 1'
+    assert win.result_label.text() == '0분'
+
+
+def test_sum_kind_navigation_and_recent_restore_preserve_all_inputs(qtbot):
+    win = calculator(qtbot)
+    click(qtbot, win, win.mode_buttons['sum'])
+    for number in range(1, 4):
+        if number > 1:
+            click(qtbot, win, win.add_row_button)
+        win._sum_rows[number - 1][1]['minutes'].setText(str(number))
+    click(qtbot, win, win.previous_row_button)
+    assert win.row_position.text() == '2 / 3'
+    click(qtbot, win, win.save_button)
+    entry = deepcopy(win.history[0])
+    choose(win.sum_kind, 'interval')
+    click(qtbot, win, win.add_row_button)
+    win._sum_rows[1][1]['break_minutes'].setText('15')
+    assert win.result_label.text() == '105분'
+    choose(win.sum_kind, 'duration')
+    assert win.row_position.text() == '2 / 3'
+    assert win.result_label.text() == '6분'
+    click(qtbot, win, win.previous_row_button)
+    click(qtbot, win, win.save_button)
+    assert win.history == [entry]  # 표시 중인 행만 바꾸면 같은 계산 기록이다.
+    choose(win.sum_kind, 'interval')
+    assert win.row_position.text() == '2 / 2'
+    win.restore_recent(entry)
+    assert win.row_position.text() == '1 / 3'
+    assert win.result_label.text() == '6분'
+    assert [controls['minutes'].text() for _, controls in win._sum_rows] == ['1', '2', '3']
+    choose(win.sum_kind, 'interval')
+    assert win.row_position.text() == '2 / 2'
+    assert win._sum_rows[1][1]['break_minutes'].text() == '15'
+    assert win.result_label.text() == '105분'
+    choose(win.sum_kind, 'duration')
+    assert win.row_position.text() == '1 / 3'
+
+
+@pytest.mark.parametrize('kind', ['duration', 'interval'])
+def test_hidden_sum_error_identifies_row_without_taking_focus(qtbot, kind):
+    win = calculator(qtbot)
+    click(qtbot, win, win.mode_buttons['sum'])
+    choose(win.sum_kind, kind)
+    first = win._sum_rows[0][1]
+    if kind == 'duration':
+        first['minutes'].setText('5')
+        first['seconds'].setText('30')
+    else:
+        first['end_time'].setText('19:00:30')
+    click(qtbot, win, win.add_row_button)
+    current = win._sum_rows[1][1]
+    edit_key = 'minutes' if kind == 'duration' else 'break_minutes'
+    type_text(qtbot, win, current[edit_key], '2')
+    assert win.result_label.text() == ('7분 30초' if kind == 'duration' else '118분 30초')
+    assert not win._sum_rows[0][0].isVisible()
+    error_key = 'seconds' if kind == 'duration' else 'end_time'
+    first[error_key].setText('-1' if kind == 'duration' else '17:00')
+    assert '1번째 항목' in win.error_label.text()
+    assert win.row_position.text() == '2 / 2'
+    assert current[edit_key].hasFocus()
+    assert not win._sum_rows[0][0].isVisible()
+    assert win.result_label.text() == '—'
+    assert not win.copy_button.isEnabled() and not win.save_button.isEnabled()
+    type_text(qtbot, win, current[edit_key], '3')
+    assert current[edit_key].hasFocus()
+    assert win.row_position.text() == '2 / 2'
+    click(qtbot, win, win.previous_row_button)
+    type_text(qtbot, win, first[error_key], '30' if kind == 'duration' else '19:00:30')
+    assert win.result_label.text() == ('8분 30초' if kind == 'duration' else '117분 30초')
+    assert not win.error_label.isVisible()
+
+
 @pytest.mark.parametrize('key', [Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter])
 def test_focused_mode_and_action_buttons_support_keyboard(qtbot, key):
     win = calculator(qtbot)
@@ -361,8 +469,6 @@ def test_focused_mode_and_action_buttons_support_keyboard(qtbot, key):
     qtbot.waitUntil(mode.hasFocus)
     qtbot.keyClick(QApplication.focusWidget(), key)
     assert win.mode == 'calendar'
-    if win.body.isAncestorOf(win.save_button):
-        win.body_scroll.ensureWidgetVisible(win.save_button)
     win.save_button.setFocus()
     qtbot.waitUntil(win.save_button.hasFocus)
     qtbot.keyClick(QApplication.focusWidget(), key)
@@ -411,41 +517,99 @@ def test_dropdown_after_edit_opens_immediately_selects_and_esc_only_closes_popup
         qapp.removeEventFilter(shows)
 
 
-@pytest.mark.parametrize('mode', list(MODES))
+@pytest.mark.parametrize('mode,state', [
+    ('difference', 'time'), ('difference', 'dated'), ('difference', 'date-only'),
+    ('difference', 'error'), ('difference', 'dated-error'),
+    ('calendar', 'normal'), ('calendar', 'error'),
+    ('workdays', 'normal'), ('workdays', 'error'),
+    ('sum', 'duration'), ('sum', 'interval'),
+    ('sum', 'duration-error'), ('sum', 'interval-error'),
+])
 @pytest.mark.parametrize('size', [QSize(1000, 900), QSize(480, 500), QSize(420, 500)])
-def test_all_modes_fit_work_area_and_render_without_horizontal_clipping(qtbot, mode, size):
+def test_all_modes_fit_work_area_without_scroll_or_clipping(qtbot, mode, state, size):
     win = calculator(qtbot)
     win.select_mode(mode)
     if mode == 'difference':
         win.fields[mode]['end_time'].setText('18:59:30')
+        if state in ('dated', 'date-only', 'dated-error'):
+            win.fields[mode]['dates'].setChecked(True)
+            win.fields[mode]['start_date'].setText('2026-01-31')
+            win.fields[mode]['end_date'].setText('2027-02-28')
+        if state == 'date-only':
+            win.fields[mode]['date_only'].setChecked(True)
+        if 'error' in state:
+            win.fields[mode]['end_time'].setText('25:00')
     elif mode == 'calendar':
         win.fields[mode]['base_date'].setText('2026-01-31')
         win.fields[mode]['months'].setText('1')
+        if state == 'error':
+            win.fields[mode]['years'].setText('1000000')
     elif mode == 'workdays':
         win.fields[mode]['start_date'].setText('2026-01-01')
         win.fields[mode]['end_date'].setText('2026-01-04')
+        if state == 'error':
+            win.fields[mode]['end_date'].setText('2028-01-04')
     else:
-        win._sum_rows[0][1]['hours'].setText('6')
-        win._sum_rows[0][1]['minutes'].setText('59')
+        if state.startswith('interval'):
+            choose(win.sum_kind, 'interval')
+            win._sum_rows[0][1]['end_time'].setText('19:00:30')
+            if state.endswith('error'):
+                win._sum_rows[0][1]['end_time'].setText('17:00')
+        else:
+            win._sum_rows[0][1]['hours'].setText('6')
+            win._sum_rows[0][1]['minutes'].setText('59')
+            if state.endswith('error'):
+                win._sum_rows[0][1]['seconds'].setText('1000000')
     available = QRect(QPoint(0, 0), size)
     win.fit_to_screen(available)
     QApplication.processEvents()
     assert available.contains(win.geometry())
-    assert win.body_scroll.horizontalScrollBar().maximum() == 0
+    assert not win.findChildren(QScrollArea)
+    assert win.error_label.isVisible() == ('error' in state)
     assert win.title_label.width() >= win.title_label.fontMetrics().horizontalAdvance(win.title_label.text())
     for control in win.page_widgets[mode].findChildren(QWidget):
-        if isinstance(control, (QLineEdit, QCheckBox, QComboBox)) and control.isVisible():
+        if isinstance(control, (QLineEdit, QCheckBox, QComboBox, QPushButton, QLabel)) and control.isVisible():
             rectangle = QRect(control.mapTo(win.body, QPoint()), control.size())
-            assert rectangle.left() >= 0
-            assert rectangle.right() < win.body.width()
+            assert win.body.rect().contains(rectangle), (control.accessibleName(), rectangle, win.body.rect())
+            assert control.height() >= control.fontMetrics().height()
     for name, button in win.mode_buttons.items():
         assert button.width() >= button.fontMetrics().horizontalAdvance(MODES[name]) + 14
-    capture(win, f'{mode}-{size.width()}x{size.height()}')
-    if win.body.isAncestorOf(win.copy_button):
-        win.body_scroll.ensureWidgetVisible(win.copy_button, 8, 12)
-        QApplication.processEvents()
-        copy_bounds = QRect(win.copy_button.mapTo(win.body_scroll.viewport(), QPoint()), win.copy_button.size())
-        assert win.body_scroll.viewport().rect().contains(copy_bounds)
-    else:
-        copy_bounds = QRect(win.copy_button.mapTo(win, QPoint()), win.copy_button.size())
-        assert win.rect().contains(copy_bounds)
+    for control in (win.body, win.error_label, win.result_card, win.copy_mode,
+                    win.copy_button, win.save_button, win.recent_combo, win.status_label):
+        if control.isVisible():
+            rectangle = QRect(control.mapTo(win.surface, QPoint()), control.size())
+            assert win.surface.rect().contains(rectangle), (control.objectName(), rectangle, win.surface.rect())
+    for label in (win.result_caption, win.result_label, win.result_detail, win.result_note):
+        if label.isVisible():
+            rectangle = QRect(label.mapTo(win.result_card, QPoint()), label.size())
+            assert win.result_card.rect().contains(rectangle)
+            if label.text():
+                assert label.height() >= label.fontMetrics().height()
+    assert win.body.geometry().bottom() < win.result_card.geometry().top()
+    assert win.result_card.geometry().bottom() < win.copy_button.geometry().top()
+    assert win.copy_button.geometry().bottom() < win.recent_combo.geometry().top()
+    capture(win, f'{mode}-{state}-{size.width()}x{size.height()}')
+
+
+def test_returning_from_short_work_area_restores_full_layout_and_keeps_inputs(qtbot):
+    win = calculator(qtbot)
+    win.select_mode('sum')
+    win._sum_rows[0][1]['minutes'].setText('45')
+    click(qtbot, win, win.add_row_button)
+    win._sum_rows[1][1]['seconds'].setText('30')
+    win.save_recent()
+    original = deepcopy(win.history)
+    win.fit_to_screen(QRect(0, 0, 420, 500))
+    QApplication.processEvents()
+    assert win.row_position.text() == '2 / 2'
+    assert win.result_label.text() == '45분 30초'
+    win.fit_to_screen(QRect(0, 0, 1000, 900))
+    QApplication.processEvents()
+    assert win.size() == QSize(528, 668)
+    assert win.mode_title.isVisible() and win.status_label.isVisible()
+    assert win.result_note.isVisible()
+    assert win.row_position.text() == '2 / 2'
+    assert win.result_label.text() == '45분 30초'
+    assert win.history == original
+    click(qtbot, win, win.previous_row_button)
+    assert win._sum_rows[0][1]['minutes'].text() == '45'

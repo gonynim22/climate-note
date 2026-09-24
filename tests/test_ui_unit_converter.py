@@ -70,6 +70,8 @@ def open_converter(qtbot, main, keyboard=False):
         qtbot.mouseClick(pocket.converter_card, Qt.LeftButton)
     win = main._unit_converter
     assert win is not None
+    # Qt.Tool은 부모의 활성 상태를 공유하므로 native 노출 뒤 포커스를 확인한다.
+    assert QTest.qWaitForWindowExposed(win)
     assert QTest.qWaitForWindowActive(win)
     qtbot.waitUntil(win.input.hasFocus)
     assert main._mini_apps_popup is None
