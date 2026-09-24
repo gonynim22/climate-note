@@ -1,8 +1,8 @@
 """개발자 제공 단위 환산기. 계산·최근 기록은 실행 중 메모리에만 존재한다."""
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import (
-    QAbstractButton, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLayout, QLineEdit,
+    QAbstractButton, QApplication, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLayout, QLineEdit,
     QPushButton, QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -11,6 +11,7 @@ from unit_converter import (
     convert, crosses_concentration_basis, format_number, parse_number,
 )
 from ui_conversion_conditions import ConversionConditionsPanel, condition_summary
+from ui_converter_combo import ConverterCombo
 
 CONVERTER_WIDTH = 440
 CONVERTER_HEIGHT = 580
@@ -23,21 +24,10 @@ def result_text(category_id, from_id, to_id, value, conditions):
     return ("≈ " if approximate else "") + format_number(value)
 
 
-class UnitCombo(QComboBox):
+class UnitCombo(ConverterCombo):
     """닫힌 상태에는 기호, 목록에는 전체 단위 이름과 정의를 표시한다."""
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(QColor("#829BBC" if self.hasFocus() else "#DDDFE3"), 1))
-        painter.setBrush(QColor("#FFFFFF"))
-        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 5, 5)
-        painter.setPen(QColor("#3E4653"))
-        painter.drawText(self.rect().adjusted(7, 0, -22, 0), Qt.AlignVCenter,
-                         self.currentData(Qt.UserRole + 1) or "")
-        x, y = self.width()-12, self.height()//2
-        painter.setPen(QPen(QColor("#818B9A"), 1.2))
-        painter.drawLine(x-3, y-1, x, y+2)
-        painter.drawLine(x, y+2, x+3, y-1)
+    def display_text(self):
+        return self.currentData(Qt.UserRole + 1) or ""
 
     def showPopup(self):
         screen = self.screen()
@@ -77,9 +67,6 @@ class UnitConverterWindow(QWidget):
             QScrollBar::handle { background:#CDD0D2; border-radius:2px; min-height:18px; min-width:18px; }
             QScrollBar::add-line, QScrollBar::sub-line { width:0; height:0; }
             QScrollBar::add-page, QScrollBar::sub-page { background:transparent; }
-            QComboBox { background:#FFFFFF; border:1px solid #DDDFE3; border-radius:5px; padding:2px 6px; font-size:13px; }
-            QComboBox:focus { border:1px solid #46679C; }
-            QComboBox QAbstractItemView { background:#FFFFFF; color:#292C33; selection-background-color:#E3EAF4; selection-color:#1E385C; font-size:13px; padding:4px; }
             QToolButton#converterClose, QToolButton#converterSwap { background:transparent; border:1px solid transparent; border-radius:6px; }
             QToolButton#converterClose:hover, QToolButton#converterClose:focus,
             QToolButton#converterSwap:hover, QToolButton#converterSwap:focus { background:#EDF1F5; border-color:#B4C5DB; }
@@ -304,7 +291,6 @@ class UnitConverterWindow(QWidget):
         label.setStyleSheet("font-size:11px;color:#858A94;font-weight:bold;")
         row.addWidget(label)
         row.addStretch()
-        combo.setFixedHeight(28)
         combo.setMinimumWidth(80)
         combo.setMaximumWidth(168)
         combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)

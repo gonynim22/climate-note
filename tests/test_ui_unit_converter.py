@@ -4,9 +4,9 @@ from pathlib import Path
 import sqlite3
 
 import pytest
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton
+from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QPushButton, QWidget
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
 from shiboken6 import isValid
 
@@ -220,6 +220,123 @@ def test_combo_escape_closes_dropdown_before_window(qtbot):
     win.input.setFocus()
     qtbot.keyClick(win.input, Qt.Key_Escape)
     assert not win.isVisible()
+
+
+@pytest.mark.parametrize("name", ["from", "to", "gas", "temperature"])
+@pytest.mark.parametrize("animated", [True, False])
+def test_converter_dropdown_opens_without_transient_image_and_selects(qtbot, qapp, name, animated):
+    win = converter(qtbot)
+    win.select_category("temp" if name == "temperature" else "gas_fraction")
+    if name != "temperature":
+        win.to_combo.setCurrentIndex(win.to_combo.findData("mgm3"))
+    combo = {"from": win.from_combo, "to": win.to_combo,
+             "gas": win.conditions_panel.gas_picker,
+             "temperature": win.conditions_panel.temperature_mode}[name]
+    QApplication.processEvents()
+    shown = []
+
+    class PopupObserver(QObject):
+        def eventFilter(self, obj, event):
+            if event.type() == QEvent.Show and isinstance(obj, QWidget) and obj.isWindow():
+                shown.append(obj.metaObject().className())
+            return False
+
+    observer = PopupObserver()
+    qapp.installEventFilter(observer)
+    previous = QApplication.isEffectEnabled(Qt.UI_AnimateCombo)
+    QApplication.setEffectEnabled(Qt.UI_AnimateCombo, animated)
+    try:
+        qtbot.mouseMove(combo, combo.rect().center())
+        qtbot.wait(20)
+        qtbot.mouseClick(combo, Qt.LeftButton)
+        # 최종 표시만 기다리면 150ms roll 이미지의 재등장을 놓친다.
+        assert combo.view().isVisible()
+        assert QApplication.isEffectEnabled(Qt.UI_AnimateCombo) == animated
+        assert "QRollEffect" not in shown
+        assert shown.count("QComboBoxPrivateContainer") == 1
+        popup = combo.view().window()
+        assert QTest.qWaitForWindowExposed(popup)
+        geometry = popup.geometry()
+        # 기본 QComboBox는 열기 클릭의 release를 doubleClickInterval 동안
+        # 보호한다. 초기 표시 검사는 위에서 동기로 하고 선택은 보호 시간 뒤 한다.
+        qtbot.wait(max(180, QApplication.doubleClickInterval()+20))
+        assert popup.geometry() == geometry
+        assert combo.view().isVisible()
+        assert "QRollEffect" not in shown
+
+        target = (combo.currentIndex()+1) % combo.count()
+        model_index = combo.model().index(target, 0)
+        combo.view().scrollTo(model_index)
+        point = combo.view().visualRect(model_index).center()
+        qtbot.mouseMove(combo.view().viewport(), point)
+        # QTest의 Windows 커서 이동은 native 이벤트 큐를 거친다.
+        qtbot.wait(80)
+        qtbot.mouseClick(combo.view().viewport(), Qt.LeftButton, pos=point)
+        assert combo.currentIndex() == target
+        assert not combo.view().isVisible()
+        assert win.isVisible()
+
+        combo.setFocus()
+        qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Down, Qt.AltModifier)
+        assert combo.view().isVisible()
+        qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Escape)
+        assert not combo.view().isVisible()
+        assert combo.currentIndex() == target
+        assert win.isVisible()
+        combo.showPopup()
+        win.hide()
+        assert not combo.view().isVisible()
+        assert QApplication.isEffectEnabled(Qt.UI_AnimateCombo) == animated
+    finally:
+        qapp.removeEventFilter(observer)
+        QApplication.setEffectEnabled(Qt.UI_AnimateCombo, previous)
+
+
+def test_converter_dropdowns_share_height_arrow_and_readable_rows(qtbot):
+    win = converter(qtbot)
+    win.select_category("gas_fraction")
+    win.to_combo.setCurrentIndex(win.to_combo.findData("mgm3"))
+    win.input.setFocus()
+    QApplication.processEvents()
+    arrows = []
+    for combo in (win.from_combo, win.to_combo, win.conditions_panel.gas_picker):
+        assert combo.height() == 28
+        arrows.append(combo.grab(QRect(combo.width()-22, 0, 22, 28)).toImage())
+    win.select_category("temp")
+    QApplication.processEvents()
+    combo = win.conditions_panel.temperature_mode
+    assert combo.height() == 28
+    arrows.append(combo.grab(QRect(combo.width()-22, 0, 22, 28)).toImage())
+    assert all(arrow == arrows[0] for arrow in arrows[1:])
+    for combo in (win.from_combo, win.to_combo, win.conditions_panel.temperature_mode):
+        combo.showPopup()
+        assert QTest.qWaitForWindowExposed(combo.view().window())
+        for index in range(combo.count()):
+            rect = combo.view().visualRect(combo.model().index(index, 0))
+            assert rect.height() >= combo.fontMetrics().height()+4
+        appdata = os.environ.get("CLIMATENOTE_TEST_APPDATA")
+        if appdata:
+            label = "temperature" if combo is win.conditions_panel.temperature_mode else "from" if combo is win.from_combo else "to"
+            assert combo.view().window().grab().save(str(Path(appdata).parent / f"converter-dropdown-{label}.png"))
+        combo.hidePopup()
+    capture(win, "unified-dropdowns")
+
+
+def test_converter_popup_failure_restores_application_effect(qtbot, monkeypatch):
+    win = converter(qtbot)
+    previous = QApplication.isEffectEnabled(Qt.UI_AnimateCombo)
+    QApplication.setEffectEnabled(Qt.UI_AnimateCombo, True)
+
+    def fail(self):
+        raise RuntimeError("synthetic popup failure")
+
+    monkeypatch.setattr(QComboBox, "showPopup", fail)
+    try:
+        with pytest.raises(RuntimeError, match="synthetic popup failure"):
+            win.to_combo.showPopup()
+        assert QApplication.isEffectEnabled(Qt.UI_AnimateCombo)
+    finally:
+        QApplication.setEffectEnabled(Qt.UI_AnimateCombo, previous)
 
 
 @pytest.mark.parametrize("scale", ["compact", "medium", "large"])

@@ -2,9 +2,10 @@
 import math
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
 from unit_converter import BASIS_SUMMARIES, CATEGORY_BY_ID, ConversionConditions, GASES, format_number, parse_number
+from ui_converter_combo import ConverterCombo
 
 
 def condition_summary(category_id, conditions):
@@ -57,11 +58,11 @@ class ConversionConditionsPanel(QWidget):
         self.toggle.toggled.connect(self._toggle_details)
         top.addWidget(self.toggle)
         layout.addLayout(top)
-        self.temperature_mode = QComboBox()
+        self.temperature_mode = ConverterCombo()
         self.temperature_mode.setAccessibleName("온도값 또는 온도차")
         self.temperature_mode.addItems(["온도값", "온도차 (증가·감소량)"])
         layout.addWidget(self.temperature_mode)
-        self.gas_picker = QComboBox()
+        self.gas_picker = ConverterCombo()
         self.gas_picker.setAccessibleName("환산할 기체 물질")
         self.gas_picker.addItem("물질 선택…", "")
         for gas_id, (label, _) in GASES.items():
