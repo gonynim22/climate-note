@@ -67,7 +67,7 @@ def test_amount_mode_official_notation_and_copy_formats(qtbot):
     win = helper(qtbot)
     assert win.result_caption.text() == "공문서 금액 표기"
     assert win.result_label.text() == "금113,560원"
-    assert win.result_detail.text() == "(금일십일만삼천오백육십원)"
+    assert win.result_detail.text().replace("\u200b", "") == "(금일십일만삼천오백육십원)"
     assert win.result_note.text() == "읽기: 십일만 삼천오백육십 원"
     assert win.copy_preview_text.full_text() == "금113,560원(금일십일만삼천오백육십원)"
     expected = {"official": "금113,560원(금일십일만삼천오백육십원)",
@@ -77,8 +77,11 @@ def test_amount_mode_official_notation_and_copy_formats(qtbot):
         qtbot.mouseClick(win.copy_button, Qt.LeftButton)
         assert QApplication.clipboard().text() == text
         assert win.copy_preview_text.full_text() == text
+    choose(win.copy_format, "official")
+    qtbot.mouseClick(win.copy_button, Qt.LeftButton)
+    assert "\u200b" not in QApplication.clipboard().text()
     type_text(qtbot, win.fields["amount"]["value"], "1000000")
-    assert win.result_detail.text() == "(금일백만원)"
+    assert win.result_detail.text().replace("\u200b", "") == "(금일백만원)"
     assert win.result_detail.property("strong") is True
     assert "제2조" in win.law_box.text()
 
@@ -122,9 +125,7 @@ def test_read_mode_scopes_unit_and_copy(qtbot):
     assert win.result_label.text() == "약 12.3억원"
     assert win.result_detail.text() == "십이억 삼천만 원"
     choose(win.fields["read"]["scope"], "all")
-    # QTest.keyClicks()가 이 Qt 빌드에서 비-ASCII 문자(예: 한글, é)에 대해
-    # 네이티브 크래시를 일으켜(가상 키 매핑 실패로 추정) 다른 테스트 파일들과
-    # 같은 방식으로 setText()로 대체한다(키 입력 동작이 아니라 결과 갱신만 검증).
+    # QTest.keyClicks()는 이 Qt 빌드에서 비-ASCII 문자(한글 등)에 네이티브 크래시를 일으켜 setText()로 대체한다.
     unit_field = win.fields["read"]["unit"]
     qtbot.mouseClick(unit_field, Qt.LeftButton)
     qtbot.waitUntil(unit_field.hasFocus)

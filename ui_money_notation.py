@@ -118,6 +118,7 @@ class MoneyNotationWindow(QWidget):
         self._drag_origin = None
         self._placed = False
         self._form_notes = []
+        self._result_min_height = 43
         self.setStyleSheet(STYLE)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN)
@@ -248,7 +249,7 @@ class MoneyNotationWindow(QWidget):
         self.result_detail = QLabel()
         self.result_detail.setObjectName("resultDetail")
         self.result_detail.setWordWrap(True)
-        self.result_detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.result_detail.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.result_note = self._note("")
         for widget in (self.result_caption, self.result_label, self.result_detail, self.result_note):
             self.result_layout.addWidget(widget)
@@ -328,7 +329,7 @@ class MoneyNotationWindow(QWidget):
             value_label.setAccessibleName(f"{name} 값")
             for label in (name_label, value_label):
                 label.setProperty("unitRow", True)
-                label.setFixedHeight(22)
+                label.setFixedHeight(20)
             grid.addWidget(name_label, row_index, 0)
             grid.addWidget(value_label, row_index, 1)
             self.unit_rows[key] = (name_label, value_label)
@@ -455,7 +456,11 @@ class MoneyNotationWindow(QWidget):
         amount = official_amount(value)
         main = f"금{amount.digits}원"
         outputs = {"official": amount.text, "hangul": f"금{amount.hangul}원", "digits": amount.digits}
-        return ("공문서 금액 표기", main, f"(금{amount.hangul}원)", f"읽기: {reading_hangul(value)} 원",
+        # 표시 전용: 조·억·만 뒤에 폭 없는 공백(ZWSP)을 넣어 자리 경계에서 줄바꿈을 허용한다.
+        # 복사되는 outputs/history 라벨은 amount.hangul 원본(ZWSP 없음)을 그대로 쓴다.
+        hangul_display = amount.hangul.replace("조", "조\u200b").replace("억", "억\u200b").replace("만", "만\u200b")
+        detail = f"(금{hangul_display}원)"
+        return ("공문서 금액 표기", main, detail, f"읽기: {reading_hangul(value)} 원",
                 outputs, f"금액 표기 · {main}")
 
     def _compute_read(self):
@@ -581,9 +586,11 @@ class MoneyNotationWindow(QWidget):
         self.mode_title.setVisible(not compact)
         self.status_label.setVisible(not compact)
         self.result_note.setVisible(not compact)
-        self.result_label.setMinimumHeight(32 if compact else 43)
+        self._result_min_height = 32 if compact else 43
         self.result_layout.setContentsMargins(10 if compact else 14, 6 if compact else 12,
                                               10 if compact else 14, 6 if compact else 12)
+        self.copy_preview.setFixedHeight(24 if compact else 28)
+        self.law_box.setVisible(not compact)
         self.law_box.setText(LAW_LINES[0] if compact else "\n".join(LAW_LINES))
         for note in self._form_notes:
             note.setVisible(not compact)
@@ -621,11 +628,12 @@ class MoneyNotationWindow(QWidget):
     def _fit_result_font(self):
         font = QFont(self.font())
         font.setBold(True)
-        for size in (34, 30, 26, 22, 18, 15):
+        for size in (34, 30, 26, 22, 18, 15, 13):
             font.setPixelSize(size)
             if QFontMetrics(font).horizontalAdvance(self.result_label.text()) <= self.result_label.width():
                 break
         self.result_label.setFont(font)
+        self.result_label.setMinimumHeight(max(self._result_min_height, QFontMetrics(font).height()))
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.KeyPress and isinstance(watched, QAbstractButton) and event.key() in (Qt.Key_Return, Qt.Key_Enter):
