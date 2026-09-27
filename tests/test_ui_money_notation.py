@@ -3,9 +3,9 @@ import os
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QComboBox, QLabel, QLineEdit, QPushButton, QScrollArea, QWidget
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
 
 from app_fonts import apply_app_font
@@ -231,3 +231,81 @@ def test_hide_owned_popups_closes_open_list(qtbot):
     win.hide_owned_popups()
     qtbot.waitUntil(lambda: not combo.view().isVisible())
     capture(win, "convert")
+
+
+LONGEST = {
+    "amount": {"value": "9,999,999,999,999,999"},
+    "read": {"value": "-9,999,999,999,999,999", "unit": "만톤CO2eq"},
+    "convert": {"value": "-9,999,999,999.999999"},
+}
+ERRORS = {"amount": "0", "read": "1,2,3", "convert": "1.1234567"}
+
+
+@pytest.mark.parametrize("mode", list(MODES))
+@pytest.mark.parametrize("state", ["normal", "error", "longest"])
+@pytest.mark.parametrize("size", [QSize(1000, 900), QSize(480, 500), QSize(420, 500)])
+def test_all_modes_fit_work_area_without_scroll_or_clipping(qtbot, mode, state, size):
+    win = helper(qtbot)
+    win.select_mode(mode)
+    if state == "error":
+        win.fields[mode]["value"].setText(ERRORS[mode])
+    elif state == "longest":
+        for key, value in LONGEST[mode].items():
+            win.fields[mode][key].setText(value)
+        if mode == "convert":
+            choose(win.fields["convert"]["from"], "won")
+            choose(win.fields["convert"]["to"], "jo")
+            choose(win.fields["convert"]["digits"], -1)
+    available = QRect(QPoint(0, 0), size)
+    win.fit_to_screen(available)
+    QApplication.processEvents()
+    assert available.contains(win.geometry())
+    assert not win.findChildren(QScrollArea)
+    assert win.error_label.isVisible() == (state == "error")
+    assert win.title_label.width() >= win.title_label.fontMetrics().horizontalAdvance(win.title_label.text())
+    for control in win.page_widgets[mode].findChildren(QWidget):
+        if isinstance(control, (QLineEdit, QComboBox, QPushButton, QLabel)) and control.isVisible():
+            rectangle = QRect(control.mapTo(win.body, QPoint()), control.size())
+            assert win.body.rect().contains(rectangle), (control.accessibleName(), rectangle, win.body.rect())
+            assert control.height() >= control.fontMetrics().height()
+    preview = QRect(win.copy_preview.mapTo(win.body, QPoint()), win.copy_preview.size())
+    assert win.body.rect().contains(preview)
+    for name, button in win.mode_buttons.items():
+        assert button.width() >= button.fontMetrics().horizontalAdvance(MODES[name]) + 14
+    for control in (win.body, win.error_label, win.result_card, win.copy_format,
+                    win.copy_button, win.save_button, win.recent_combo, win.status_label):
+        if control.isVisible():
+            rectangle = QRect(control.mapTo(win.surface, QPoint()), control.size())
+            assert win.surface.rect().contains(rectangle), (control.objectName(), rectangle, win.surface.rect())
+    for label in (win.result_caption, win.result_label, win.result_detail, win.result_note):
+        if label.isVisible():
+            rectangle = QRect(label.mapTo(win.result_card, QPoint()), label.size())
+            assert win.result_card.rect().contains(rectangle)
+            if label.text():
+                assert label.height() >= label.fontMetrics().height()
+    main_font = win.result_label.font()
+    from PySide6.QtGui import QFontMetrics
+    assert QFontMetrics(main_font).horizontalAdvance(win.result_label.text()) <= win.result_label.width()
+    assert win.body.geometry().bottom() < win.result_card.geometry().top()
+    assert win.result_card.geometry().bottom() < win.copy_button.geometry().top()
+    assert win.copy_button.geometry().bottom() < win.recent_combo.geometry().top()
+    capture(win, f"{mode}-{state}-{size.width()}x{size.height()}")
+
+
+def test_returning_from_short_work_area_restores_full_layout_and_keeps_inputs(qtbot):
+    win = helper(qtbot)
+    win.select_mode("read")
+    win.fields["read"]["value"].setText("5,000")
+    win.save_recent()
+    original = list(win.history)
+    win.fit_to_screen(QRect(0, 0, 420, 500))
+    QApplication.processEvents()
+    assert not win.mode_title.isVisible() and not win.status_label.isVisible()
+    assert win.result_label.text() == "5000원"
+    win.fit_to_screen(QRect(0, 0, 1000, 900))
+    QApplication.processEvents()
+    assert win.size() == QSize(528, 668)
+    assert win.mode_title.isVisible() and win.status_label.isVisible() and win.result_note.isVisible()
+    assert win.law_box.text().count("\n") == 1
+    assert win.history == original
+    assert win.fields["read"]["value"].text() == "5,000"
