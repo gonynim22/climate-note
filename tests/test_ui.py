@@ -879,6 +879,7 @@ def test_main_window_settings_brought_to_foreground(qtbot, app_dir, qapp, monkey
     assert "activate" in calls
     assert win._settings_window.reset_succeeded.connect.call_args_list == [
         call(win._discard_unit_converter), call(win._discard_date_time_calculator),
+        call(win._discard_money_notation),
     ]
 
 
