@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
@@ -17,7 +17,7 @@ import database as db
 import security
 import ui_main
 from ui_main import MainCalendarWindow
-from ui_mini_apps import MiniAppsPocket, pocket_position
+from ui_mini_apps import MiniAppsButton, MiniAppsPocket, pocket_position
 
 
 @pytest.fixture(autouse=True)
@@ -76,20 +76,22 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
             rect = QRect(slot.mapTo(scroll.viewport(), QPoint()), slot.size())
             assert scroll.viewport().rect().contains(rect)
     popup = open_pocket(qtbot, win)
-    assert popup.size() == QSize(288, 328)
-    assert popup.card.size() == QSize(240, 280)
-    assert popup.converter_card.size() == QSize(92, 92)
+    assert popup.size() == QSize(300, 328)
+    assert popup.card.size() == QSize(252, 280)
+    assert popup.converter_card.size() == QSize(104, 100)
     assert popup.apps_grid.count() == 4
     assert len(popup.pending_cards) == 2
+    assert popup.count_label.text() == "2개"
     assert popup.apps_scroll.horizontalScrollBar().maximum() == 0
     assert popup.apps_scroll.verticalScrollBar().maximum() == 0
     for index in range(4):
         card = popup.apps_grid.itemAtPosition(*divmod(index, 2)).widget()
-        assert card.size() == QSize(92, 92)
+        assert card.size() == QSize(104, 100)
+        assert card.iconSize() == QSize(48, 48)
         assert popup.apps_scroll.viewport().rect().contains(QRect(card.mapTo(popup.apps_scroll.viewport(), QPoint()), card.size()))
     assert popup.screen().availableGeometry().contains(popup.geometry())
     assert popup.converter_card.isVisible()
-    assert "단위 환산기" in popup.converter_card.text()
+    assert popup.converter_card.text() == "단위 환산기"
     assert popup.date_time_card.isVisible()
     assert popup.date_time_card.text() == "날짜·시간\n계산기"
     assert popup.apps_grid.itemAtPosition(0, 1).widget() is popup.date_time_card
@@ -113,22 +115,43 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
     win._close_mini_apps()
 
 
-def test_artwork_and_visible_unclipped_shadow(qtbot):
+def test_svg_icons_replace_generated_png_and_shadow_is_unclipped(qtbot):
+    assert not (resource_root() / "resources" / "images" / "mini_apps" / "unit_converter_tile.png").exists()
+    assert not (resource_root() / "resources" / "icons" / "date_time.svg").exists()
     win = window(qtbot)
     popup = open_pocket(qtbot, win)
-    artwork = QImage(str(resource_root() / "resources" / "images" / "mini_apps" / "unit_converter_tile.png"))
-    assert not artwork.isNull()
-    assert artwork.width() == artwork.height() and artwork.width() >= 104
-    assert artwork.hasAlphaChannel()
     assert not popup.converter_card.icon().isNull()
+    tile = popup.converter_card.grab().toImage()
+    teal = [tile.pixelColor(x, y) for x in range(tile.width()) for y in range(tile.height())]
+    assert any(c.green() - c.red() > 60 and c.blue() - c.red() > 60 for c in teal)
     rendered = popup.grab().toImage()
     dpr = rendered.devicePixelRatio()
     card = popup.card.geometry()
-    # 렌더 결과에서 카드 바깥에 반투명 그림자가 있고 창 끝에서는 잘리지 않는다.
     assert 0 < rendered.pixelColor(round((card.left()-3)*dpr), round(card.center().y()*dpr)).alpha() < 255
     for x, y in ((0, 0), (rendered.width()-1, 0), (0, rendered.height()-1),
                  (rendered.width()-1, rendered.height()-1)):
         assert rendered.pixelColor(x, y).alpha() == 0
+
+
+def test_pocket_a_header_tiles_and_sidebar_button_style(qtbot):
+    win = window(qtbot)
+    button = win.sidebar.mini_apps_button
+    assert isinstance(button, MiniAppsButton)
+    assert button.size() == QSize(64, 48)
+    style = button.styleSheet()
+    assert "background:#FFFFFF" in style and "border:1px solid #D9E1EC" in style
+    assert "QToolButton:checked{background:#EAF2FE;border-color:#8DB4F0;color:#1D4ED8;}" in style
+    popup = open_pocket(qtbot, win)
+    header = popup.findChild(QLabel, "miniAppsTitle").parentWidget()
+    assert header.height() == 48
+    assert "background:transparent" in header.styleSheet()
+    assert popup.findChild(QLabel, "miniAppsTitle").text() == "미니앱"
+    assert "border:0" in popup.close_button.styleSheet()
+    assert "border:1px solid #D9E1EC;border-radius:16px" in popup.card.styleSheet()
+    for card in (popup.converter_card, popup.date_time_card, *popup.pending_cards):
+        assert card.sizeHint().height() <= 100, card.text()
+        assert "background:transparent;border:2px solid transparent" in card.styleSheet()
+    assert all(not card.icon().isNull() for card in popup.pending_cards)
 
 
 def test_upcoming_tiles_do_not_launch_or_receive_keyboard_focus(qtbot):
@@ -137,7 +160,8 @@ def test_upcoming_tiles_do_not_launch_or_receive_keyboard_focus(qtbot):
     clicked = []
     for card in popup.pending_cards:
         card.clicked.connect(lambda: clicked.append(True))
-        assert card.text().replace("\n", " ") == "곧 출시 예정"
+        assert card.text() == "준비 중"
+        assert card.accessibleName() == "곧 출시 예정"
         assert not card.isEnabled()
         assert card.focusPolicy() == Qt.NoFocus
         qtbot.mouseClick(card, Qt.LeftButton)
@@ -305,7 +329,7 @@ def test_failed_inline_save_blocks_pocket_then_retry_preserves_content(qtbot, mo
 @pytest.mark.parametrize("anchor", [QRect(-1900, 40, 64, 48), QRect(-70, 900, 64, 48), QRect(-180, 0, 64, 48)])
 def test_position_on_negative_coordinate_monitor(anchor, shadow_margin):
     available = QRect(-1920, 0, 1920, 1040)
-    size = QSize(288, 328)
+    size = QSize(300, 328)
     position = pocket_position(anchor, size, available, shadow_margin=shadow_margin)
     assert available.contains(QRect(position, size))
     gap = 12 if shadow_margin else 8
@@ -324,11 +348,11 @@ def test_more_developer_apps_use_two_columns_and_scroll_without_resizing(qtbot):
         cards.append(popup.add_app(f"합성 앱 {index}", "apps", "격자 확인용",
                                   lambda checked=False, i=index: clicked.append(i)))
     QApplication.processEvents()
-    assert popup.size() == QSize(288, 328)
+    assert popup.size() == QSize(300, 328)
     assert not popup.pending_cards
     assert popup.apps_grid.count() == len(cards)
     for index, card in enumerate(cards):
-        assert card.size() == QSize(92, 92)
+        assert card.size() == QSize(104, 100)
         assert popup.apps_grid.getItemPosition(index)[:2] == divmod(index, 2)
     assert cards[0].geometry().right() < cards[1].geometry().left()
     assert popup.apps_scroll.horizontalScrollBar().maximum() == 0
@@ -341,3 +365,4 @@ def test_more_developer_apps_use_two_columns_and_scroll_without_resizing(qtbot):
     qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Return)
     assert clicked == [6]
     assert popup.isVisible()
+    assert popup.count_label.text() == f"{len(cards)}개"
