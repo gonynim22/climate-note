@@ -109,7 +109,7 @@ def test_three_apps_keep_independent_sessions(qtbot):
     assert money.history == money_history
 
 
-@pytest.mark.parametrize("action", ["lock", "tray", "sidebar", "hide", "reset_prepare"])
+@pytest.mark.parametrize("action", ["lock", "tray", "sidebar", "hide", "reset_prepare", "compact_scale"])
 def test_lifecycle_hides_money_window_without_losing_history(qtbot, action):
     main = main_window(qtbot)
     _converter, _calculator, money = open_all_with_history(qtbot, main)
@@ -132,6 +132,10 @@ def test_lifecycle_hides_money_window_without_losing_history(qtbot, action):
         db.save_setting(db.SETTING_SHOW_SIDEBAR, "0")
         main._apply_sidebar_visibility()
         main._open_money_notation()
+    elif action == "compact_scale":
+        db.save_setting(db.SETTING_CALENDAR_SCALE, "compact")
+        db.save_setting(db.SETTING_SHOW_SIDEBAR, "0")
+        main._apply_calendar_scale()
     elif action == "hide":
         main.hide()
         main.show()

@@ -329,7 +329,7 @@ class MoneyNotationWindow(QWidget):
             value_label.setAccessibleName(f"{name} 값")
             for label in (name_label, value_label):
                 label.setProperty("unitRow", True)
-                label.setFixedHeight(20)
+                label.setFixedHeight(22)
             grid.addWidget(name_label, row_index, 0)
             grid.addWidget(value_label, row_index, 1)
             self.unit_rows[key] = (name_label, value_label)
@@ -355,7 +355,7 @@ class MoneyNotationWindow(QWidget):
         self._form_notes.append(label)
         return label
 
-    def _input(self, mode, key, label, value, *, big=False, max_length=26):
+    def _input(self, mode, key, label, value, *, big=False, max_length=40):
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -485,7 +485,11 @@ class MoneyNotationWindow(QWidget):
         main = format_decimal(values[target], places) + UNIT_NAMES[target]
         note = ("표시는 소수 6자리까지 · 표는 정확한 값" if places is None
                 else f"표시만 소수 {places}자리 반올림 · 표는 정확한 값")
-        table = "\n".join(f"{UNIT_NAMES[key]}\t{exact_text(values[key])}" for key, _name, _factor in MONEY_UNITS)
+        # 화면 표는 "−"(U+2212)를 쓰지만, 복사용 표(outputs["table"])는 스프레드시트 호환을 위해 ASCII "-"를 쓴다.
+        table = "\n".join(
+            f"{UNIT_NAMES[key]}\t{exact_text(values[key]).replace('−', '-')}"
+            for key, _name, _factor in MONEY_UNITS
+        )
         source_text = f"{exact_text(value)}{UNIT_NAMES[source]}"
         return (f"금액 단위 환산 · {UNIT_NAMES[source]} → {UNIT_NAMES[target]}", main, f"= {source_text}",
                 note, {"value": main, "table": table}, f"단위 환산 · {source_text} → {main}")

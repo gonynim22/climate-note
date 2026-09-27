@@ -158,6 +158,40 @@ def test_convert_mode_table_is_exact_and_result_rounds_only_for_display(qtbot):
     assert win.unit_rows["jo"][1].property("hit") is True
 
 
+def test_convert_value_field_accepts_full_precision_input_without_truncation(qtbot):
+    win = helper(qtbot)
+    win.select_mode("convert")
+    choose(win.fields["convert"]["from"], "won")
+    text = "1,000,000,000,000,000.123456"  # 28자, 1경원 미만
+    value_field = win.fields["convert"]["value"]
+    value_field.setText(text)
+    assert value_field.text() == text
+    assert not win.error_label.isVisible()
+
+
+def test_convert_copy_table_uses_ascii_minus_while_screen_keeps_unicode_minus(qtbot):
+    win = helper(qtbot)
+    win.select_mode("convert")
+    choose(win.fields["convert"]["from"], "k")
+    win.fields["convert"]["value"].setText("-1,234,567")
+    assert win.result_label.text().startswith("−")
+    assert win.unit_rows["won"][1].full_text() == "−1,234,567,000"
+    choose(win.copy_format, "table")
+    qtbot.mouseClick(win.copy_button, Qt.LeftButton)
+    clipboard = QApplication.clipboard().text()
+    assert "-1,234,567,000" in clipboard
+    assert "−" not in clipboard
+
+
+def test_read_mode_digits_copy_uses_ascii_minus_for_negative_value(qtbot):
+    win = helper(qtbot)
+    win.select_mode("read")
+    win.fields["read"]["value"].setText("-1,234,567,890")
+    choose(win.copy_format, "digits")
+    qtbot.mouseClick(win.copy_button, Qt.LeftButton)
+    assert QApplication.clipboard().text() == "-1,234,567,890"
+
+
 def test_mode_inputs_and_copy_format_are_kept_per_mode(qtbot):
     win = helper(qtbot)
     win.fields["amount"]["value"].setText("5,000")
