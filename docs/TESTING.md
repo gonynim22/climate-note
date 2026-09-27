@@ -82,6 +82,10 @@ EXE는 시나리오마다 별도 AppData를 사용하고 `CLIMATENOTE_SKIP_START
 `release`는 기존 `build.spec`을 같은 Python의 `-m PyInstaller`로 실행한다.
 이번 EXE의 크기·SHA-256·Windows 버전·서명 상태와 TOC 해시를 기록한다.
 현재 `NotSigned` 상태를 자동 실패로 바꾸지 않는다. 라이선스·서명 과제는 기존 결정대로 별도다.
+**release·빌드는 PowerShell에서 실행한다.** Git Bash의 PATH로 실행하면 PyInstaller가
+`C:\Program Files\Git\mingw64\bin`의 `libcrypto-3-x64.dll`/`libssl-3-x64.dll`을 EXE 번들에
+잘못 포함시킨 사례가 있었다(v3.8c 최초 release). EXE 검사는 `build/build/Analysis-00.toc`의
+바이너리 출처 경로를 대조해 이런 제3자 DLL 혼입을 찾아낸다.
 
 1. 신규 설치: 빈 AppData → 응답하는 창 → 현재 schema·SQLite 무결성·32바이트 salt·유효한 일일 `.cnbak`·오류 로그 확인.
 2. 기존 데이터: 현재 저장 계약의 합성 일정·메모·열린/휴지통 스티키·D-Day·집중/세션·바로가기·설정 → 실행 전후 raw/복호화 내용 해시·ID·salt 불변과 최초 보호백업 확인.
@@ -126,7 +130,7 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 - **조건 계산 회귀(v3.8a)**: 물/직접 밀도·기체 물질/온도/절대압·온도차의 독립 기준값과 역환산, 미선택/빈 값/음수/비유한 값·100% 경계를 검사한다. UI에서는 실제 입력·근사 표시·다른 단위·교환·조건별 기록 복원/중복 구분·기록 겹침/잘림·기체 팝업 잠금 정리·340×400 조건 접근성을 검사한다. DB dump/Export/salt 보존 시나리오에도 새 계산 조건을 포함한다. 125/150% 합성 배율과 신규 release/번들 대조는 [현재 기록](work/2026-09-23-v3.8a-water-conversion-plan.md)에 남긴다.
 
 - **환산기 드롭다운**: `test_ui_unit_converter.py`는 FROM/TO·물질·온도 모드를 실제 클릭한 직후 실제 목록이 표시되고 임시 `QRollEffect`가 생성되지 않는지 검사한다. 전역 콤보 효과 ON/OFF 보존, 선택·Alt+Down/Esc·숨김, 동일 높이/화살표 픽셀·읽을 수 있는 목록 행, 팝업 예외 후 효과 복원을 포함한다. 최종 표시만 기다리면 150ms 중간 이미지 회귀를 놓친다. 선택 클릭은 native 커서 이동과 Qt의 최초 release 보호 시간을 고려한다. 125/150% 및 새 EXE 증거는 [현재 기록](work/2026-09-24-unit-converter-dropdown-fix.md)을 따른다.
-- **미니앱 주머니**: `test_ui_mini_apps.py`는 세 크기/짧은 화면의 6슬롯 접근·252×280px 본체/그림자 포함 300×328px 창/104×100px 타일 4칸·SVG 아이콘 로드·머리부 앱 개수·사이드바 버튼 스타일·반투명 그림자와 모서리 잘림·예정 타일 클릭/Tab 차단·실제 앱의 예정 자리 대체와 2열/세로 스크롤·실제 클릭/키보드/반복 열기·그림자 여백 닫기·음수 좌표 모니터 위치 보정·일정 저장 실패 게이트·잠금/트레이/보기 전환 취소·기존 DB 전체 dump/Export/바로가기/salt 불변을 검사한다. 미니앱/환산기 DB 비교는 기동 시 예약된 스티키 크기 스냅 저장 완료 후 기준 snapshot을 잡고 조작 구간의 전체 raw 불변을 확인한다. 기존 `test_ui.py`의 바로가기 등록/관리/드롭과 `test_ui_data_lifecycle.py`·`test_ui_schedule_emoji.py`의 수명 회귀를 함께 실행한다. 합성 PNG와 실제 EXE 자동 smoke·실제 혼합 DPI/KVM 수동 확인을 구분한다. [현재 주머니 기록](work/2026-09-23-mini-app-pocket-redesign.md).
+- **미니앱 주머니**: `test_ui_mini_apps.py`는 세 크기/짧은 화면의 6슬롯 접근·252×280px 본체/그림자 포함 300×328px 창/104×100px 타일 4칸·SVG 아이콘 로드·머리부 앱 개수·사이드바 버튼 스타일·반투명 그림자와 모서리 잘림·예정 타일 클릭/Tab 차단·실제 앱의 예정 자리 대체와 2열/세로 스크롤·실제 클릭/키보드/반복 열기·그림자 여백 닫기·음수 좌표 모니터 위치 보정·일정 저장 실패 게이트·잠금/트레이/보기 전환 취소·기존 DB 전체 dump/Export/바로가기/salt 불변을 검사한다. 미니앱/환산기 DB 비교는 기동 시 예약된 스티키 크기 스냅 저장 완료 후 기준 snapshot을 잡고 조작 구간의 전체 raw 불변을 확인한다. 기존 `test_ui.py`의 바로가기 등록/관리/드롭과 `test_ui_data_lifecycle.py`·`test_ui_schedule_emoji.py`의 수명 회귀를 함께 실행한다. 합성 PNG와 실제 EXE 자동 smoke·실제 혼합 DPI/KVM 수동 확인을 구분한다. [현재 주머니 기록](work/2026-09-27-v3.8c-money-notation-pocket.md).
 - **미니앱 아이콘**: `test_mini_app_icons.py`는 `resources/icons/mini_apps/*.svg`가 텍스트·이미지·필터·마스크·CSS·외부 참조 없는 QtSvg Tiny 파일인지 검사한다. 48px의 100/125/150% 렌더에서 둥근 모서리 투명·그라데이션 양 끝 색·가운데 흰 선, 날짜·시간 시계 면, 준비 중 점선, 런처 강조색을 확인한다.
 
 - **이동 토글·스마일**: `test_ui_calendar_move.py`는 세 크기 실제 마우스 드래그·Tab/Space/Enter·설정 저장 실패·Import/초기화·잠금/트레이 취소·기본 380px 헤더를 검사한다. `test_ui_calendar_drag.py`는 OFF 차단·화면 간 크기/위치 보정을, `test_ui_schedule_emoji.py`는 색상 원과 스마일의 실제 렌더 외경/중심·선택/Undo를 검사한다. 관련 `quick --tests` 또는 `release`에서 합성 PNG를 남기며 실제 혼합 DPI/KVM 수동 검증을 대신하지 않는다.
