@@ -415,6 +415,7 @@ from fluent_icons import fluent_icon
 from ui_mini_apps import MiniAppsButton, MiniAppsPocket, pocket_position
 from ui_unit_converter import UnitConverterWindow
 from ui_date_time_calculator import DateTimeCalculatorWindow
+from ui_money_notation import MoneyNotationWindow
 
 import database as db
 from show_desktop_guard import ShowDesktopKeeper
@@ -1177,6 +1178,7 @@ class MainCalendarWindow(QWidget):
         self._mini_apps_popup = None
         self._unit_converter = None
         self._date_time_calculator = None
+        self._money_notation = None
         self._mini_apps_previous_focus = None
         self._mini_apps_focus_timer = QTimer(self)
         self._mini_apps_focus_timer.setSingleShot(True)
@@ -1284,7 +1286,8 @@ class MainCalendarWindow(QWidget):
         if not show_sidebar:
             self._hide_unit_converter()
             self._hide_date_time_calculator()
-        
+            self._hide_money_notation()
+
         # 시각적 업데이트 중단 (최소화)
         self.setUpdatesEnabled(False)
         
@@ -1521,6 +1524,7 @@ class MainCalendarWindow(QWidget):
         if not sidebar_visible:
             self._hide_unit_converter()
             self._hide_date_time_calculator()
+            self._hide_money_notation()
 
         for object_name in ("headerSection", "calendarSection"):
             section = self.right_content.findChild(QWidget, object_name)
@@ -3204,6 +3208,7 @@ class MainCalendarWindow(QWidget):
             )
             self._settings_window.reset_succeeded.connect(self._discard_unit_converter)
             self._settings_window.reset_succeeded.connect(self._discard_date_time_calculator)
+            self._settings_window.reset_succeeded.connect(self._discard_money_notation)
         # 스티키/위젯(Qt.Tool)이 앞에 있어도 설정창을 확실히 포그라운드로:
         # raise_()만으로는 Windows에서 활성 창이 바뀌지 않으므로 최소화 해제 + activateWindow.
         win = self._settings_window
@@ -3256,6 +3261,7 @@ class MainCalendarWindow(QWidget):
         self._close_mini_apps()
         self._hide_unit_converter()
         self._hide_date_time_calculator()
+        self._hide_money_notation()
         self._reset_calendar_drag()
         self._close_schedule_emoji_popups()
         self._cancel_sticky_file_links()
@@ -3334,6 +3340,7 @@ class MainCalendarWindow(QWidget):
         self._close_mini_apps()
         self._hide_unit_converter()
         self._hide_date_time_calculator()
+        self._hide_money_notation()
         self._hidden_to_tray = True
         self._reset_calendar_drag()
         self._update_calendar_move_control()
@@ -3395,6 +3402,7 @@ class MainCalendarWindow(QWidget):
         if self.save_all_sticky_notes():
             self._discard_unit_converter()
             self._discard_date_time_calculator()
+            self._discard_money_notation()
             return True
         _logger.error("스티키 노트 저장 실패로 앱 종료를 보류합니다")
         if not self.isVisible():
@@ -3509,6 +3517,9 @@ class MainCalendarWindow(QWidget):
         if self._date_time_calculator is not None:
             self._date_time_calculator.hide_owned_popups()
             self._date_time_calculator.fit_to_screen()
+        if self._money_notation is not None:
+            self._money_notation.hide_owned_popups()
+            self._money_notation.fit_to_screen()
 
         # 1) 캘린더 기하 복원. 자유 위치는 저장 좌표, 기존 사용자는 모서리 설정 유지.
         # medium/large는 화면 크기에 비례하는 스케일이므로 좌표만 보정하면
@@ -3602,6 +3613,7 @@ class MainCalendarWindow(QWidget):
         popup.dismissed.connect(lambda restore: self._on_mini_apps_dismissed(popup, restore))
         popup.unit_converter_requested.connect(self._open_unit_converter)
         popup.date_time_calculator_requested.connect(self._open_date_time_calculator)
+        popup.money_notation_requested.connect(self._open_money_notation)
         anchor = button.rect().translated(button.mapToGlobal(QPoint()))
         screen = QApplication.screenAt(anchor.center()) or self.screen()
         available = screen.availableGeometry()
@@ -3680,6 +3692,33 @@ class MainCalendarWindow(QWidget):
             win.hide()
             win.deleteLater()
 
+    def _open_money_notation(self) -> None:
+        if not self._mini_apps_allowed() or not self._save_schedule_edit():
+            return
+        self._close_mini_apps()
+        self._close_schedule_emoji_popups()
+        if self._money_notation is None:
+            self._money_notation = MoneyNotationWindow(self)
+        button = self.sidebar.mini_apps_button
+        anchor = button.rect().translated(button.mapToGlobal(QPoint()))
+        screen = QApplication.screenAt(anchor.center()) or self.screen()
+        win = self._money_notation
+        win.setEnabled(True)
+        win.show_near(anchor, screen.availableGeometry())
+
+    def _hide_money_notation(self) -> None:
+        if self._money_notation is not None:
+            self._money_notation.hide_owned_popups()
+            self._money_notation.hide()
+
+    def _discard_money_notation(self) -> None:
+        win = self._money_notation
+        self._money_notation = None
+        if win is not None:
+            win.hide_owned_popups()
+            win.hide()
+            win.deleteLater()
+
     def _restore_mini_apps_focus(self) -> None:
         target = self._mini_apps_previous_focus
         self._mini_apps_previous_focus = None
@@ -3740,6 +3779,7 @@ class MainCalendarWindow(QWidget):
             if event_type == QEvent.Hide:
                 self._hide_unit_converter()
                 self._hide_date_time_calculator()
+                self._hide_money_notation()
         if event_type in (
             QEvent.Type.WindowDeactivate,
             QEvent.Type.UngrabMouse,
@@ -3862,10 +3902,13 @@ class MainCalendarWindow(QWidget):
         self._close_mini_apps()
         self._hide_unit_converter()
         self._hide_date_time_calculator()
+        self._hide_money_notation()
         if self._unit_converter is not None:
             self._unit_converter.setEnabled(False)
         if self._date_time_calculator is not None:
             self._date_time_calculator.setEnabled(False)
+        if self._money_notation is not None:
+            self._money_notation.setEnabled(False)
         self._is_locked = True
         self._reset_calendar_drag()
         self._update_calendar_move_control()

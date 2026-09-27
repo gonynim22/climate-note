@@ -77,6 +77,7 @@ class MiniAppsPocket(QWidget):
     dismissed = Signal(bool)
     unit_converter_requested = Signal()
     date_time_calculator_requested = Signal()
+    money_notation_requested = Signal()
     shadow_margin = SHADOW_MARGIN
 
     def __init__(self, parent=None):
@@ -173,6 +174,12 @@ class MiniAppsPocket(QWidget):
         )
         self.date_time_card.setObjectName("dateTimeCalculatorCard")
         self.date_time_card.setAccessibleName("날짜·시간 계산기 실행")
+        self.money_card = self.add_app(
+            "금액·숫자\n표기", "money_notation", "공문서 금액·억·만 읽기·금액 단위 환산",
+            self.money_notation_requested.emit, icon=mini_app_icon("money_notation"),
+        )
+        self.money_card.setObjectName("moneyNotationCard")
+        self.money_card.setAccessibleName("금액·숫자 표기 도우미 실행")
         for index in range(self._app_count, TILE_SLOTS):
             card = self._make_tile("준비 중", mini_app_icon("upcoming"))
             card.setObjectName(f"upcomingMiniApp{index}")

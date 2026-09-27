@@ -80,8 +80,8 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
     assert popup.card.size() == QSize(252, 280)
     assert popup.converter_card.size() == QSize(104, 100)
     assert popup.apps_grid.count() == 4
-    assert len(popup.pending_cards) == 2
-    assert popup.count_label.text() == "2개"
+    assert len(popup.pending_cards) == 1
+    assert popup.count_label.text() == "3개"
     assert popup.apps_scroll.horizontalScrollBar().maximum() == 0
     assert popup.apps_scroll.verticalScrollBar().maximum() == 0
     for index in range(4):
@@ -96,6 +96,10 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
     assert popup.date_time_card.text() == "날짜·시간\n계산기"
     assert popup.apps_grid.itemAtPosition(0, 1).widget() is popup.date_time_card
     assert not popup.date_time_card.icon().isNull()
+    assert popup.apps_grid.itemAtPosition(1, 0).widget() is popup.money_card
+    assert popup.money_card.text() == "금액·숫자\n표기"
+    assert popup.money_card.accessibleName() == "금액·숫자 표기 도우미 실행"
+    assert not popup.money_card.icon().isNull()
     assert button.isChecked()
     appdata = os.environ.get("CLIMATENOTE_TEST_APPDATA")
     if appdata:
@@ -148,7 +152,7 @@ def test_pocket_a_header_tiles_and_sidebar_button_style(qtbot):
     assert popup.findChild(QLabel, "miniAppsTitle").text() == "미니앱"
     assert "border:0" in popup.close_button.styleSheet()
     assert "border:1px solid #D9E1EC;border-radius:16px" in popup.card.styleSheet()
-    for card in (popup.converter_card, popup.date_time_card, *popup.pending_cards):
+    for card in (popup.converter_card, popup.date_time_card, popup.money_card, *popup.pending_cards):
         assert card.sizeHint().height() <= 100, card.text()
         assert "background:transparent;border:2px solid transparent" in card.styleSheet()
     assert all(not card.icon().isNull() for card in popup.pending_cards)
@@ -176,10 +180,12 @@ def test_upcoming_tiles_do_not_launch_or_receive_keyboard_focus(qtbot):
         visited.append(focused)
     assert popup.converter_card in visited
     assert popup.date_time_card in visited
+    assert popup.money_card in visited
     assert popup.close_button in visited
     assert not clicked
     assert win._unit_converter is None
     assert win._date_time_calculator is None
+    assert win._money_notation is None
 
 
 def test_short_screen_scroll_keeps_button_and_sixth_shortcut_accessible(qtbot):
@@ -343,7 +349,7 @@ def test_more_developer_apps_use_two_columns_and_scroll_without_resizing(qtbot):
     win = window(qtbot)
     popup = open_pocket(qtbot, win)
     clicked = []
-    cards = [popup.converter_card, popup.date_time_card]
+    cards = [popup.converter_card, popup.date_time_card, popup.money_card]
     for index in range(1, 7):
         cards.append(popup.add_app(f"합성 앱 {index}", "apps", "격자 확인용",
                                   lambda checked=False, i=index: clicked.append(i)))
