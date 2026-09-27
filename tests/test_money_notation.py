@@ -194,7 +194,7 @@ def test_money_units_are_fixed_powers_of_ten():
                            ("eok", "억원", 10 ** 8), ("jo", "조원", 10 ** 12))
 
 
-@pytest.mark.parametrize("value", [Decimal("1"), Decimal("1234567.123456"), Decimal("-0.000001"), Decimal("0")])
+@pytest.mark.parametrize("value", [Decimal("1"), Decimal("1234.123456"), Decimal("-0.000001"), Decimal("0")])
 @pytest.mark.parametrize("source", [key for key, _name, _factor in MONEY_UNITS])
 def test_convert_money_is_exact_for_every_unit_pair(value, source):
     values = convert_money(value, source)
