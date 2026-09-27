@@ -81,15 +81,22 @@ def test_date_time_clock_face_is_white(scale):
     assert is_white(image.pixelColor(x, y))
 
 
-def test_upcoming_icon_is_dashed_outline_with_transparent_body():
-    image = render("upcoming", 48)
-    assert image.pixelColor(12, 12).alpha() == 0
-    top = [image.pixelColor(x, 1).alpha() > 128 for x in range(14, 34)]
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5])
+def test_upcoming_icon_is_dashed_outline_with_transparent_body(scale):
+    size = round(48 * scale)
+    image = render("upcoming", size)
+    corner = round(12 / 48 * size)
+    assert image.pixelColor(corner, corner).alpha() == 0
+    row = max(1, round(1 / 48 * size))
+    x_start = round(14 / 48 * size)
+    x_end = round(34 / 48 * size)
+    top = [image.pixelColor(x, row).alpha() > 128 for x in range(x_start, x_end)]
     assert any(top) and not all(top)
-    assert image.pixelColor(24, 24).alpha() == 255
+    center = round(24 / 48 * size)
+    assert image.pixelColor(center, center).alpha() == 255
 
 
-@pytest.mark.parametrize("size", [20, 40])
+@pytest.mark.parametrize("size", [20, 25, 30, 40])
 def test_launcher_icon_keeps_blue_accent(size):
     image = render("launcher", size)
     center = round(17 / 24 * size)
