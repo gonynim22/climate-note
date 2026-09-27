@@ -98,3 +98,81 @@ def official_amount(n: int) -> OfficialAmount:
     hangul = official_hangul(n)
     digits = f"{n:,}"
     return OfficialAmount(digits, hangul, f"금{digits}원(금{hangul}원)")
+
+
+SCOPES = ("all", "man", "eok")
+
+
+@dataclass(frozen=True)
+class Reading:
+    value: int       # 표시 범위를 적용한 값
+    rounded: bool    # 반올림으로 값이 바뀌었는지
+    notation: str    # '약 12억 3457만원'
+    hangul: str      # '십이억 삼천사백오십칠만 원'
+    original: str    # '1,234,567,890원'
+
+
+def _check_limit(n) -> None:
+    if abs(n) >= LIMIT:
+        raise NotationError("절댓값 1경 미만까지 지원합니다.")
+
+
+def _signed_digits(n: int) -> str:
+    return ("−" if n < 0 else "") + f"{abs(n):,}"
+
+
+def group_notation(n: int) -> str:
+    """한글 맞춤법 제44항 예시 형식 '12억 3456만 7898'. 묶음 안에는 쉼표를 넣지 않는다."""
+    _check_limit(n)
+    if n == 0:
+        return "0"
+    groups = _groups(abs(n))
+    text = " ".join(f"{group}{_BIG[index]}" for index, group in reversed(list(enumerate(groups))) if group)
+    return "−" + text if n < 0 else text
+
+
+def reading_hangul(n: int) -> str:
+    """만 단위로 띄어 읽는다. 십·백·천 앞의 '일'과 만 묶음의 '일'을 생략한다."""
+    _check_limit(n)
+    if n == 0:
+        return "영"
+    parts = []
+    groups = _groups(abs(n))
+    for index in range(len(groups) - 1, -1, -1):
+        group = groups[index]
+        if not group:
+            continue
+        head = "" if index == 1 and group == 1 else _group_hangul(group, False)
+        parts.append(head + _BIG[index])
+    text = " ".join(parts)
+    return "마이너스 " + text if n < 0 else text
+
+
+def round_half_up(n: int, unit: int) -> int:
+    """절댓값 기준 사사오입(0에서 먼 쪽). unit은 10 이상의 10의 거듭제곱이다."""
+    magnitude = (abs(n) + unit // 2) // unit * unit
+    return -magnitude if n < 0 else magnitude
+
+
+def read_number(n: int, scope: str, unit_text: str = "") -> Reading:
+    _check_limit(n)
+    unit = unit_text.strip()
+    if len(unit) > 8:
+        raise NotationError("단위는 8자까지 입력할 수 있습니다.")
+    if scope == "all":
+        value = n
+    elif scope == "man":
+        value = round_half_up(n, 10 ** 4)
+    elif scope == "eok":
+        value = round_half_up(n, 10 ** 7)
+    else:
+        raise ValueError(f"알 수 없는 표시 범위입니다: {scope}")
+    rounded = value != n
+    if scope == "eok":
+        eok = abs(Decimal(value)) / Decimal(10 ** 8)
+        body = ("−" if value < 0 else "") + f"{eok:,.1f}억"
+    else:
+        body = group_notation(value)
+    notation = ("약 " if rounded else "") + body + unit
+    hangul = reading_hangul(value) + (f" {unit}" if unit else "")
+    return Reading(value, rounded, notation, hangul, _signed_digits(n) + unit)
