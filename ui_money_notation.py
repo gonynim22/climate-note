@@ -590,7 +590,6 @@ class MoneyNotationWindow(QWidget):
         self.result_layout.setContentsMargins(10 if compact else 14, 6 if compact else 12,
                                               10 if compact else 14, 6 if compact else 12)
         self.copy_preview.setFixedHeight(24 if compact else 28)
-        self.law_box.setVisible(not compact)
         self.law_box.setText(LAW_LINES[0] if compact else "\n".join(LAW_LINES))
         for note in self._form_notes:
             note.setVisible(not compact)

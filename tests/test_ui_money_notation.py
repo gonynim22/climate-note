@@ -10,7 +10,7 @@ from qfluentwidgets.common.font import fontFamilies, setFontFamilies
 
 from app_fonts import apply_app_font
 import database as db
-from ui_money_notation import MODES, MoneyNotationWindow
+from ui_money_notation import LAW_LINES, MODES, MoneyNotationWindow
 
 
 @pytest.fixture(autouse=True)
@@ -299,6 +299,13 @@ def test_returning_from_short_work_area_restores_full_layout_and_keeps_inputs(qt
     win.save_recent()
     original = list(win.history)
     win.fit_to_screen(QRect(0, 0, 420, 500))
+    QApplication.processEvents()
+    win.select_mode("amount")
+    QApplication.processEvents()
+    assert win.law_box.isVisible() and win.law_box.text() == LAW_LINES[0]
+    law_box_rect = QRect(win.law_box.mapTo(win.body, QPoint()), win.law_box.size())
+    assert win.body.rect().contains(law_box_rect)
+    win.select_mode("read")
     QApplication.processEvents()
     assert not win.mode_title.isVisible() and not win.status_label.isVisible()
     assert win.result_label.text() == "5000원"
