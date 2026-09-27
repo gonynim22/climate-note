@@ -5,10 +5,16 @@
 금액과 정수는 int, 환산은 Decimal만 쓰며 float와 내장 round()는 쓰지 않는다.
 """
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 import re
 
 LIMIT = 10 ** 16  # 1경. 모든 모드의 절댓값 상한(미만)
+
+MONEY_UNITS = (
+    ("won", "원", 1), ("k", "천원", 10 ** 3), ("m", "백만원", 10 ** 6),
+    ("eok", "억원", 10 ** 8), ("jo", "조원", 10 ** 12),
+)
+_FACTORS = {key: factor for key, _name, factor in MONEY_UNITS}
 
 _DIGITS = "영일이삼사오육칠팔구"
 _SMALL = ("", "십", "백", "천")
@@ -176,3 +182,33 @@ def read_number(n: int, scope: str, unit_text: str = "") -> Reading:
     notation = ("약 " if rounded else "") + body + unit
     hangul = reading_hangul(value) + (f" {unit}" if unit else "")
     return Reading(value, rounded, notation, hangul, _signed_digits(n) + unit)
+
+
+def convert_money(value: Decimal, src: str) -> dict[str, Decimal]:
+    """모든 단위의 정확한 값. 10의 거듭제곱 배수라 유한 소수로 끝난다."""
+    with localcontext() as context:
+        context.prec = 50
+        won = value * _FACTORS[src]
+        _check_limit(won)
+        return {key: won / factor for key, _name, factor in MONEY_UNITS}
+
+
+def _grouped(value: Decimal) -> str:
+    """지수 표기 없이 천 단위 쉼표를 넣고 음수는 − 로 표시한다."""
+    sign = "−" if value < 0 and value != 0 else ""
+    integer, _dot, fraction = format(abs(value), "f").partition(".")
+    return sign + f"{int(integer):,}" + (f".{fraction}" if fraction else "")
+
+
+def exact_text(value: Decimal) -> str:
+    """표 전용 정확한 값. 끝의 0과 불필요한 소수점을 지운다."""
+    return _grouped(value.normalize() if value else Decimal(0))
+
+
+def format_decimal(value: Decimal, digits: int | None) -> str:
+    """표시 전용 반올림(ROUND_HALF_UP). None은 정확한 값을 소수 6자리까지 보여 준다."""
+    if digits is None:
+        if value.as_tuple().exponent < -6:
+            value = value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        return exact_text(value)
+    return _grouped(value.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP))

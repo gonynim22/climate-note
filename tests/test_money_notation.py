@@ -5,8 +5,9 @@ import random
 import pytest
 
 from money_notation import (
-    LIMIT, NotationError, Reading, official_amount, official_hangul, group_notation,
-    parse_decimal, parse_integer, read_number, reading_hangul, round_half_up,
+    LIMIT, MONEY_UNITS, NotationError, Reading, convert_money, exact_text, format_decimal,
+    official_amount, official_hangul, group_notation, parse_decimal, parse_integer,
+    read_number, reading_hangul, round_half_up,
 )
 
 FORMAT = "숫자와 세 자리 쉼표만 입력할 수 있습니다."
@@ -183,3 +184,54 @@ def test_read_number_rejects_limit_and_long_unit():
         reading_hangul(-LIMIT)
     with pytest.raises(NotationError, match="단위는 8자까지 입력할 수 있습니다."):
         read_number(1, "all", "가나다라마바사아자")
+
+
+FACTORS = {key: factor for key, _name, factor in MONEY_UNITS}
+
+
+def test_money_units_are_fixed_powers_of_ten():
+    assert MONEY_UNITS == (("won", "원", 1), ("k", "천원", 10 ** 3), ("m", "백만원", 10 ** 6),
+                           ("eok", "억원", 10 ** 8), ("jo", "조원", 10 ** 12))
+
+
+@pytest.mark.parametrize("value", [Decimal("1"), Decimal("1234567.123456"), Decimal("-0.000001"), Decimal("0")])
+@pytest.mark.parametrize("source", [key for key, _name, _factor in MONEY_UNITS])
+def test_convert_money_is_exact_for_every_unit_pair(value, source):
+    values = convert_money(value, source)
+    won = value * FACTORS[source]
+    for target, converted in values.items():
+        assert converted * FACTORS[target] == won
+        assert convert_money(converted, target)[source] == value
+
+
+def test_convert_money_example_table():
+    values = convert_money(Decimal("1234567"), "k")
+    assert [exact_text(values[key]) for key, _name, _factor in MONEY_UNITS] == [
+        "1,234,567,000", "1,234,567", "1,234.567", "12.34567", "0.001234567"]
+
+
+def test_convert_money_rejects_one_gyeong_in_won():
+    assert convert_money(Decimal("9999.999999"), "jo")["won"] == Decimal("9999999999000000")
+    with pytest.raises(NotationError, match="절댓값 1경 미만까지 지원합니다."):
+        convert_money(Decimal("10000"), "jo")
+    with pytest.raises(NotationError, match="절댓값 1경 미만까지 지원합니다."):
+        convert_money(Decimal("-10000000000000"), "k")
+
+
+@pytest.mark.parametrize("value,digits,expected", [
+    (Decimal("12.34567"), 2, "12.35"), (Decimal("12.345"), 2, "12.35"), (Decimal("-12.345"), 2, "−12.35"),
+    (Decimal("1234567.5"), 0, "1,234,568"), (Decimal("5"), 3, "5.000"),
+    (Decimal("0.001234567"), None, "0.001235"), (Decimal("12.34567"), None, "12.34567"),
+    (Decimal("1234567000"), None, "1,234,567,000"), (Decimal("-0.0000001"), None, "0"),
+    (Decimal("-0.001"), 2, "0.00"),
+])
+def test_format_decimal_rounds_half_up_only_for_display(value, digits, expected):
+    assert format_decimal(value, digits) == expected
+
+
+@pytest.mark.parametrize("value,expected", [
+    (Decimal("1234.567000"), "1,234.567"), (Decimal("1234567000") / Decimal(1000), "1,234,567"),
+    (Decimal("0.000000001234567"), "0.000000001234567"), (Decimal("-0.5"), "−0.5"), (Decimal("0E-12"), "0"),
+])
+def test_exact_text_never_uses_exponent(value, expected):
+    assert exact_text(value) == expected
