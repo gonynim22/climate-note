@@ -42,6 +42,8 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 
 날짜·시간 계산기는 `tests/test_date_time_calculator.py`, `tests/test_ui_date_time_calculator.py`, `tests/test_date_time_integration.py`, `tests/test_ui_mini_apps.py`를 함께 검사한다. 초 보존/분 복사 정책·월말/윤년/역순·공휴일 범위/중복 제외·합산 행과 최근 복원·두 앱의 독립 수명·저장 실패/초기화 성공/실패·DB/Export/salt 불변을 포함한다. UI에는 스크롤 영역을 두지 않는다. 날짜 포함/날짜만/합산 종류와 오류 상태에서 입력·결과·복사·최근의 가로/세로 경계를 확인한다. 합산 이전/다음·24개 상한·숨긴 항목 오류/포커스 보존·종류별 선택과 최근 복원을 검사한다. `QT_SCALE_FACTOR=1.25`/`1.5`의 합성 배율은 실제 혼합 DPI/KVM 확인을 대체하지 않는다. 상세 기준은 [날짜·시간 계약](DATE_TIME_CALCULATION.md)을 따른다.
 
+금액·숫자 표기 도우미는 `tests/test_money_notation.py`, `tests/test_ui_money_notation.py`, `tests/test_money_notation_integration.py`, `tests/test_ui_mini_apps.py`, `tests/test_mini_app_icons.py`를 함께 검사한다. 순수 계산은 시행규칙 예시·경계와 별도 참조 구현(결정적 난수 2만 건)을 대조하고 입력 거부·사사오입 경계·`Decimal` 정확도를 확인한다. UI는 세 모드×정상/오류/최장 입력×1000×900·480×500·420×500 작업 영역에서 스크롤·잘림이 없는지, 복사 형식·최근 기록·키보드를 검사한다. 통합은 세 앱의 독립 세션과 9개 수명 지점, DB/Export/salt 불변을 검사한다. `QT_SCALE_FACTOR=1.25`/`1.5`의 합성 배율은 실제 혼합 DPI/KVM 확인을 대체하지 않는다. 상세 기준은 [금액·숫자 표기 계약](MONEY_NOTATION.md)을 따른다.
+
 ### 실행 격리와 증거
 
 각 호출은 `output/harness/<시각-고유값>/`을 새로 만든다. 그 안에:
