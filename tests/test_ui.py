@@ -589,13 +589,13 @@ def test_settings_simplified_card_text_and_data_folder_button(qtbot, app_dir, qa
     assert win.open_data_folder_btn.toolTip() == "저장 폴더 열기"
 
 
-def test_settings_credit_uses_v38c_metadata(qtbot, app_dir, qapp):
-    """v3.8c의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
+def test_settings_credit_uses_v38d_metadata(qtbot, app_dir, qapp):
+    """v3.8d의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
     win = SettingsWindow()
     qtbot.addWidget(win)
 
-    assert APP_VERSION == "v3.8c"
-    assert win.author_label.text().startswith("v3.8c  ·  2026. 9. 28.")
+    assert APP_VERSION == "v3.8d"
+    assert win.author_label.text().startswith("v3.8d  ·  2026. 10. 2.")
 
 
 def test_update_guide_text_uses_current_version():
@@ -1241,20 +1241,16 @@ def test_shortcut_repair_action_opens_target_choices(
     target.write_text("stub", encoding="utf-8")
     slot = ShortcutSlot(4)
     qtbot.addWidget(slot)
+    slot.show()
     slot.update_data("복구", str(target))
     calls = []
     monkeypatch.setattr(slot, "_show_registration_menu", lambda: calls.append(True))
-    monkeypatch.setattr(
-        ui_main.QTimer,
-        "singleShot",
-        lambda _delay, callback: callback(),
-    )
     menu = slot._build_manage_menu()
     qtbot.addWidget(menu)
 
     menu.menuActions()[1].trigger()
-
-    assert calls == [True]
+    assert calls == []
+    qtbot.waitUntil(lambda: calls == [True])
 
 
 def test_save_all_sticky_notes_persists_hidden_floating_note(

@@ -797,6 +797,10 @@ class ShortcutSlot(QWidget):
         self.shortcut_id = shortcut_id
         self.path = ""
         self.name = ""
+        self._pending_menu_action = None
+        self._menu_action_timer = QTimer(self)
+        self._menu_action_timer.setSingleShot(True)
+        self._menu_action_timer.timeout.connect(self._run_menu_action)
         
         # 슬롯 전체 크기 (아이콘 64x64 + 간격 + 텍스트)
         self.setFixedSize(64, 82)
@@ -854,6 +858,7 @@ class ShortcutSlot(QWidget):
         self.delete_btn.hide()
 
     def update_data(self, name: str, path: str):
+        self._cancel_menu_action()
         self.name = name
         self.path = path
         
@@ -1013,14 +1018,43 @@ class ShortcutSlot(QWidget):
         if accepted and name:
             self._persist(name, self.path)
 
+    def _queue_menu_action(self, callback):
+        # RoundMenu는 액션을 실행하기 전에 닫혀 deleteLater가 예약된다.
+        # 클릭 이벤트가 반환하기 전에 modal loop를 열면 메뉴/목록이 먼저
+        # 삭제되어 선택창 반환 시 native 접근 위반이 발생한다.
+        self._pending_menu_action = callback
+        self._menu_action_timer.start(0)
+
+    def _cancel_menu_action(self):
+        self._menu_action_timer.stop()
+        self._pending_menu_action = None
+
+    def _run_menu_action(self):
+        callback = self._pending_menu_action
+        self._pending_menu_action = None
+        owner = self.window()
+        if (callback is None or not self.isVisible() or not self.isEnabled()
+                or getattr(owner, "_is_locked", False)
+                or getattr(owner, "_hidden_to_tray", False)):
+            return
+        callback()
+
+    def hideEvent(self, event):
+        self._cancel_menu_action()
+        super().hideEvent(event)
+
     def _build_registration_menu(self):
         menu = RoundMenu(parent=self)
         menu.setWindowOpacity(1.0)
         file_action = Action(FIF.DOCUMENT, "파일 선택", menu)
-        file_action.triggered.connect(self._select_file)
+        file_action.triggered.connect(
+            lambda: self._queue_menu_action(self._select_file)
+        )
         menu.addAction(file_action)
         folder_action = Action(FIF.FOLDER, "폴더 선택", menu)
-        folder_action.triggered.connect(self._select_folder)
+        folder_action.triggered.connect(
+            lambda: self._queue_menu_action(self._select_folder)
+        )
         menu.addAction(folder_action)
         return menu
 
@@ -1033,11 +1067,13 @@ class ShortcutSlot(QWidget):
         menu = RoundMenu(parent=self)
         menu.setWindowOpacity(1.0)
         rename_action = Action(FIF.EDIT, "이름 변경", menu)
-        rename_action.triggered.connect(self._rename)
+        rename_action.triggered.connect(
+            lambda: self._queue_menu_action(self._rename)
+        )
         menu.addAction(rename_action)
         repair_action = Action(FIF.SYNC, "경로 다시 지정", menu)
         repair_action.triggered.connect(
-            lambda: QTimer.singleShot(0, self._show_registration_menu)
+            lambda: self._queue_menu_action(self._show_registration_menu)
         )
         menu.addAction(repair_action)
         delete_action = Action(FIF.DELETE, "삭제", menu)
@@ -3899,6 +3935,8 @@ class MainCalendarWindow(QWidget):
             _logger.error("캘린더 위치 저장 실패: %s", e)
 
     def _lock(self):
+        for slot in self.sidebar.slots:
+            slot._cancel_menu_action()
         self._close_mini_apps()
         self._hide_unit_converter()
         self._hide_date_time_calculator()

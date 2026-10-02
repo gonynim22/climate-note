@@ -138,6 +138,7 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 - **스티키 파일 링크(v3.7b)**: `test_sticky_file_links.py`의 Qt href/밑줄 메타데이터 왕복·경로 검사, `test_ui_sticky_file_links.py`의 서식·Undo·체크박스·두 보기·외부 실행 가로채기·주의 표시 무변경·8개 기존 테이블 raw/salt 보존, `test_ui_data_lifecycle.py`의 최신 링크 Export/실패·잠금/트레이/폐기/보기 전환 취소를 검사한다. 하네스 실행에는 `sticky-file-links.png` 합성 UI 캡처를 남긴다. 실제 파일 드롭·IME·기본 프로그램·혼합 DPI/KVM은 별도 수동 확인이다.
 
 - **Location**: `tests/` (pytest 기반 전체 테스트)
+- **바로가기 대화상자(v3.8d)**: `tests/test_ui_shortcut_dialogs.py`와 기존 `tests/test_ui.py`를 검사한다. `shortcut_dialog_probe.py`는 별도 Job/합성 AppData에서 실제 메뉴 클릭과 Qt 파일/폴더/이름 변경/경로 재지정 대화상자의 확인·취소를 실행한다. 클릭 처리 중 대화상자가 열리지 않는지, 메뉴가 폐기되는지, 기존 데이터·salt·다른 슬롯이 보존되는지 확인한다. native 선택창은 별도 격리 재현으로 검사하고 회사 PC/실제 사용자 입력·KVM 확인과 구분한다. 예약 호출은 슬롯/부모 숨김·비활성·잠금/트레이·재조회·폐기를 검사한다.
 - **구조**: `conftest.py` (격리 픽스처) + DB/보안/스트레스/UI 테스트와 `test_ui_calendar_drag.py`, `test_ui_sticky.py`, `test_show_desktop_guard.py`
 - **데이터 UI 수명**: `test_ui_data_lifecycle.py`는 실제 합성 `.enc` 가져오기 후 편집기·집중 타이머 유지, 최신 저장 실패/보호백업 실패 차단, 초기화 전 플로팅/미니 패널 타이머 폐기와 ID 재사용, PIN 잠금·보조 창·예약된 표시를 검사한다. `data`와 `full`에 포함한다. 이 검사는 실제 Windows 잠금/절전·Win+D 수동 확인을 대체하지 않는다.
 - **일정 이모지**: `test_ui_schedule_emoji.py`는 16개 선택지·접두 치환 Undo·인라인 팝업 포커스·저장 실패 보류·잠금/트레이/초기화 뒤 콜백 무효화·모드별 표시/검색을 검사한다. `quick --tests tests/test_ui_schedule_emoji.py tests/test_edge_cases.py` 또는 `full`로 실행한다. `test_edge_cases.py`의 PIN `.enc` 왕복 검사는 기존 행·암호문·색상·설정·salt 보존을 포함한다. 하네스 실행 시 합성 UI PNG를 실행 폴더에 남기며, 이는 실제 한글 IME와 혼합 DPI/KVM 검증을 대신하지 않는다.
