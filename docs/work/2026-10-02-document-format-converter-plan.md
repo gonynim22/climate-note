@@ -111,8 +111,8 @@
 
 | 명령/범위 | 상태(통과·실패·미실행) | 실행 ID / 결과 경로 | 검사 입력·유의사항 |
 |---|---|---|---|
-| 최초 계획 문서 로컬 링크·공백·기존 변경 보존 확인 | 통과 | `20261002-232815-document-converter-plan` / [summary.md](../../../output/harness/20261002-232815-document-converter-plan/summary.md), [result.json](../../../output/harness/20261002-232815-document-converter-plan/result.json) | 10월 2일 입력. 10월 3일 수정 전 기록이며 변환 기능 검증 아님 |
-| 한글 설치 조건·XLS 후보 반영 문서 확인 | 통과 | `20261003-013309-document-converter-xls-plan` / [summary.md](../../../output/harness/20261003-013309-document-converter-xls-plan/summary.md), [result.json](../../../output/harness/20261003-013309-document-converter-xls-plan/result.json) | 문서 링크·공백·기존 변경 보존 확인. 코드/런타임 변경 없음 |
+| 최초 계획 문서 로컬 링크·공백·기존 변경 보존 확인 | 통과 | `20261002-232815-document-converter-plan` / [summary.md](../../output/harness/20261002-232815-document-converter-plan/summary.md), [result.json](../../output/harness/20261002-232815-document-converter-plan/result.json) | 10월 2일 입력. 10월 3일 수정 전 기록이며 변환 기능 검증 아님 |
+| 한글 설치 조건·XLS 후보 반영 문서 확인 | 통과 | `20261003-013309-document-converter-xls-plan` / [summary.md](../../output/harness/20261003-013309-document-converter-xls-plan/summary.md), [result.json](../../output/harness/20261003-013309-document-converter-xls-plan/result.json) | 문서 링크·공백·기존 변경 보존 확인. 코드/런타임 변경 없음 |
 | 구현/엔진 실험·자동 검사·EXE 빌드 | 후속 기록 참조 | [HWP 구현 기록](2026-10-03-hwp-document-converter.md) | 위 두 행은 과거 계획 문서의 검증이며 제품 통과 근거가 아님 |
 
 ## 미해결과 인계

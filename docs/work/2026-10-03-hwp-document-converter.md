@@ -34,15 +34,16 @@
 | 범위 | 상태 | 실행 ID / 결과 |
 |---|---|---|
 | 공식 CLI 1차 시험 | 통과 | `20261003-hwp-engine-probe` (초기 조사, 최종 제품 검증 아님) |
-| 최초 quick (Qt 종료 충돌) | 실패 | `20261003-015632-4ab17c0169` / [summary.md](../../../output/harness/20261003-015632-4ab17c0169/summary.md) |
-| 종료 수명 수정 후 quick | 통과 | `20261003-020019-c8085d6aec`, 158개 / [summary.md](../../../output/harness/20261003-020019-c8085d6aec/summary.md) — 최종 UI/추가 수명 검사 전 |
-| UI/초기화/실제 작업 수명 quick | 통과 | `20261003-020739-ba075568c9`, 167개 / [summary.md](../../../output/harness/20261003-020739-ba075568c9/summary.md) |
-| 실제 제품 UI/CLI | 통과 | `20261003-hwp-product-probe` / [summary.md](../../../output/harness/20261003-hwp-product-probe/summary.md), [result.json](../../../output/harness/20261003-hwp-product-probe/result.json) |
-| 최종 quick | 통과 | `20261003-021340-038f73a006`, 172개 / [summary.md](../../../output/harness/20261003-021340-038f73a006/summary.md) |
-| 125% / 150% 합성 배율 | 통과 | 각각 140개 / [125% summary.md](../../../output/harness/20261003-020959-0bc3453299/summary.md), [150% summary.md](../../../output/harness/20261003-021021-618deb6a75/summary.md) |
+| 최초 quick (Qt 종료 충돌) | 실패 | `20261003-015632-4ab17c0169` / [summary.md](../../output/harness/20261003-015632-4ab17c0169/summary.md) |
+| 종료 수명 수정 후 quick | 통과 | `20261003-020019-c8085d6aec`, 158개 / [summary.md](../../output/harness/20261003-020019-c8085d6aec/summary.md) — 최종 UI/추가 수명 검사 전 |
+| UI/초기화/실제 작업 수명 quick | 통과 | `20261003-020739-ba075568c9`, 167개 / [summary.md](../../output/harness/20261003-020739-ba075568c9/summary.md) |
+| 실제 제품 UI/CLI | 통과 | `20261003-hwp-product-probe` / [summary.md](../../output/harness/20261003-hwp-product-probe/summary.md), [result.json](../../output/harness/20261003-hwp-product-probe/result.json) |
+| 최종 quick | 통과 | `20261003-021340-038f73a006`, 172개 / [summary.md](../../output/harness/20261003-021340-038f73a006/summary.md) |
+| 125% / 150% 합성 배율 | 통과 | 각각 140개 / [125% summary.md](../../output/harness/20261003-020959-0bc3453299/summary.md), [150% summary.md](../../output/harness/20261003-021021-618deb6a75/summary.md) |
+| 첫 release | 실패 | `20261003-022033-b579664066`, 1,575개 통과/기존 설정창 신호 기대 1개 실패. 네 번째 앱 초기화 연결 기대값을 갱신하고 재검사한다. [summary.md](../../output/harness/20261003-022033-b579664066/summary.md) |
 | 최종 EXE | 미실행 | 커밋 후 release 예정 |
 
 ## 미해결과 인계
 
 - 실제 회사 DRM·한글 버전별 호환성·수동 서식 대조는 별도 확인한다. 공식 변환기 연동/배포 조건은 기존 보류 항목으로 남긴다.
-- 빌드/커밋: 진행 전. 원격 push/게시 없음.
+- 구현/계획/AGENTS 커밋: `f44af2a`. 첫 release에서 기존 초기화 연결 기대값을 갱신했고 재검사/빌드를 진행한다. 원격 push/게시 없음.
