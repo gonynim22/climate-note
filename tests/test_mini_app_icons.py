@@ -11,6 +11,7 @@ APP_ICONS = {
     "unit_converter": ("#22B8CF", "#0B7285"),
     "date_time": ("#4C8DF6", "#1D4ED8"),
     "money_notation": ("#40C074", "#1E8E4E"),
+    "document_converter": ("#9775FA", "#6741D9"),
 }
 ALL_ICONS = [*APP_ICONS, "upcoming", "launcher"]
 

@@ -78,6 +78,7 @@ class MiniAppsPocket(QWidget):
     unit_converter_requested = Signal()
     date_time_calculator_requested = Signal()
     money_notation_requested = Signal()
+    document_converter_requested = Signal()
     shadow_margin = SHADOW_MARGIN
 
     def __init__(self, parent=None):
@@ -180,6 +181,12 @@ class MiniAppsPocket(QWidget):
         )
         self.money_card.setObjectName("moneyNotationCard")
         self.money_card.setAccessibleName("금액·숫자 표기 도우미 실행")
+        self.document_card = self.add_app(
+            "문서 형식\n변환", "document_converter", "한글이 설치된 PC에서 HWP → HWPX 변환",
+            self.document_converter_requested.emit, icon=mini_app_icon("document_converter"),
+        )
+        self.document_card.setObjectName("documentConverterCard")
+        self.document_card.setAccessibleName("문서 형식 변환 실행")
         for index in range(self._app_count, TILE_SLOTS):
             card = self._make_tile("준비 중", mini_app_icon("upcoming"))
             card.setObjectName(f"upcomingMiniApp{index}")

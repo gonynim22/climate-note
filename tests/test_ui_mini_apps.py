@@ -80,8 +80,8 @@ def test_sidebar_pocket_geometry_and_render(qtbot, scale):
     assert popup.card.size() == QSize(252, 280)
     assert popup.converter_card.size() == QSize(104, 100)
     assert popup.apps_grid.count() == 4
-    assert len(popup.pending_cards) == 1
-    assert popup.count_label.text() == "3개"
+    assert len(popup.pending_cards) == 0
+    assert popup.count_label.text() == "4개"
     assert popup.apps_scroll.horizontalScrollBar().maximum() == 0
     assert popup.apps_scroll.verticalScrollBar().maximum() == 0
     for index in range(4):
@@ -152,7 +152,7 @@ def test_pocket_a_header_tiles_and_sidebar_button_style(qtbot):
     assert popup.findChild(QLabel, "miniAppsTitle").text() == "미니앱"
     assert "border:0" in popup.close_button.styleSheet()
     assert "border:1px solid #D9E1EC;border-radius:16px" in popup.card.styleSheet()
-    for card in (popup.converter_card, popup.date_time_card, popup.money_card, *popup.pending_cards):
+    for card in (popup.converter_card, popup.date_time_card, popup.money_card, popup.document_card, *popup.pending_cards):
         assert card.sizeHint().height() <= 100, card.text()
         assert "background:transparent;border:2px solid transparent" in card.styleSheet()
     assert all(not card.icon().isNull() for card in popup.pending_cards)
@@ -349,7 +349,7 @@ def test_more_developer_apps_use_two_columns_and_scroll_without_resizing(qtbot):
     win = window(qtbot)
     popup = open_pocket(qtbot, win)
     clicked = []
-    cards = [popup.converter_card, popup.date_time_card, popup.money_card]
+    cards = [popup.converter_card, popup.date_time_card, popup.money_card, popup.document_card]
     for index in range(1, 7):
         cards.append(popup.add_app(f"합성 앱 {index}", "apps", "격자 확인용",
                                   lambda checked=False, i=index: clicked.append(i)))

@@ -2,7 +2,7 @@
 
 ## 개발 하네스 — 다음 버전부터의 기본 경로
 
-Windows / Python 3.13과 `requirements-lock.txt`의 직접 의존성 8개를 사용한다.
+Windows / Python 3.13과 `requirements-lock.txt`의 직접 의존성 9개를 사용한다. HWP 변환 후속에서 기존 lock의 `pywin32==311`을 직접 의존성으로 명시했으며 버전 업그레이드는 없다.
 하네스는 패키지를 설치하거나 lock을 갱신하지 않는다. 버전이 다르면 환경 오류로 중단하므로
 개발자가 해당 가상환경에서 `pip install -r requirements-lock.txt`로 맞춘다.
 
@@ -45,6 +45,8 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 금액·숫자 표기 도우미는 `tests/test_money_notation.py`, `tests/test_ui_money_notation.py`, `tests/test_money_notation_integration.py`, `tests/test_ui_mini_apps.py`, `tests/test_mini_app_icons.py`를 함께 검사한다. 순수 계산은 시행규칙 예시·경계와 별도 참조 구현(결정적 난수 2만 건)을 대조하고 입력 거부·사사오입 경계·`Decimal` 정확도를 확인한다. UI는 세 모드×정상/오류/최장 입력×1000×900·480×500·420×500 작업 영역에서 스크롤·잘림이 없는지, 복사 형식·최근 기록·키보드를 검사한다. 통합은 세 앱의 독립 세션과 9개 수명 지점, DB/Export/salt 불변을 검사한다. `QT_SCALE_FACTOR=1.25`/`1.5`의 합성 배율은 실제 혼합 DPI/KVM 확인을 대체하지 않는다. 상세 기준은 [금액·숫자 표기 계약](MONEY_NOTATION.md)을 따른다.
 
 ### 실행 격리와 증거
+
+문서 형식 변환은 `tests/test_hwp_conversion.py`, `tests/test_hwp_conversion_runner.py`, `tests/test_ui_document_converter.py`, 주머니/SVG 검사를 함께 실행한다. HWP 보호 헤더·손상 출력·동명 비덮어쓰기·원본 보존, 실제 작업 프로세스/자식의 취소·시간 초과·Job 배정 실패, 실제 파일창/드롭·작은 화면·잠금/숨김/초기화/종료와 DB/Export/salt 보존을 검사한다. 모의 엔진 검사를 실제 문서 변환 성공으로 간주하지 않는다. 설치된 공식 CLI를 사용하는 제품 UI와 frozen worker를 별도 격리 실행하고 원본/기존 결과 해시·필수 XML·작업 모드 DB 미생성·임시 폴더 정리를 확인한다. 한글 버전/DRM/서식 시각 대조는 별도다. [계약](DOCUMENT_CONVERSION.md), [현재 기록](work/2026-10-03-hwp-document-converter.md).
 
 각 호출은 `output/harness/<시각-고유값>/`을 새로 만든다. 그 안에:
 

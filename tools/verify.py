@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 DIRECT_DEPENDENCIES = (
     "PySide6", "PySide6-Fluent-Widgets", "cryptography", "python-dotenv",
-    "pytest", "pytest-qt", "pytest-timeout", "PyInstaller",
+    "pytest", "pytest-qt", "pytest-timeout", "PyInstaller", "pywin32",
 )
 QUICK_TESTS = (
     "tests/test_app_paths.py", "tests/test_startup_path.py",

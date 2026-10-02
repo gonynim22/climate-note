@@ -114,6 +114,7 @@ def test_requirements_lock_matches_verified_direct_dependencies():
         "pytest-qt",
         "pytest-timeout",
         "PyInstaller",
+        "pywin32",
     }
     pinned = {}
     for line in lock_lines:

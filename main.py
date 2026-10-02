@@ -1,5 +1,10 @@
 # main.py - 진입점, 앱 초기화, Boss Key 등록
 import sys
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--hwp-convert-worker":
+    # 작업 프로세스는 DB/salt/트레이/단일 인스턴스 잠금에 접근하지 않는다.
+    from hwp_conversion_worker import worker_main
+    sys.exit(worker_main(sys.argv[2:]))
+
 import os
 import atexit
 import sqlite3
