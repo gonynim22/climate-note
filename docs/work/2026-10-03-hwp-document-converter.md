@@ -1,6 +1,6 @@
 # 작업 기록: HWP → HWPX 미니앱
 
-작성일: 2026-10-03 / 상태: 진행 중
+작성일: 2026-10-03 / 상태: 구현·자동 검증·빌드 완료 (수동 호환성 확인 별도)
 
 ## 목표와 범위
 
@@ -27,7 +27,7 @@
 - [x] 파일 선택/드롭·중복 제거·일괄 변환·취소·재시도·결과 폴더 열기
 - [x] 원본/동명 결과 보존·실패/시간 초과·보호 입력·출력 구조 검사
 - [x] 미니앱 4개·잠금/숨김/초기화/종료·데이터 보존·합성 배율 검증
-- [ ] 실제 엔진/EXE 검증과 AGENTS/정본 문서 갱신·로컬 커밋·빌드
+- [x] 실제 엔진/EXE 작업 모드 검증과 AGENTS/정본 문서 갱신·로컬 커밋·빌드
 
 ## 검증 증거
 
@@ -41,9 +41,22 @@
 | 최종 quick | 통과 | `20261003-021340-038f73a006`, 172개 / [summary.md](../../output/harness/20261003-021340-038f73a006/summary.md) |
 | 125% / 150% 합성 배율 | 통과 | 각각 140개 / [125% summary.md](../../output/harness/20261003-020959-0bc3453299/summary.md), [150% summary.md](../../output/harness/20261003-021021-618deb6a75/summary.md) |
 | 첫 release | 실패 | `20261003-022033-b579664066`, 1,575개 통과/기존 설정창 신호 기대 1개 실패. 네 번째 앱 초기화 연결 기대값을 갱신하고 재검사한다. [summary.md](../../output/harness/20261003-022033-b579664066/summary.md) |
-| 최종 EXE | 미실행 | 커밋 후 release 예정 |
+| 최종 release | 통과 | `20261003-022445-258b2dde7f`, **1,576개 테스트·새 빌드·격리 EXE 3개 시나리오** / [summary.md](../../output/harness/20261003-022445-258b2dde7f/summary.md) |
+| 새 EXE 작업 모드/실제 CLI | 통과 | 예제 사본 2개 성공·손상 1개 거부·frozen 작업 취소 / [summary.md](../../output/harness/20261003-022445-258b2dde7f/frozen-hwp-probe-final/summary.md), [result.json](../../output/harness/20261003-022445-258b2dde7f/frozen-hwp-probe-final/result.json) |
+| 포함 코드·Qt·SVG·배치 | 통과 | [bundle-verification.json](../../output/harness/20261003-022445-258b2dde7f/bundle-verification.json), [artifact-placement.json](../../output/harness/20261003-022445-258b2dde7f/artifact-placement.json) |
 
 ## 미해결과 인계
 
 - 실제 회사 DRM·한글 버전별 호환성·수동 서식 대조는 별도 확인한다. 공식 변환기 연동/배포 조건은 기존 보류 항목으로 남긴다.
-- 구현/계획/AGENTS 커밋: `f44af2a`. 첫 release에서 기존 초기화 연결 기대값을 갱신했고 재검사/빌드를 진행한다. 원격 push/게시 없음.
+- 구현/계획/AGENTS 커밋: `f44af2a`. 기존 초기화 연결 테스트/문서 링크 후속: `3fb1623`. 이 커밋 기준 release가 통과했다. 이후 변경은 결과 기록 문서뿐이며 코드·테스트·빌드·리소스·lock은 그대로다. 원격 push/게시 없음.
+- frozen 추가 시험의 첫 실행은 정상 변환 2개와 손상 거부를 통과했으나, 시험용 UI 감시 타이머가 다음 취소 루프를 조기 종료했다. `frozen-hwp-probe/result.json`에 실패를 남겼고, 제품 수정 없이 감시 타이머/자동 종료를 정리한 `frozen-hwp-probe-final`에서 모두 통과했다.
+- 새 EXE의 본창을 직접 클릭한 전체 변환 흐름은 수동 미확인이다. 실제 소스 UI와 새 EXE 작업 모드·공식 CLI의 결합, 일반 EXE 시작/기존 데이터 보존/보호 종료 3개 시나리오는 자동 확인했다.
+
+## 산출물과 최종 확인
+
+- 빌드 입력 커밋: `3fb1623` (미커밋 사용자 문서 2개/기존 작업 기록 4개는 보존·커밋 제외). PowerShell release.
+- 새 EXE: [기후노트_v3.8d.exe](../../dist/verified-20261003-022445-258b2dde7f/기후노트_v3.8d.exe), **58,698,300 bytes**, Windows `3.8.4.0`.
+- SHA-256: `655DCA366EF32A3751288336F733373DC21069C030B80B73566D6CA4582B53DC`.
+- 새/연결 모듈 11개(작업 진입 main 포함), SVG, Qt 6.11.2 DLL 4개가 실제 번들과 현재 소스/venv에 일치한다. mingw/Git 바이너리 혼입 0건. 기존 v3.8d보다 625,861 bytes 증가했다.
+- 기존 `dist/기후노트_v3.8d.exe`와 이전 버전 EXE는 덮어쓰지 않았다. 기존 v3.8d 해시 `3FED5C3BD5C3650DC64D4EFB0EDE41F3E068FB04185515A1ACF8C04317336957` 보존을 배치 전후 확인했다.
+- 최종 문서 링크/검증 입력 보존 확인: [summary.md](../../output/harness/20261003-022445-258b2dde7f/post-validation-summary.md), [result.json](../../output/harness/20261003-022445-258b2dde7f/post-validation.json).

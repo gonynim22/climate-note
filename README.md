@@ -27,11 +27,11 @@ Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위
 ## 다운로드
 
 실행 파일은 **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 페이지에서 받습니다.
-**v3.8d는 바로가기 클릭 등록·이름 변경 종료 문제를 수정했으며, 10월 3일 후속으로 HWP → HWPX 미니앱을 추가했습니다. GitLab에는 아직 게시하지 않았습니다.** 최신 후속 검증/EXE는 [HWP 구현 기록](docs/work/2026-10-03-hwp-document-converter.md)을 따릅니다. 검증 및 로컬 EXE 정보는 [v3.8d 작업 기록](docs/work/2026-10-02-v3.8d-shortcut-dialog-fix.md)을 따릅니다. 이전 v3.8c 검증은 [기존 기록](docs/work/2026-09-27-v3.8c-money-notation-pocket.md)에 보존합니다.
-아래 크기와 해시는 **HWP 기능 추가 전** Qt 6.11.2로 빌드한 로컬 **기후노트_v3.8d.exe** (58,072,439 bytes)의 정보입니다. `release` 실행 `20261002-220451-68d72eeafc`에서 1,516개 테스트와 격리 EXE 시나리오 3개를 통과했습니다. 이전 산출물 정보는 [릴리스 이력](docs/RELEASE_HISTORY.md)에 보존합니다.
+**v3.8d는 바로가기 클릭 등록·이름 변경 종료 문제를 수정했으며, 10월 3일 후속으로 HWP → HWPX 미니앱을 추가했습니다. GitLab에는 아직 게시하지 않았습니다.** 한글과 한컴 공식 HWPX 변환기가 설치된 PC에서 사용하며, XLS 등 다른 형식은 지원하지 않습니다. 최신 검증/EXE는 [HWP 구현 기록](docs/work/2026-10-03-hwp-document-converter.md)을 따릅니다.
+로컬 새 EXE는 `dist/verified-20261003-022445-258b2dde7f/기후노트_v3.8d.exe` (**58,698,300 bytes**)입니다. PowerShell `release` 실행 `20261003-022445-258b2dde7f`에서 **1,576개 테스트·새 빌드·격리 EXE 시나리오 3개**를 통과했고, 새 EXE 작업 모드의 실제 HWP 변환/취소도 확인했습니다. 기존 `dist/기후노트_v3.8d.exe`는 HWP 기능 추가 전 파일로 보존했으며 [이전 기록](docs/work/2026-10-02-v3.8d-shortcut-dialog-fix.md)에 해시가 있습니다.
 
 ```
-SHA-256  3FED5C3BD5C3650DC64D4EFB0EDE41F3E068FB04185515A1ACF8C04317336957
+SHA-256  655DCA366EF32A3751288336F733373DC21069C030B80B73566D6CA4582B53DC
 ```
 
 설치 과정이 없는 단일 실행 파일입니다. 원하는 위치에 두고 실행하면 됩니다.
