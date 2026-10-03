@@ -55,8 +55,14 @@
 ## 산출물과 최종 확인
 
 - 빌드 입력 커밋: `3fb1623` (미커밋 사용자 문서 2개/기존 작업 기록 4개는 보존·커밋 제외). PowerShell release.
-- 새 EXE: [기후노트_v3.8d.exe](../../dist/verified-20261003-022445-258b2dde7f/기후노트_v3.8d.exe), **58,698,300 bytes**, Windows `3.8.4.0`.
+- 현재 EXE: [기후노트_v3.8d.exe](../../dist/기후노트_v3.8d.exe), **58,698,300 bytes**, Windows `3.8.4.0`.
 - SHA-256: `655DCA366EF32A3751288336F733373DC21069C030B80B73566D6CA4582B53DC`.
 - 새/연결 모듈 11개(작업 진입 main 포함), SVG, Qt 6.11.2 DLL 4개가 실제 번들과 현재 소스/venv에 일치한다. mingw/Git 바이너리 혼입 0건. 기존 v3.8d보다 625,861 bytes 증가했다.
-- 기존 `dist/기후노트_v3.8d.exe`와 이전 버전 EXE는 덮어쓰지 않았다. 기존 v3.8d 해시 `3FED5C3BD5C3650DC64D4EFB0EDE41F3E068FB04185515A1ACF8C04317336957` 보존을 배치 전후 확인했다.
+- 최초 배치 당시 기존 `dist/기후노트_v3.8d.exe`와 이전 버전 EXE는 덮어쓰지 않았다. 기존 v3.8d 해시 `3FED5C3BD5C3650DC64D4EFB0EDE41F3E068FB04185515A1ACF8C04317336957` 보존을 배치 전후 확인했다.
 - 최종 문서 링크/검증 입력 보존 확인: [summary.md](../../output/harness/20261003-022445-258b2dde7f/post-validation-summary.md), [result.json](../../output/harness/20261003-022445-258b2dde7f/post-validation.json).
+
+## 표준 dist 경로 후속 정정 (2026-10-03)
+
+- 네 번째 앱이 보이지 않는다는 제보 후 표준 dist가 기능 추가 전 파일임을 확인했다. 앞서 안내한 verified 폴더는 현재 없으며 삭제 경위는 확인하지 않았다.
+- release 원본은 동일 해시로 남아 있어 현재 코드/리소스/Qt 대조 후 표준 dist에 배치했다. 구형 EXE는 별도 백업했다. 코드/빌드를 변경하지 않았으므로 이전 1,576개를 새 테스트 실행 수로 기록하지 않는다.
+- 최신 배치·백업·검증·문서 경로는 [후속 기록](2026-10-03-hwp-dist-placement-fix.md)을 따른다.
