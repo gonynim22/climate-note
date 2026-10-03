@@ -34,3 +34,12 @@
 - SHA-256: `655DCA366EF32A3751288336F733373DC21069C030B80B73566D6CA4582B53DC`.
 - 구형 파일: [백업 EXE](../../output/harness/20261003-093718-hwp-dist-placement/previous/기후노트_v3.8d.exe), 해시 `3FED5C3BD5C3650DC64D4EFB0EDE41F3E068FB04185515A1ACF8C04317336957`.
 - 기존 파일에는 문서 변환 모듈이 없었으며 새 파일은 모듈 11개(주머니/진입점 포함)·SVG·Qt DLL 4개가 현재 소스/venv와 일치한다. 전체 runtime 입력은 기존 release와 동일하다.
+
+## 세션 종료 전 최종 점검 (2026-10-03)
+
+- 사용자 요청으로 최종 EXE/검증 입력/커밋/기존 변경/문서 링크/미완료 항목을 대조했다. 앱 코드나 사용자 데이터는 변경하지 않았다.
+- 계획문서의 개발 진행·설치 미확인·pywin32/XML 초기 상태·별도 EXE 제공 표현이 남아 있어 실제 완료 상태와 표준 dist 경로로 정정했다.
+- 환경 `doctor` 통과: `20261003-094320-16a8a9eeb2` / [summary.md](../../output/harness/20261003-094320-16a8a9eeb2/summary.md). 전체 테스트/재빌드는 중복 실행하지 않는다.
+- 최종 대조 결과: [summary.md](../../output/harness/20261003-session-final-audit/summary.md), [result.json](../../output/harness/20261003-session-final-audit/result.json).
+- 남은 확인은 EXE 본창 직접 조작, 회사 DRM/다른 한글 버전, 변환본 서식, 실제 혼합 DPI/KVM 및 기존 배포/보안/서명 과제다. XLS는 추후 기능이다.
+- 작업 시작 전부터 있던 AGENTS.md 4줄/RELEASE_HISTORY.md 16줄 및 미추적 기록 4개는 계속 보존하고 커밋에서 제외한다.
