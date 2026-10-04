@@ -82,6 +82,7 @@ build.bat
 |---|---|
 | `app_info.py` | App metadata single source: display name, version, release date, author, versioned exe name |
 | `main.py` | Entry point: single-instance lock, app font/theme init, DB init(`inspect_startup_data_health()`→v3.5 최초 보호백업→마이그레이션 전 snapshot→`migrate()`→일일 자동백업 순서, 사전 검사·백업 실패 시 fail-closed), tray, Boss Key (Ctrl+Shift+H). 격리 EXE smoke에서만 `CLIMATENOTE_SKIP_STARTUP_REFRESH=1`로 시작프로그램 경로 갱신을 막는다 |
+| `ui_first_run.py` | `fresh` 건강 검사 뒤 DB 생성 전 A안 크기 선택. DB 없는 벡터 미리보기·키보드 선택·취소·화면 작업 영역 대응 |
 | `app_paths.py` | 번들 리소스 루트 단일 출처. `resource_root()`는 frozen이면 `sys._MEIPASS`, 소스 실행이면 프로젝트 루트를 돌려준다. 폰트·아이콘·이미지·SVG 경로는 모두 이 함수를 거치며 `Path(__file__).parent`로 다시 만들지 않는다(`tests/test_app_paths.py`가 가드). 이 파일이 경로 기준점이므로 하위 폴더로 옮기면 `_SOURCE_ROOT`를 함께 고쳐야 한다 |
 | `app_fonts.py` | App font resolution: Malgun Gothic default, installed system font keys, Font Awesome icon font loading |
 | `security.py` | Hardware key derivation (`_derive_fernet_key`), path validation, Fernet encrypt/decrypt (cached), 기존 `.salt` 엄격 읽기와 신규 데이터셋 salt 원자 생성, audit log |
@@ -112,6 +113,8 @@ build.bat
 | `build_app.py` | PyInstaller build script. 출력 exe 이름은 `app_info.py`의 `APP_DISPLAY_NAME`/`APP_VERSION` 기반 |
 
 ## 데이터·빌드 상세 계약
+
+- **최초 크기 선택(v3.8d 후속)**: 시작 건강 검사가 `fresh`(DB·salt·WAL/SHM·기존 백업 없음)일 때만 `ui_first_run.FirstRunSizeDialog`를 연다. 선택 중에는 메모리와 벡터 미리보기만 사용하고 DB·salt·백업을 만들지 않는다. X/Esc/종료는 취소로 끝내며 다음 실행에 다시 표시한다. 확정 후 건강 검사를 다시 확인하고 `migrate(initial_calendar_scale=...)`의 신규 DB 생성에서만 기존 `calendar_scale` 키를 seed한다. 첫 일일 백업과 메인 화면도 선택값을 읽는다. 기존 DB(빈 데이터·키 누락/잘못된 값 포함)는 질문 없이 기존 마이그레이션/fallback을 따르며 값을 덮어쓰지 않는다. 손상/불완전 데이터는 기존 보호 오류로 차단한다. 새 완료 플래그·재표시 예약·우회 환경변수 없이 DB v17·Export v2·salt·6슬롯·Factory Reset 동작을 유지한다. HWP worker는 이 경로보다 먼저 분기한다.
 
 - **KVM 화면·위치 복원(v3.8 후속)**: `screen_placement.py`가 화면 식별 정보를 캡처/검증한다. serial+제조사/모델의 유일한 일치를 우선하며, serial이 없거나 중복이면 이름과 장치 정보 조합이 유일할 때만 사용한다. 다른 serial을 가진 화면을 이름만 같다는 이유로 채택하지 않는다. 실행 중 기존 화면 객체를 계속 사용할 수 있으면 유지한다. 대상 부재/모호함은 기본 화면 임시 표시로 처리하고 선호 정보는 보존한다. 구형 인덱스 설정은 유효한 대상이 나타났을 때 메모리에서만 식별 정보를 기억한다. Import/초기화는 캐시를 다시 읽는다.
 - **자동 위치 보정은 저장 아님**: 크기·작업 영역·DPI·화면 분리로 보정한 캘린더 좌표는 `calendar_x/y`에 쓰지 않는다. 같은 대상 화면의 원점이 바뀌면 저장 당시 원점과의 차이만큼 상대 위치를 옮기고 작업 영역 안으로 보정한다. 명시적 드래그/모서리·모니터 선택 때만 화면 정보와 위치를 `save_settings()`의 한 트랜잭션으로 저장한다. 스티키/D-Day/집중도 화면 변경 때 원래 DB 좌표로 복원하고 임시 clamp 좌표는 DB에 쓰지 않으며 수동 이동 저장은 유지한다. DB v17·Export v2·salt·본문 형식은 바꾸지 않는다. 구현·검증·실제 KVM 미확인은 [복원 개선 기록](work/2026-09-22-kvm-window-position-fix.md)을 따른다.

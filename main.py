@@ -10,10 +10,11 @@ import atexit
 import sqlite3
 import traceback
 import logging
+from collections.abc import Callable
 from logging.handlers import RotatingFileHandler
 
 from PySide6.QtWidgets import (
-    QApplication, QMessageBox, QSystemTrayIcon, QMenu,
+    QApplication, QDialog, QMessageBox, QSystemTrayIcon, QMenu,
 )
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import (
@@ -119,15 +120,38 @@ def _make_tray_icon(app: QApplication) -> QSystemTrayIcon:
     return tray
 
 
-def _initialize_database() -> None:
+def _initialize_database(choose_initial_scale: Callable[[], str | None] | None = None) -> bool:
     """마이그레이션 전 스냅샷 실패 시 스키마 변경을 시작하지 않는다."""
     health = db.inspect_startup_data_health()
     if not health.ok:
         raise db.DataHealthError(health)
+    initial_scale = None
+    if health.code == "fresh" and choose_initial_scale is not None:
+        initial_scale = choose_initial_scale()
+        if initial_scale is None:
+            return False
+        if initial_scale not in db.CALENDAR_SCALES:
+            raise ValueError("지원하지 않는 최초 캘린더 크기입니다.")
+        # 선택창이 열린 사이 생긴 데이터도 신규 DB로 취급하지 않는다.
+        health = db.inspect_startup_data_health()
+        if not health.ok:
+            raise db.DataHealthError(health)
+        if health.code != "fresh":
+            raise db.DataHealthError(db.DataHealthReport(False, "dataset_changed_during_setup"))
     db.backup_before_v35()
     db.backup_before_migration()
-    db.migrate()
+    db.migrate(initial_calendar_scale=initial_scale)
     db.backup_database()
+    return True
+
+
+def _choose_initial_calendar_scale() -> str | None:
+    from ui_first_run import FirstRunSizeDialog
+    dialog = FirstRunSizeDialog()
+    try:
+        return dialog.selected_scale if dialog.exec() == QDialog.DialogCode.Accepted else None
+    finally:
+        dialog.deleteLater()
 
 
 def _data_health_error_message(code: str) -> tuple[str, str]:
@@ -207,7 +231,8 @@ def main():
 
     # ── DB 초기화 및 백업
     try:
-        _initialize_database()
+        if not _initialize_database(_choose_initial_calendar_scale):
+            return
         apply_app_font(db.get_setting(db.SETTING_APP_FONT, db.DEFAULT_APP_FONT), app)
     except db.DataHealthError as e:
         _error_logger.error("데이터 건강 검사 실패: %s", e.report.code)

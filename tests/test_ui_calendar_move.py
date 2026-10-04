@@ -78,6 +78,10 @@ def test_toggle_saves_without_moving_or_editing_and_restores_after_reopen(qtbot)
         db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
         win._apply_calendar_scale()
         assert not win.calendar_move_button.isChecked()
+    # 재실행은 이전 메인/스티키가 새 창의 활성화를 경쟁하지 않는 상태에서 검사한다.
+    assert win.prepare_for_quit()
+    win._minimize_to_tray()
+    win._discard_data_widgets()
     reopened = window(qtbot)
     assert not reopened._calendar_drag_allowed()
 

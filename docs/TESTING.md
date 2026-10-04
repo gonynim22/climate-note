@@ -46,6 +46,8 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 
 ### 실행 격리와 증거
 
+최초 크기 선택은 `tests/test_first_run.py`에서 신규 선택·취소·기존/손상 분기, 세 크기의 DB/첫 백업/메인/재실행과 Export/Import, 키보드·작은 작업 영역을 검사한다. 125/150%는 별도 `QT_SCALE_FACTOR` 합성 실행으로 확인한다. release의 fresh 시나리오는 이번 Job 소유의 실제 최초 설정창에서 Enter로 기본 선택을 확정하고, 선택 전 DB/salt/백업 미생성 및 선택 후 메인·백업·저장값을 검사한다. existing/blocked에는 최초 설정이 없어야 한다. 제품 우회 플래그를 추가하거나 실사용 데이터를 검사 입력으로 쓰지 않는다. 실제 Windows 잠금·혼합 DPI/KVM은 수동 미확인과 구분한다.
+
 문서 형식 변환은 `tests/test_hwp_conversion.py`, `tests/test_hwp_conversion_runner.py`, `tests/test_ui_document_converter.py`, 주머니/SVG 검사를 함께 실행한다. HWP 보호 헤더·손상 출력·동명 비덮어쓰기·원본 보존, 실제 작업 프로세스/자식의 취소·시간 초과·Job 배정 실패, 실제 파일창/드롭·작은 화면·잠금/숨김/초기화/종료와 DB/Export/salt 보존을 검사한다. 모의 엔진 검사를 실제 문서 변환 성공으로 간주하지 않는다. 설치된 공식 CLI를 사용하는 제품 UI와 frozen worker를 별도 격리 실행하고 원본/기존 결과 해시·필수 XML·작업 모드 DB 미생성·임시 폴더 정리를 확인한다. 한글 버전/DRM/서식 시각 대조는 별도다. [계약](DOCUMENT_CONVERSION.md), [현재 기록](work/2026-10-03-hwp-document-converter.md).
 
 각 호출은 `output/harness/<시각-고유값>/`을 새로 만든다. 그 안에:

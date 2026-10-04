@@ -149,7 +149,7 @@ def windows_in_job(job):
             user.GetWindowTextW(hwnd, title, len(title))
             user.GetWindowRect(hwnd, ctypes.byref(rect))
             responding = bool(user.SendMessageTimeoutW(hwnd, 0, 0, 0, 2, 300, ctypes.byref(reply)))
-            windows.append({"pid": pid.value, "title": title.value,
+            windows.append({"hwnd": int(hwnd), "pid": pid.value, "title": title.value,
                             "width": rect.right - rect.left, "height": rect.bottom - rect.top,
                             "responding": responding})
         return True
@@ -157,6 +157,21 @@ def windows_in_job(job):
     if not user.EnumWindows(visit, 0):
         raise ctypes.WinError(ctypes.get_last_error())
     return windows
+
+
+def accept_first_run_setup(job, window):
+    """이번 검사 Job의 실제 최초 설정창에만 Enter를 보낸다 (제품 우회 없음)."""
+    current = next((w for w in windows_in_job(job) if w["hwnd"] == window["hwnd"]
+                    and w["pid"] == window["pid"]
+                    and w["title"] == "기후노트 — 처음 설정" and w["responding"]), None)
+    if current is None:
+        raise ValueError("소유한 최초 설정창을 확인하지 못했습니다.")
+    user = ctypes.WinDLL("user32", use_last_error=True)
+    user.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
+    user.PostMessageW.restype = W.BOOL
+    for message in (0x0100, 0x0101):  # WM_KEYDOWN / WM_KEYUP, VK_RETURN
+        if not user.PostMessageW(current["hwnd"], message, 0x0D, 0):
+            raise ctypes.WinError(ctypes.get_last_error())
 
 
 def validate_paths(exe, run_dir):
@@ -264,6 +279,7 @@ def _data_worker(action, data_root, result_path):
             raise ValueError(f"실행 후 데이터 건강 검사 실패: {health.code}")
         result = _dataset_snapshot(db, security)
         result["salt_bytes"] = security.SALT_FILE.stat().st_size
+        result["calendar_scale"] = db.get_setting(db.SETTING_CALENDAR_SCALE)
         if result["salt_bytes"] != 32:
             raise ValueError("salt 크기가 32바이트가 아닙니다.")
         if result["version"] != db.CURRENT_SCHEMA_VERSION or result["integrity"] != ["ok"]:
@@ -304,15 +320,27 @@ def scenario(exe, run_dir, name):
     command = [sys.executable, str(Path(__file__).resolve()), "_launch", str(exe)]
     observed = []
     ready = False
+    setup_seen = False
     with managed_launch(command, data_env(data_root), folder / "exe.log") as (job, process):
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise RuntimeError(f"{name}: 창 준비 전 EXE 종료 ({process.returncode})")
             observed = windows_in_job(job)
+            setup = [w for w in observed if w["title"] == "기후노트 — 처음 설정" and w["responding"]]
+            if setup:
+                if name != "fresh":
+                    raise RuntimeError(f"{name}: 기존 데이터에 최초 설정이 표시됐습니다.")
+                if not setup_seen:
+                    app_dir = data_root / "MyDesktopCalendar"
+                    if any((app_dir / p).exists() for p in ("calendar.db", ".salt", "backups")):
+                        raise RuntimeError("최초 크기 선택 전에 DB/salt/백업이 생성됐습니다.")
+                    accept_first_run_setup(job, setup[0])
+                    setup_seen = True
             errors = [w for w in observed if w["title"] == expected_error and w["responding"]]
             app_windows = [w for w in observed if w["width"] >= 350 and w["height"] >= 450
-                           and w["responding"] and w["title"] != expected_error]
+                           and w["responding"] and w["title"] not in
+                           (expected_error, "기후노트 — 처음 설정")]
             if name == "blocked":
                 ready = bool(errors) and not app_windows
             else:
@@ -327,7 +355,7 @@ def scenario(exe, run_dir, name):
         if not ready:
             raise TimeoutError(f"{name}: 창/백업 준비 시간 초과. 관측 창={observed}")
     result = {"status": "passed", "windows": observed, "cleanup": "job_close_forced",
-              "graceful_quit_verified": False}
+              "graceful_quit_verified": False, "first_run_setup_seen": setup_seen}
     if name == "blocked":
         after = protected_hashes(data_root)
         if before != after:
@@ -335,6 +363,8 @@ def scenario(exe, run_dir, name):
         result["preserved"] = after
     else:
         after = data_step("inspect", data_root, folder / "after.json")
+        if name == "fresh" and (not setup_seen or after["calendar_scale"] != "compact"):
+            raise ValueError("최초 설정 표시/선택한 크기 저장을 확인하지 못했습니다.")
         if before is not None:
             for key in ("raw_hashes", "logical_hashes", "ids", "salt_sha256"):
                 if before[key] != after[key]:

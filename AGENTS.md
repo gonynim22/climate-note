@@ -50,6 +50,8 @@
 
 ## 반드시 보존할 계약
 
+- 최초 크기 선택(v3.8d 후속)은 건강 검사 `fresh`에서만 A안 기본/중간/크게를 표시한다. 확정 전 DB/salt/백업 미생성, X/Esc/종료 후 재표시, 확정 시 신규 DB의 기존 `calendar_scale` seed와 첫 백업/메인 반영을 유지한다. 기존 사용자·키 누락/잘못된 값·Factory Reset은 기존 경로를 유지하며 손상 데이터는 보호 오류로 차단한다. 별도 완료 키/우회 진입/재표시 예약은 없다. DB v17·Export v2·버전·Qt/lock·HWP worker 선분기를 유지한다. 상세 계약과 검증은 [UI 계약](docs/UI_PATTERNS.md), [아키텍처](docs/ARCHITECTURE.md), [작업 기록](docs/work/2026-10-04-first-run-size-setup-plan.md)을 따른다.
+
 - 문서 형식 변환(v3.8d 후속)은 네 번째 미니앱이며 HWP → HWPX만 제공한다. 설치된 한글과 공식 HWPX 변환기 CLI를 각각 확인하고, HWP 5 사본을 고유 Windows Job/별도 프로세스에서 변환한다. 작업 진입점은 DB/보안/트레이 import 전에 분기하며 onefile 자식도 같은 Job 가입을 확인한다. 보호 입력 거부·출력 CRC/XML 검사·동명 비덮어쓰기와 원본/기존 결과 보존을 유지한다. 파일 선택과 드롭은 같은 경로, 숨김/잠금/초기화/종료는 소유 작업과 비동기 파일창을 취소한다. 목록/상태는 메모리 전용이고 DB v17·Export v2·salt·설정·6슬롯은 유지한다. pywin32는 기존 lock의 311을 직접 의존성으로 명시하며 Qt/lock 버전을 바꾸지 않는다. 상세 계약은 [문서 변환](docs/DOCUMENT_CONVERSION.md), 현재 검증/빌드/커밋은 [구현 기록](docs/work/2026-10-03-hwp-document-converter.md)을 따른다.
 
 - 바로가기의 파일/폴더 선택·이름 변경은 `RoundMenu` 클릭 처리에서 동기 호출하지 않는다. 메뉴 종료·삭제를 유지하면서 슬롯 소유 타이머로 클릭 반환 후 실행하고, 숨김·재조회·잠금·폐기 때 예약을 취소한다. 실행 직전 가시성/활성/잠금/트레이를 확인한다. 메뉴 클릭→실제 대화상자 확인/취소 회귀는 별도 프로세스·합성 데이터에서 검사한다. DB v17·Export v2·salt·설정·6슬롯·드롭/실행/사용자 이름 보존을 유지하며 상세 계약과 검증은 [UI 계약](docs/UI_PATTERNS.md), [v3.8d 기록](docs/work/2026-10-02-v3.8d-shortcut-dialog-fix.md)을 따른다.
@@ -106,6 +108,8 @@
 - **환경 드리프트 시 실패하는 검사**: `tests/test_packaging.py::test_requirements_lock_matches_verified_direct_dependencies`. `requirements-lock.txt`는 v3.5 기준에서 v3.7 컬러 이모지 수정용 Qt 계열 4개를 6.11.2로 갱신한 환경 기록이다. 검증 근거는 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)에 남긴다. 로컬 venv 버전이 lock과 다르면 실패하며 lock을 임의로 갱신하지 않는다. 의존성 업그레이드는 lock 갱신 + 전체 재검증 + EXE 재빌드 + 검증 스냅샷 갱신을 한 묶음으로 처리한다. `pip install -r requirements-lock.txt`로 맞추면 통과한다.
 
 ## 기록 관리
+
+- 2026-10-04 최초 크기 선택 후속은 **v3.8d를 유지**한다. A안 최초 설정을 추가했고 PowerShell `release` **20261004-231750-7a836dcd41**에서 **1,613개 테스트·새 EXE·격리 실행 3개 시나리오**를 통과했다. 최종 125/150%는 각각 94개, 포함 모듈 13개·Qt 6.11.2 DLL 4개 일치와 mingw 혼입 부재를 확인했다. 새 EXE는 58,711,162 bytes, SHA-256 `BF1CD3E08E0832BCE3D07B0B422816D5C3712712D73270A89C31F4C55F43BFA4`다. 첫 설정 취소/재실행·이전 실패·소유 창 정리 보완·최종 배치/커밋/사용자 승인 로컬 초기화는 [작업 기록](docs/work/2026-10-04-first-run-size-setup-plan.md)을 따른다. 검증 후에는 결과 문서만 갱신했으며 아래 HWP 빌드 결과는 이전 산출물 기록이다. 실제 Windows 잠금·혼합 DPI/KVM과 원격 게시/보안/서명 후속은 별도다.
 
 - 2026-10-03 HWP 변환 후속은 **v3.8d를 유지**한다. 네 번째 미니앱에 한글/공식 HWPX 변환기 설치 조건, HWP → HWPX 일괄 변환, 원본 보존·취소·재시도를 추가했다. 구현 `f44af2a`·테스트 후속 `3fb1623` 기준 PowerShell `release` **20261003-022445-258b2dde7f**에서 **1,576개 테스트·새 빌드·격리 EXE 3개 시나리오**를 통과했다. 새 EXE 작업 모드로 실제 예제 2개 변환·손상 문서 거부·취소를 확인했고 포함 모듈 11개/SVG/Qt DLL 4개 일치와 mingw 혼입 부재를 확인했다. 현재 파일은 `dist/기후노트_v3.8d.exe`(58,698,300 bytes), SHA-256 `655DCA366EF32A3751288336F733373DC21069C030B80B73566D6CA4582B53DC`다. 표준 dist에 기능 추가 전 파일이 남아 있던 문제는 10월 3일 검증 EXE를 재배치해 정정했고, 구형은 `output/harness/20261003-093718-hwp-dist-placement/previous/`에 보관한다. 현재 경로와 실제 포함 코드/해시 확인은 [배치 정정 기록](docs/work/2026-10-03-hwp-dist-placement-fix.md)을 따른다. DB v17·Export v2·salt·설정·6슬롯·Qt/lock은 유지한다. 배율/이전 실패/검증 후 문서만 수정한 범위·수동 미확인은 [HWP 구현 기록](docs/work/2026-10-03-hwp-document-converter.md)을 따른다. 아래 10월 2일 결과는 기능 추가 전 기록이다.
 

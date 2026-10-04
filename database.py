@@ -546,8 +546,11 @@ def _try_migrate_encryption() -> None:
 
 
 # ─── 스키마 마이그레이션 ───────────────────────────────────────
-def migrate() -> None:
+def migrate(*, initial_calendar_scale: str | None = None) -> None:
     """PRAGMA user_version으로 스키마 버전 관리"""
+    if initial_calendar_scale is not None and initial_calendar_scale not in CALENDAR_SCALES:
+        raise ValueError("지원하지 않는 최초 캘린더 크기입니다.")
+    is_new_database = not DB_FILE.exists()
     with _connection() as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
 
@@ -596,6 +599,11 @@ def migrate() -> None:
                 INSERT OR IGNORE INTO app_settings (key, value) VALUES ('show_law_search', '1');
                 INSERT OR IGNORE INTO app_settings (key, value) VALUES ('app_font', 'Malgun Gothic');
             """)
+            if is_new_database and initial_calendar_scale is not None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
+                    (SETTING_CALENDAR_SCALE, initial_calendar_scale),
+                )
             conn.execute("PRAGMA user_version = 8")
             conn.commit()
             version = 8
