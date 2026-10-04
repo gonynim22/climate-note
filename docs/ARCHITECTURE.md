@@ -82,7 +82,7 @@ build.bat
 |---|---|
 | `app_info.py` | App metadata single source: display name, version, release date, author, versioned exe name |
 | `main.py` | Entry point: single-instance lock, app font/theme init, DB init(`inspect_startup_data_health()`→v3.5 최초 보호백업→마이그레이션 전 snapshot→`migrate()`→일일 자동백업 순서, 사전 검사·백업 실패 시 fail-closed), tray, Boss Key (Ctrl+Shift+H). 격리 EXE smoke에서만 `CLIMATENOTE_SKIP_STARTUP_REFRESH=1`로 시작프로그램 경로 갱신을 막는다 |
-| `ui_first_run.py` | `fresh` 건강 검사 뒤 DB 생성 전 A안 크기 선택. DB 없는 벡터 미리보기·키보드 선택·취소·화면 작업 영역 대응 |
+| `ui_first_run.py` | `fresh` 건강 검사 뒤 DB 생성 전 데스크 뷰 크기 선택. `ui_main` 크기 규칙을 따른 DB 없는 벡터 미리보기(`preview_window_rect`)·키보드 선택·취소·작업 영역별 넓은/한 열 배치 |
 | `app_paths.py` | 번들 리소스 루트 단일 출처. `resource_root()`는 frozen이면 `sys._MEIPASS`, 소스 실행이면 프로젝트 루트를 돌려준다. 폰트·아이콘·이미지·SVG 경로는 모두 이 함수를 거치며 `Path(__file__).parent`로 다시 만들지 않는다(`tests/test_app_paths.py`가 가드). 이 파일이 경로 기준점이므로 하위 폴더로 옮기면 `_SOURCE_ROOT`를 함께 고쳐야 한다 |
 | `app_fonts.py` | App font resolution: Malgun Gothic default, installed system font keys, Font Awesome icon font loading |
 | `security.py` | Hardware key derivation (`_derive_fernet_key`), path validation, Fernet encrypt/decrypt (cached), 기존 `.salt` 엄격 읽기와 신규 데이터셋 salt 원자 생성, audit log |

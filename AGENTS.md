@@ -50,7 +50,7 @@
 
 ## 반드시 보존할 계약
 
-- 최초 크기 선택(v3.8d 후속)은 건강 검사 `fresh`에서만 A안 기본/중간/크게를 표시한다. 확정 전 DB/salt/백업 미생성, X/Esc/종료 후 재표시, 확정 시 신규 DB의 기존 `calendar_scale` seed와 첫 백업/메인 반영을 유지한다. 기존 사용자·키 누락/잘못된 값·Factory Reset은 기존 경로를 유지하며 손상 데이터는 보호 오류로 차단한다. 별도 완료 키/우회 진입/재표시 예약은 없다. DB v17·Export v2·버전·Qt/lock·HWP worker 선분기를 유지한다. 상세 계약과 검증은 [UI 계약](docs/UI_PATTERNS.md), [아키텍처](docs/ARCHITECTURE.md), [작업 기록](docs/work/2026-10-04-first-run-size-setup-plan.md)을 따른다.
+- 최초 크기 선택(v3.8d 후속)은 건강 검사 `fresh`에서만 데스크 뷰(2026-10-05 리디자인)로 기본/중간/크게를 표시한다. 미리보기는 `ui_main` 크기 규칙을 1920×1080 화면에 적용한 실제 비율 벡터 그림이고, 화면은 시스템 테마와 무관하게 밝게 그리며, 폭 580 미만 또는 높이 370 미만은 위 크기 버튼과 아래 미리보기의 한 열 배치다. 확정 전 DB/salt/백업 미생성, X/Esc/종료 후 재표시, 확정 시 신규 DB의 기존 `calendar_scale` seed와 첫 백업/메인 반영을 유지한다. 기존 사용자·키 누락/잘못된 값·Factory Reset은 기존 경로를 유지하며 손상 데이터는 보호 오류로 차단한다. 별도 완료 키/우회 진입/재표시 예약은 없다. DB v17·Export v2·버전·Qt/lock·HWP worker 선분기를 유지한다. 상세 계약과 검증은 [UI 계약](docs/UI_PATTERNS.md), [아키텍처](docs/ARCHITECTURE.md), [작업 기록](docs/work/2026-10-04-first-run-size-setup-plan.md), [디자인 기록](docs/work/2026-10-05-first-run-desk-view-redesign.md)을 따른다.
 
 - 문서 형식 변환(v3.8d 후속)은 네 번째 미니앱이며 HWP → HWPX만 제공한다. 설치된 한글과 공식 HWPX 변환기 CLI를 각각 확인하고, HWP 5 사본을 고유 Windows Job/별도 프로세스에서 변환한다. 작업 진입점은 DB/보안/트레이 import 전에 분기하며 onefile 자식도 같은 Job 가입을 확인한다. 보호 입력 거부·출력 CRC/XML 검사·동명 비덮어쓰기와 원본/기존 결과 보존을 유지한다. 파일 선택과 드롭은 같은 경로, 숨김/잠금/초기화/종료는 소유 작업과 비동기 파일창을 취소한다. 목록/상태는 메모리 전용이고 DB v17·Export v2·salt·설정·6슬롯은 유지한다. pywin32는 기존 lock의 311을 직접 의존성으로 명시하며 Qt/lock 버전을 바꾸지 않는다. 상세 계약은 [문서 변환](docs/DOCUMENT_CONVERSION.md), 현재 검증/빌드/커밋은 [구현 기록](docs/work/2026-10-03-hwp-document-converter.md)을 따른다.
 
@@ -86,7 +86,7 @@
 - 일정 목록의 여백은 행 레이아웃에 포함하고 `QListWidget::item` padding은 0으로 둔다. 인라인 편집기를 표시한 뒤 행 높이를 계산해 입력창과 26px 이모지 버튼 하단을 확보한다. compact/medium/large에서 실제 배치된 편집 영역이 버튼 전체를 포함하는지 검증한다.
 - 캘린더 날짜 그리드와 요일 제목은 7열에 동일한 stretch를 적용한다. 일정 칩은 가로 `QSizePolicy.Ignored`로 말줄임 결과가 열 최소 너비에 역영향을 주지 않게 한다. 세로 화면에서 일정 추가·월 왕복·화면 왕복 후 실제 열 너비 차이 1px 이내와 요일 제목 정렬을 검증한다. 저장된 일정 본문·색상·DB/salt는 바꾸지 않는다.
 - 공휴일 데이터는 추적 중인 `holidays.py`를 사용하고 `fetch_data.py`의 실제 API 데이터로만 갱신한다. 임의 계산 금지.
-- 폰트·아이콘·이미지·SVG는 `app_paths.resource_root()`로 찾는다. 본문은 시스템 Malgun Gothic 기본, Pretendard는 D-Day 강조용이다. QSS 글꼴 크기는 정수 px만 쓴다.
+- 폰트·아이콘·이미지·SVG는 `app_paths.resource_root()`로 찾는다. 본문은 시스템 Malgun Gothic 기본, Pretendard는 D-Day 강조와 최초 설정의 제목·크기 이름·시작 버튼용이다. QSS 글꼴 크기는 정수 px만 쓴다.
 - 소스 화면과 사용자 EXE의 이모지 렌더가 다르면 UI를 다시 수정하기 전에 실제 EXE의 SHA-256과 포함된 Qt DLL 버전·해시를 검증 환경과 대조한다. 표시 버전이나 소스 캡처만으로 수정 포함 여부를 판단하지 않는다. EXE 확인도 합성 데이터에서 수행한다.
 - Win+D 보호는 일시 topmost pulse 후 바탕화면 바로 위 non-topmost 복귀다. 영구 topmost·WorkerW/SetParent 재부모화 금지. native hook은 해제한다.
 - 설정창 800×560 무스크롤, 캘린더 크기·일정 표시·위젯 수 제한·DPI/스냅·메뉴 수명 등 세부 UI 계약은 [UI_PATTERNS.md](docs/UI_PATTERNS.md)를 따른다.
@@ -108,6 +108,8 @@
 - **환경 드리프트 시 실패하는 검사**: `tests/test_packaging.py::test_requirements_lock_matches_verified_direct_dependencies`. `requirements-lock.txt`는 v3.5 기준에서 v3.7 컬러 이모지 수정용 Qt 계열 4개를 6.11.2로 갱신한 환경 기록이다. 검증 근거는 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)에 남긴다. 로컬 venv 버전이 lock과 다르면 실패하며 lock을 임의로 갱신하지 않는다. 의존성 업그레이드는 lock 갱신 + 전체 재검증 + EXE 재빌드 + 검증 스냅샷 갱신을 한 묶음으로 처리한다. `pip install -r requirements-lock.txt`로 맞추면 통과한다.
 
 ## 기록 관리
+
+- 2026-10-05 최초 설정 디자인 후속(데스크 뷰)은 **v3.8d를 유지**한다. 최초 크기 선택 화면을 시안 1 데스크 뷰(실제 비율 미리보기·항상 밝게·Pretendard 제목·한 열 배치)로 교체했고 시작 흐름·DB v17·Export v2·salt·설정 키는 바꾸지 않았다. `tests/test_first_run.py` 100% 107개(`20261005-011115-5516233ced`), 125%/150% 각 107개(`20261005-011137-e19f914523`, `20261005-011157-8f97a11332`), 소스 프로세스 3개(`20261005-011221-desk-view-source-startup`)를 통과했다. EXE는 재빌드하지 않았으며 아래 10월 4일 EXE에는 이 디자인이 없다. 상세는 [디자인 기록](docs/work/2026-10-05-first-run-desk-view-redesign.md)을 따른다.
 
 - 2026-10-04 최초 크기 선택 후속은 **v3.8d를 유지**한다. A안 최초 설정을 추가했고 PowerShell `release` **20261004-231750-7a836dcd41**에서 **1,613개 테스트·새 EXE·격리 실행 3개 시나리오**를 통과했다. 최종 125/150%는 각각 94개, 포함 모듈 13개·Qt 6.11.2 DLL 4개 일치와 mingw 혼입 부재를 확인했다. 새 EXE는 58,711,162 bytes, SHA-256 `BF1CD3E08E0832BCE3D07B0B422816D5C3712712D73270A89C31F4C55F43BFA4`다. 첫 설정 취소/재실행·이전 실패·소유 창 정리 보완·최종 배치/커밋/사용자 승인 로컬 초기화는 [작업 기록](docs/work/2026-10-04-first-run-size-setup-plan.md)을 따른다. 검증 후에는 결과 문서만 갱신했으며 아래 HWP 빌드 결과는 이전 산출물 기록이다. 실제 Windows 잠금·혼합 DPI/KVM과 원격 게시/보안/서명 후속은 별도다.
 

@@ -19,7 +19,7 @@ SYSTEM_FONT_PREFIX = "system:"
 
 _APP_FONT_FILES = {}
 _ICON_FONT_FILES = ("fa-regular-400.ttf", "fa-solid-900.ttf")
-# 번들 UI 강조 폰트(Pretendard) — D-Day 위젯 등에서 사용. 앱 본문 폰트는 아님.
+# 번들 UI 강조 폰트(Pretendard) — D-Day 위젯·최초 설정 제목 등에서 사용. 앱 본문 폰트는 아님.
 _UI_FONT_FILES = (
     "Pretendard-Medium.ttf",
     "Pretendard-SemiBold.ttf",
