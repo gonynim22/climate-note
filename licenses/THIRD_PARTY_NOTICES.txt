@@ -104,7 +104,7 @@ LGPLv3 원문 출처:
   별도 검토가 필요하다. AGENTS.md "Deferred Release Work" 항목을 따른다.
 
 
-cryptography 46.0.4
+cryptography 50.0.0
 -------------------
 
 번들 대상:
@@ -120,10 +120,10 @@ cryptography 46.0.4
   licenses/cryptography-LICENSE.BSD.txt      (BSD 3-Clause)
 
 복사 출처:
-  설치 배포판 cryptography-46.0.4.dist-info/licenses/
+  설치 배포판 cryptography-50.0.0.dist-info/licenses/
 
 공식 패키지 페이지:
-  https://pypi.org/project/cryptography/46.0.4/
+  https://pypi.org/project/cryptography/50.0.0/
 
 
 pysidesix-frameless-window 0.8.0

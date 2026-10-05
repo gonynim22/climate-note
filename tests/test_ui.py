@@ -589,13 +589,13 @@ def test_settings_simplified_card_text_and_data_folder_button(qtbot, app_dir, qa
     assert win.open_data_folder_btn.toolTip() == "저장 폴더 열기"
 
 
-def test_settings_credit_uses_v38d_metadata(qtbot, app_dir, qapp):
-    """v3.8d의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
+def test_settings_credit_uses_v38e_metadata(qtbot, app_dir, qapp):
+    """v3.8e의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
     win = SettingsWindow()
     qtbot.addWidget(win)
 
-    assert APP_VERSION == "v3.8d"
-    assert win.author_label.text().startswith("v3.8d  ·  2026. 10. 2.")
+    assert APP_VERSION == "v3.8e"
+    assert win.author_label.text().startswith("v3.8e  ·  2026. 10. 5.")
 
 
 def test_update_guide_text_uses_current_version():

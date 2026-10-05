@@ -1,12 +1,13 @@
 # 기후노트 v3.7 검증 환경 (Windows x64, CPython 3.13.5)
 # v3.5 기준에서 2026-09-10 컬러 이모지 잘림 수정용 Qt 계열 4개만 6.11.2로 갱신.
 # 2026-10-05 push 보안 검사 1단계: defusedxml 추가, EXE 미포함 개발·빌드 패키지 취약 버전 갱신(docs/work/2026-10-05-push-security-scan-step1.md).
+# 2026-10-05 push 보안 검사 2단계: cryptography 취약점 해소 최소 버전 갱신, 46.0.4 고정 벡터·양방향 호환 검증(docs/work/2026-10-05-push-security-scan-step2.md).
 # 검증 스냅샷: docs/work/2026-09-10-schedule-emoji-glyph-clipping.md
 # 일상 개발은 requirements.txt, 동일 환경 재현은 이 파일을 사용한다.
 
 PySide6==6.11.2
 PySide6-Fluent-Widgets[Full]==1.11.1
-cryptography==46.0.4
+cryptography==50.0.0
 python-dotenv==1.2.2
 pytest==9.0.3
 pytest-qt==4.5.0

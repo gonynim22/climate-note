@@ -166,7 +166,7 @@ def test_bundled_third_party_license_texts_and_notices_exist():
         "Font Awesome Free 6.7.2",
         "PySide6-Fluent-Widgets 1.11.1",
         "PySide6 6.11.2",
-        "cryptography 46.0.4",
+        "cryptography 50.0.0",
         "pysidesix-frameless-window 0.8.0",
         "Pretendard-LICENSE.txt",
         "Font-Awesome-Free-LICENSE.txt",
@@ -194,6 +194,7 @@ def test_windows_version_parts_maps_letter_suffix_to_patch_position():
     assert _windows_version_parts("v3.8b") == (3, 8, 2, 0)
     assert _windows_version_parts("v3.8c") == (3, 8, 3, 0)
     assert _windows_version_parts("v3.8d") == (3, 8, 4, 0)
+    assert _windows_version_parts("v3.8e") == (3, 8, 5, 0)
 
     # 접미사가 붙은 버전은 붙지 않은 같은 base보다 커야 한다.
     assert _windows_version_parts("v3.6a") > _windows_version_parts("v3.6")

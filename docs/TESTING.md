@@ -166,6 +166,10 @@ python -m pytest tests/test_stress.py -v --timeout=120   # 스트레스 테스�
 
 ### 테스트 추가 기준
 
+암호 라이브러리 갱신은 `quick --tests tests/test_crypto_compat.py tests/test_security.py tests/test_data_safety.py tests/test_packaging.py`로 고정 기준을 확인한 뒤 `release`로 전체 검사·빌드·격리 EXE 실행을 수행한다. `tests/fixtures/crypto_compat_cryptography46.json`은 구버전 46.0.4가 만든 합성 기준이며 재생성하지 않는다. 하드웨어/레거시/PIN 키 파생과 기존 토큰 복호화, 실제 `security.decrypt`/`legacy_decrypt` 경로를 포함한다.
+
+별도 구버전 환경에서도 새 합성 DB·백업·PIN 파일을 읽고, 새 환경에서 구버전 기준본을 읽어야 한다. PIN은 실제 가져오기→재내보내기와 기존 메모/바로가기 보존·집중 ID remap을, 백업은 별도 폴더 복구 후 전체 암호문을 검사한다. 원본 보존 사본의 파일 해시를 전후 대조한다. EXE도 양방향으로 합성 데이터 사본에서 시작하며, Job 정리 실행을 정상 종료 저장 검증으로 기록하지 않는다. 구버전 검증 환경에는 스모크 helper의 `defusedxml` 의존성도 필요하다. 정확한 실행 ID·도구·EXE 해시는 [2단계 기록](work/2026-10-05-push-security-scan-step2.md)을 따른다.
+
 데이터 변경이 수반되는 기능은 반드시 왕복 검증 테스트를 추가한다:
 - DB 스키마 변경 → migrate 전후 데이터 보존 확인
 - 신규 필드/설정 → 기본값 fallback 동작 확인

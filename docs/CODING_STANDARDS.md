@@ -229,6 +229,12 @@ def get_config():
 - `nosemgrep` 주석·규칙 제외 같은 검사 우회는 쓰지 않는다. `tests/test_security_scan_rules.py`가 추적 Python 파일의 표준 `xml` import와 `urlopen` 호출 재발을 검사하며, 실제 로컬 Semgrep 결과도 별도로 확인한다.
 - 의존성 취약점은 사용자 EXE 포함 여부로 나눠 대응한다. EXE에 들어가지 않는 개발·빌드 패키지는 취약점을 해소하는 최소 버전으로 올린다. EXE에 들어가는 패키지, 특히 `cryptography`는 기존 데이터 양방향 호환 검증을 거친 별도 단계에서만 바꾼다. 빌드 도구의 간접 영향을 확인하기 위해 EXE 모듈 구성과 암호화·Qt 바이너리도 대조한다. 상세는 [1단계 작업 기록](work/2026-10-05-push-security-scan-step1.md).
 
+### 암호 라이브러리 갱신의 데이터 호환 게이트
+
+- `tests/fixtures/crypto_compat_cryptography46.json`은 cryptography 46.0.4에서 만든 합성 고정 벡터다. 실제 PC 식별값·사용자 데이터는 없으며, 라이브러리 갱신 때 새 버전으로 다시 생성하지 않는다. 키 파생 값과 기존 토큰·PIN 파일을 읽는 제품 경로를 `tests/test_crypto_compat.py`로 검사한다.
+- 암호 라이브러리를 바꾸기 전에 구버전으로 DB·salt·일일 백업·PIN 내보내기 기준본을 보존한다. 신→구·구→신 양방향으로 전체 본문, ID 연결, 실제 백업 복구와 가져오기/재내보내기를 확인한다. 기존 목적지 메모·사용 중인 바로가기와 원본 보존 사본의 해시도 확인한다.
+- `security.py`·`database.py`의 저장 계약 변경과 라이브러리 갱신을 섞지 않는다. 설치 전후 패키지 차이와 EXE 내부 모듈·바이너리를 대조하고, 키 파생 또는 복구 호환이 달라지면 배포를 진행하지 않는다. 검증 경로는 `output/harness/` 내부로 제한하며 실사용 AppData는 검사에 쓰지 않는다. 실행 증거와 승인된 버전 메타데이터 차이는 [2단계 작업 기록](work/2026-10-05-push-security-scan-step2.md)에 남긴다.
+
 ## 참고 문서
 
 > CODEMIND 점검 원본 자료는 기관 내부 문서이므로 이 저장소에 포함하지 않는다.
