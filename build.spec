@@ -44,6 +44,8 @@ a = Analysis(
         'win32job',
         'win32api',
         'xml.etree.ElementTree',
+        'defusedxml',
+        'defusedxml.ElementTree',
     ],
     hookspath=[],
     hooksconfig={},

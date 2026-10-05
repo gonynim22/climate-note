@@ -11,6 +11,17 @@ import pytest
 from tools import verify
 
 
+def test_junit_entity_rejection_preserves_report(tmp_path):
+    from defusedxml import DefusedXmlException
+    path = tmp_path / "pytest.xml"
+    source = ('<!DOCTYPE testsuite [<!ENTITY a "synthetic">]>'
+              '<testsuite><testcase name="&a;"/></testsuite>')
+    path.write_text(source, encoding="utf-8")
+    with pytest.raises(DefusedXmlException):
+        verify.junit_result(path)
+    assert path.read_text(encoding="utf-8") == source
+
+
 @pytest.fixture
 def runner(tmp_path, monkeypatch):
     directory = tmp_path / "run"

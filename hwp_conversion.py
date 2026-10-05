@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 import re
 import zipfile
-from xml.etree import ElementTree
+from defusedxml import DefusedXmlException
+from defusedxml import ElementTree
 
 MAX_SOURCE_BYTES = 100 * 1024 * 1024
 MAX_EXPANDED_BYTES = 512 * 1024 * 1024
@@ -144,7 +145,7 @@ def validate_hwpx(path):
                         raise ConversionError("변환 결과의 필수 XML 구조가 올바르지 않습니다.")
             if archive.testzip() is not None:
                 raise ConversionError("변환 결과가 손상되었습니다.")
-    except (OSError, zipfile.BadZipFile, ElementTree.ParseError, RuntimeError, KeyError) as exc:
+    except (OSError, zipfile.BadZipFile, ElementTree.ParseError, DefusedXmlException, RuntimeError, KeyError) as exc:
         raise ConversionError("변환 결과를 정상적인 HWPX로 확인할 수 없습니다.") from exc
 
 

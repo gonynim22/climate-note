@@ -4,42 +4,64 @@ fetch_data.py - 공공데이터포털 API에서 음력/공휴일 데이터 수�
 * 미래 연도를 임의 계산해 채우지 않는다.
 """
 import os
+import ssl
 import time
-import urllib.request
-import urllib.parse
 import urllib.error
-import xml.etree.ElementTree as ET
+import urllib.parse
+import urllib.request
 from pathlib import Path
+
+from defusedxml import DefusedXmlException
+from defusedxml import ElementTree as ET
 from dotenv import load_dotenv
 
 load_dotenv()
 API_KEY = os.environ.get("LUNAR_API_KEY", "")
+API_BASE = "https://apis.data.go.kr/B090041/openapi/service"
+
+
+def _https_only_opener() -> urllib.request.OpenerDirector:
+    """HTTPS 프록시만 등록하고 나머지 URL 형식은 거부한다.
+    no_proxy는 ProxyHandler의 기존 proxy_bypass 경로에서 그대로 적용된다."""
+    proxies = {scheme: address for scheme, address in urllib.request.getproxies().items()
+               if scheme == "https"}
+    opener = urllib.request.OpenerDirector()
+    for handler in (urllib.request.ProxyHandler(proxies),
+                    urllib.request.UnknownHandler(),
+                    urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+                    urllib.request.HTTPDefaultErrorHandler(),
+                    urllib.request.HTTPErrorProcessor()):
+        opener.add_handler(handler)
+    return opener
+
+
+_OPENER = _https_only_opener()
+
+
+def _api_get(service_path: str, year: int, month: int) -> str:
+    params = urllib.parse.urlencode({"serviceKey": API_KEY, "solYear": f"{year:04d}",
+                                     "solMonth": f"{month:02d}", "numOfRows": "50"})
+    with _OPENER.open(f"{API_BASE}/{service_path}?{params}", timeout=10) as resp:
+        return resp.read().decode("utf-8")
+
 
 # ── API 호출 함수 ──
 def fetch_holidays(year: int, month: int) -> list[dict]:
-    params = urllib.parse.urlencode({"serviceKey": API_KEY, "solYear": f"{year:04d}", "solMonth": f"{month:02d}", "numOfRows": "50"})
-    url = f"http://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo?{params}"
     try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            data = resp.read().decode("utf-8")
-        root = ET.fromstring(data)
+        root = ET.fromstring(_api_get("SpcdeInfoService/getRestDeInfo", year, month))
         return [{"date": f"{i.findtext('locdate')[:4]}-{i.findtext('locdate')[4:6]}-{i.findtext('locdate')[6:8]}",
                  "name": i.findtext("dateName")}
                 for i in root.findall(".//item") if i.findtext("isHoliday") == "Y"]
-    except (urllib.error.URLError, ET.ParseError, TimeoutError, OSError):
+    except (urllib.error.URLError, ET.ParseError, DefusedXmlException, TimeoutError, OSError):
         return []
 
 def fetch_lunar_month(year: int, month: int) -> list[dict]:
-    params = urllib.parse.urlencode({"serviceKey": API_KEY, "solYear": f"{year:04d}", "solMonth": f"{month:02d}", "numOfRows": "50"})
-    url = f"http://apis.data.go.kr/B090041/openapi/service/LrsrCldInfoService/getLunCalInfo?{params}"
     try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            data = resp.read().decode("utf-8")
-        root = ET.fromstring(data)
+        root = ET.fromstring(_api_get("LrsrCldInfoService/getLunCalInfo", year, month))
         return [{"date": f"{i.findtext('solYear')}-{i.findtext('solMonth')}-{i.findtext('solDay')}",
                  "lunar": f"{int(i.findtext('lunMonth'))}.{int(i.findtext('lunDay'))}"}
                 for i in root.findall(".//item")]
-    except (urllib.error.URLError, ET.ParseError, TimeoutError, OSError, ValueError):
+    except (urllib.error.URLError, ET.ParseError, DefusedXmlException, TimeoutError, OSError, ValueError):
         return []
 
 def verify_holiday_data(hol) -> tuple[bool, str]:

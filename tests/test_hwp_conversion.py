@@ -10,6 +10,41 @@ import hwp_conversion as conversion
 import hwp_conversion_worker as worker
 
 
+def test_defused_xml_rejection_becomes_conversion_error(tmp_path, monkeypatch):
+    from defusedxml import DefusedXmlException
+    output = make_hwpx(tmp_path / "result.hwpx")
+    original = output.read_bytes()
+    conversion.validate_hwpx(output)
+
+    def reject(data):
+        raise DefusedXmlException("blocked")
+
+    monkeypatch.setattr(conversion.ElementTree, "fromstring", reject)
+    with pytest.raises(conversion.ConversionError):
+        conversion.validate_hwpx(output)
+    assert output.read_bytes() == original
+
+
+def test_utf16_hwpx_entity_rejection_preserves_files(tmp_path):
+    section = ('<?xml version="1.0" encoding="UTF-16"?>'
+               '<!DOCTYPE sec [<!ENTITY a "synthetic">]><sec>&a;</sec>').encode("utf-16")
+    output = make_hwpx(tmp_path / "result.hwpx", section=section)
+    source = make_hwp(tmp_path / "source.hwp")
+    existing = make_hwpx(tmp_path / "source.hwpx")
+    originals = {path: path.read_bytes() for path in (output, source, existing)}
+    with pytest.raises(conversion.ConversionError):
+        conversion.validate_hwpx(output)
+    assert {path: path.read_bytes() for path in originals} == originals
+
+
+def test_valid_utf16_hwpx_remains_read_only(tmp_path):
+    section = '<?xml version="1.0" encoding="UTF-16"?><sec>합성 문서</sec>'.encode("utf-16")
+    output = make_hwpx(tmp_path / "result.hwpx", section=section)
+    original = output.read_bytes()
+    conversion.validate_hwpx(output)
+    assert output.read_bytes() == original
+
+
 def header(flags=1):
     data = bytearray(256)
     data[:32] = b"HWP Document File".ljust(32, b"\0")
