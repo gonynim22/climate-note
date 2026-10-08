@@ -881,6 +881,7 @@ def test_main_window_settings_brought_to_foreground(qtbot, app_dir, qapp, monkey
         call(win._discard_unit_converter), call(win._discard_date_time_calculator),
         call(win._discard_money_notation),
         call(win._discard_document_converter),
+        call(win._discard_optional_mini_apps),  # 선택형 미니앱 공용 연결부(등록부가 비어도 연결은 남는다)
     ]
 
 
