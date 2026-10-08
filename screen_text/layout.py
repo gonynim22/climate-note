@@ -75,6 +75,18 @@ def _intervals(line):
     return [(item.x, item.x + item.w) for item in line]
 
 
+def _overlaps(a, b):
+    """두 구간이 겹치는지 확인한다."""
+    return a[0] < b[1] and b[0] < a[1]
+
+
+def _compatible(bands, intervals):
+    """새 줄의 구간이 기존 열 띠와 1:1로만 겹쳐야 같은 표다. 한 구간이 여러 띠에 걸치거나 한 띠가 여러 구간에 걸치면 표를 끝낸다."""
+    line_bands = _merge_bands(intervals)
+    return (all(sum(_overlaps(i, b) for b in bands) <= 1 for i in line_bands)
+            and all(sum(_overlaps(b, i) for i in line_bands) <= 1 for b in bands))
+
+
 def _table_runs(lines):
     """표가 되는 연속 줄 구간 (시작, 끝, 열 띠). 2칸 이상인 줄 2개 이상이 같은 열에 맞아야 한다."""
     runs, index = [], 0
@@ -85,10 +97,10 @@ def _table_runs(lines):
         bands = _merge_bands(_intervals(lines[index]))
         end = index + 1
         while end < len(lines) and len(lines[end]) >= 2:
-            merged = _merge_bands(bands + _intervals(lines[end]))
-            if len(merged) < len(bands):  # 여러 칸을 가로지르는 줄은 일반 문장이다
+            if not _compatible(bands, _intervals(lines[end])):
                 break
-            bands, end = merged, end + 1
+            bands = _merge_bands(bands + _intervals(lines[end]))
+            end += 1
         if end - index >= 2 and len(bands) >= 2:
             runs.append((index, end, bands))
         index = end
@@ -119,14 +131,20 @@ def _table(lines, bands):
 
 
 def _mark_lookalikes(table):
-    """숫자가 절반 이상인 열에서 숫자와 닮은 영문자가 섞인 칸을 확인 필요로 표시한다."""
+    """숫자처럼 보이는 열에서 숫자와 닮은 영문자가 섞인 칸을 확인 필요로 표시한다."""
+    trans_map = str.maketrans("lIOoSB", "110058")
+
+    def is_numeric_like(text):
+        translated = text.translate(trans_map)
+        return _NUMERIC.fullmatch(translated) is not None
+
     for column in range(len(table.rows[0])):
         cells = [row[column] for row in table.rows if row[column].text]
-        numeric = [cell for cell in cells if _NUMERIC.fullmatch(cell.text)]
-        if not cells or len(numeric) * 2 < len(cells):
+        numeric_like = [cell for cell in cells if is_numeric_like(cell.text)]
+        if not cells or len(numeric_like) * 2 < len(cells):
             continue
         for cell in cells:
-            if any(ch.isdigit() for ch in cell.text) and LOOKALIKE & set(cell.text):
+            if is_numeric_like(cell.text) and any(ch.isdigit() for ch in cell.text) and LOOKALIKE & set(cell.text):
                 cell.unsure = True
 
 

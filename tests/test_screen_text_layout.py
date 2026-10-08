@@ -95,3 +95,42 @@ def test_rows_of_and_empty_input():
     assert rows_of(line) == [[Cell("가")]]
     assert build_blocks([]) == []
     assert to_plain([]) == "" and to_tsv([]) == "" and unsure_count([]) == 0
+
+
+def test_line_merging_two_columns_while_adding_one_ends_table():
+    boxes = TABLE_BOXES + [box(10, 106, "붙임 세부 내역", w=190), box(400, 106, "2026.10.8", w=60)]
+    blocks = build_blocks(boxes)
+    assert isinstance(blocks[0], Table) and len(blocks[0].rows) == 4 and len(blocks[0].rows[0]) == 3
+    assert texts(blocks[0].rows)[0] == ["구분", "점검 사업장", "위반"]
+    assert isinstance(blocks[1], TextLine)
+
+
+def test_sentence_line_above_table_is_not_absorbed():
+    boxes = [box(10, -14, "붙임", w=30), box(60, -14, "점검 결과 세부 내역 1부. 끝.", w=260)] + TABLE_BOXES
+    blocks = build_blocks(boxes)
+    assert isinstance(blocks[0], TextLine)
+    assert isinstance(blocks[1], Table) and texts(blocks[1].rows)[0] == ["구분", "점검 사업장", "위반"]
+
+
+def test_small_table_lookalike_is_still_marked():
+    small_table = [
+        box(10, 10, "구분", w=30), box(120, 10, "위반", w=30),
+        box(12, 34, "대전", w=30), box(140, 34, "42", w=16),
+        box(12, 58, "충북", w=30), box(140, 58, "5l", w=16),
+    ]
+    table = build_blocks(small_table)[0]
+    assert table.rows[2][1].text == "5l"
+    assert table.rows[2][1].unsure
+
+
+def test_text_column_with_letters_and_digits_is_not_marked():
+    text_column = [
+        box(10, 10, "비고", w=30), box(120, 10, "숫자", w=30),
+        box(12, 34, "S1 구역", w=30), box(140, 34, "42", w=16),
+        box(12, 58, "B2 구역", w=30), box(140, 58, "100", w=24),
+        box(12, 82, "주차장", w=30), box(140, 82, "3", w=8),
+    ]
+    table = build_blocks(text_column)[0]
+    assert not table.rows[1][0].unsure
+    assert not table.rows[2][0].unsure
+    assert not table.rows[3][0].unsure
