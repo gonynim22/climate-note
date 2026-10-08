@@ -1,6 +1,6 @@
 # 작업 기록: 화면 글자 따기 미니앱
 
-작성일: 2026-10-08 / 상태: Task 8까지 로컬 구현·검증 완료(업무 PC 수동 확인 대기)
+작성일: 2026-10-08 / 상태: Task 8과 최종 검토 수정(R16)까지 로컬 구현·검증 완료(업무 PC 수동 확인 대기)
 
 ## 목표와 범위
 
@@ -13,7 +13,7 @@
 ## 완료 조건
 
 - [x] 설계 문서의 화면 흐름·인식·표 재구성·수명 처리·걷어내기 절차 구현
-- [x] `quick --tests` 각 단계, 125/150% 합성 배율, `release` (release는 html 제외 오류 수정 때문에 2회: 아래 증거 표)
+- [x] `quick --tests` 각 단계, 125/150% 합성 배율, `release` (release는 html 제외 오류 수정과 최종 검토 수정 때문에 3회, 마지막이 최종: 아래 증거 표)
 - [ ] 업무 PC 수동 확인(캡처 차단, 한글 표 붙여넣기, 혼합 DPI, 실측)
 
 ## 결정과 진행
@@ -60,12 +60,27 @@
 | `QT_SCALE_FACTOR=1.5 tools/verify.py quick --tests tests/test_screen_text_ui.py tests/test_screen_text_capture.py tests/test_optional_mini_apps.py` (Task 8, 150% 재실행) | 통과 | `20261009-011812-aab68ad6cc` (`output/harness/`) | 128개 통과, 실패·오류·skip 0. 위와 같음 |
 | `osv-scanner scan source -L requirements-lock.txt` (Task 8, OSV-Scanner 2.5.1) | 통과 | 하네스 실행 ID 없음 (`output/harness/20260911-212909-security-6420ac33/bin/osv-scanner_windows_amd64.exe`) | `found 35 packages`, `No issues found`, 종료 코드 0. onnxruntime 1.30.0·flatbuffers 25.12.19·protobuf 7.36.2·numpy 2.2.6 포함 |
 | PowerShell `.venv\Scripts\python.exe tools/verify.py release` (Task 8, 1차) | 통과(EXE는 폐기) | `20261009-011903-4cde3a908d` (`output/harness/`) | 1,748개 통과, 빌드·격리 EXE 시나리오 3개(fresh/existing/blocked) 통과. EXE `기후노트_v3.9.exe` 93,816,349 bytes, SHA-256 `98AE6AD38B1E72972BD27324C9FA02323973281E95983C0E3B8A6CAE95D00D12`. `import html` 제외 결함이 있어 폐기하고 아래 2차로 대체. HEAD `863e294`~`df57575` 기준 |
-| PowerShell `.venv\Scripts\python.exe tools/verify.py release` (Task 8, 2차, 최종) | 통과 | `20261009-013003-bab27e5f78` (`output/harness/`) | 1,748개 통과(실패·오류·skip 0), 빌드 통과, 격리 EXE 시나리오 3개 통과. HEAD `ffdbd0f`(작업 트리는 사용자 원래 미커밋 변경 때문에 dirty). `smoke.json`의 `exe_sha256`이 아래 EXE 해시와 일치. 격리 시나리오는 도구 창을 열지 않음 |
-| EXE 구성 대조 (2차 `build/build/Analysis-00.toc`와 EXE 아카이브) | 통과 | `20261009-013003-bab27e5f78` | 아래 "EXE 대조" 참고 |
+| PowerShell `.venv\Scripts\python.exe tools/verify.py release` (Task 8, 2차, **3차로 대체됨**) | 통과 | `20261009-013003-bab27e5f78` (`output/harness/`) | 1,748개 통과(실패·오류·skip 0), 빌드 통과, 격리 EXE 시나리오 3개 통과. HEAD `ffdbd0f`(작업 트리는 사용자 원래 미커밋 변경 때문에 dirty). `smoke.json`의 `exe_sha256`이 아래 EXE 해시와 일치. 격리 시나리오는 도구 창을 열지 않음. 최종 검토 수정(R16, 창·캡처 코드 변경)이 들어가기 전의 빌드라 아래 3차로 대체한다 |
+| EXE 구성 대조 (2차 `build/build/Analysis-00.toc`와 EXE 아카이브, 대체됨) | 통과 | `20261009-013003-bab27e5f78` | 아래 "EXE 대조" 참고 |
+| `pytest tests/test_screen_text_ui.py tests/test_screen_text_capture.py tests/test_screen_text_layout.py -q` (최종 검토 수정, 2회) | 통과 | 하네스 실행 ID 없음 (pytest 직접 실행) | 84개 통과, 2회 모두 같은 결과(수정 전 64개 + 새 시험 20개). 새 시험은 수정 전 RED(12 + 4 실패)를 확인한 뒤 통과 |
+| `QT_SCALE_FACTOR=1.25 tools/verify.py quick --tests tests/test_screen_text_ui.py tests/test_screen_text_capture.py tests/test_optional_mini_apps.py` (최종 검토 수정, 125%) | 통과 | `20261009-021724-7cf50a8027` (`output/harness/`) | 148개 통과, 실패·오류·skip 0. 배율 환경변수는 harness 결과에 기록되지 않아 명령으로만 남김 |
+| `QT_SCALE_FACTOR=1.5 tools/verify.py quick --tests tests/test_screen_text_ui.py tests/test_screen_text_capture.py tests/test_optional_mini_apps.py` (최종 검토 수정, 150%) | 통과 | `20261009-021742-dcd0b3ec94` (`output/harness/`) | 148개 통과, 실패·오류·skip 0. 위와 같음 |
+| PowerShell `.venv\Scripts\python.exe tools/verify.py release` (최종 검토 수정 뒤, 3차, **최종**) | 통과 | `20261009-021809-e30a49762e` (`output/harness/`) | 1,768개 통과(실패·오류·skip 0, 2차 1,748 + 새 시험 20), 빌드 통과, 격리 EXE 시나리오 3개(fresh/existing/blocked) 통과. HEAD `22a5696`(작업 트리는 사용자 원래 미커밋 변경 때문에 dirty). `smoke.json`의 `exe_sha256`이 아래 EXE 해시와 일치. 격리 시나리오는 도구 창을 열지 않음 |
+| EXE 구성 대조 (3차 `build/build/Analysis-00.toc`) | 통과 | `20261009-021809-e30a49762e` | 아래 "EXE 대조 (3차)" 참고 |
 | 새 EXE에서 주머니 → 화면 글자 따기 → 합성 이미지 영역 인식 1회 | 수동 미실행 | - | 자동 실행 환경에서 GUI를 조작할 수 없어 업무 PC 확인 목록으로 이관. 위 합성 실행(소스 환경, 제외 모듈 차단)과 아카이브 모델 해시 대조로 대체했으며 이는 실제 EXE 실행이 아님 |
 | `tools/verify.py quick --tests tests/test_packaging.py` (Task 8 수정 1차) | 통과 | `20261009-014746-cb3cf72608` (`output/harness/`) | 75개 통과, 실패·오류·skip 0. 빌드 분기 시험이 저장소의 `screen_text/` 폴더에 기대지 않게 고침: 폴더 있음/없음을 모두 빈 임시 폴더로 만들고, `screen_text/`를 잠시 `screen_text.__hidden`으로 바꾼 채 `tests/test_packaging.py` 6개 통과를 확인한 뒤 되돌림(걷어낸 뒤에도 `full`이 통과하도록). `build.spec`은 바뀌지 않아 release 2차 EXE(`20261009-013003-bab27e5f78`)는 그대로 유효. 시험·설계 문서만 변경 |
 
-## EXE 대조 (release 2차 `20261009-013003-bab27e5f78`)
+## EXE 대조 (release 3차 `20261009-021809-e30a49762e`, 최종)
+
+- **검증된 산출물**: `output/harness/20261009-021809-e30a49762e/dist/기후노트_v3.9.exe` (루트 `dist/`는 교체하지 않음. 루트에는 v3.8e만 남아 있음)
+- 크기 93,858,655 bytes. v3.8e(59,049,343 bytes)보다 34,809,312 bytes(약 58.9%) 큼.
+- SHA-256 `792FD77991D369076C696F8BFC2CA06917453A93187442C0144712E237BF83EB` (`smoke.json`의 `exe_sha256`과 일치)
+- `Analysis-00.toc` 포함 확인: `screen_text\models\{det.onnx,rec.onnx,dict.txt,MANIFEST.json}`, `screen_text\icon.svg`, `onnxruntime\capi\onnxruntime.dll`·`onnxruntime_pybind11_state`, `numpy`(`_multiarray_umath`·`numpy.libs`), `html`·`html.entities`, `screen_text.{capture,engine,layout,window}`, 번들 라이선스(numpy·onnxruntime).
+- 부재 확인: `mingw64` 항목 0건, `google.protobuf`·`flatbuffers` 0건. `libcrypto-3.dll`·`libssl-3.dll`은 기존과 같은 전역 Python `DLLs` 폴더 출처.
+- 2차 대비 구성 차이 없음: `Analysis-00.toc` 항목 1,036개의 이름이 2차와 같다(나열 순서만 다름). `screen_text` 코드만 달라 EXE가 1,448 bytes 큼.
+- 이 EXE의 EXE 안 모델 해시 재대조·합성 실행은 하지 않았다(`build.spec`·모델·의존성이 2차와 같고 위 TOC 대조가 같다). 도구 창을 여는 실제 EXE 실행 확인은 업무 PC 수동 확인 목록에 있다.
+
+## EXE 대조 (release 2차 `20261009-013003-bab27e5f78`, 3차로 대체됨)
 
 - 산출물: `output/harness/20261009-013003-bab27e5f78/dist/기후노트_v3.9.exe` (루트 `dist/`는 교체하지 않음. 루트에는 v3.8e만 남아 있음)
 - 크기 93,857,207 bytes. v3.8e(59,049,343 bytes)보다 34,807,864 bytes(약 58.9%) 큼. 설계 예상(약 100MB 안팎)보다 작음.
@@ -80,4 +95,4 @@
 - 남은 문제 / 수동 확인: 업무 PC 확인 전부(페이지 크기 영역 인식 시간 포함, 4K·전체 화면 같은 큰 영역의 인식 시간·정확도, 새 EXE와 이전 EXE의 시작 시간 비교). 새 EXE에서 주머니 → 화면 글자 따기 → 인식 1회(실제 EXE 클릭 실행)도 이 목록에 포함. 격리 시나리오가 도구 창을 열지 않으므로 이 수동 확인이 첫 실제 EXE 인식 확인이다
 - 변경한 정본 문서: `AGENTS.md`(계약 항목·아이콘 색·미니앱 버튼 항목), `README_detail.md`(기능 목록), `docs/ARCHITECTURE.md`(Module Map 두 행), `docs/TESTING.md`(화면 글자 따기 문단), `docs/SCREEN_TEXT.md`(신규 계약), `licenses/THIRD_PARTY_NOTICES.txt`, 설계 문서 §3·§4·§7·§8·§11·§14. 아직 v3.8e로 남은 곳: `README_detail.md`의 현재 버전·다운로드·EXE 해시 문단과 `AGENTS.md`의 버전 이력(루트 `dist/`가 v3.8e이고 게시 전이라 릴리스 상태 문서 갱신 때 함께 정리)
 - 다음 행동: 최종 검토 → 업무 PC 수동 확인(캡처 차단, 한글 표 붙여넣기, 혼합 DPI, 실측, 새 EXE 인식 1회) → 릴리스 상태 문서 정리와 `dist/` 교체 여부 결정
-- 배포·커밋·push 여부: 로컬 커밋만(Task 8: `863e294`, `df57575`, `ffdbd0f`와 증거 갱신 커밋). 루트 `dist/` 교체, push, Release 게시는 별도 승인
+- 배포·커밋·push 여부: 로컬 커밋만(Task 8: `863e294`, `df57575`, `ffdbd0f`와 증거 갱신 커밋, 최종 검토 수정: `93d283b`, `553b49e`, `22a5696`와 재검증 증거 커밋). 루트 `dist/` 교체, push, Release 게시는 별도 승인
