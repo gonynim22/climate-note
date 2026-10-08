@@ -26,6 +26,7 @@
 |---|---|---|---|
 | `tools/verify.py doctor` (Task 1) | 통과 | `20261008-214618-1e951b20f9` (`output/harness/`) | onnxruntime 1.30.0 설치 후. errors 없음 |
 | `tools/verify.py quick --tests tests/test_packaging.py tests/test_screen_text_engine.py` (Task 1) | 통과 | `20261008-214620-611fde71dc` (`output/harness/`) | 75개 통과, 실패·오류·skip 0. 모델 SHA-256·size는 고정 리비전과 일치 |
+| `tools/verify.py quick --tests tests/test_screen_text_layout.py tests/test_screen_text_engine.py` (Task 3) | 통과 | `20261008-215929-8bc0dfeb0e` (`output/harness/`) | 100개 통과, 실패·오류·skip 0. 엔진 16개는 합성 이미지(Malgun Gothic 13·16px 문장·표)로 실제 모델 인식. 경고 1건은 qfluentwidgets의 scipy 사용 중단 예고(기존) |
 
 ## 미해결과 인계
 
