@@ -116,6 +116,7 @@ def test_requirements_lock_matches_verified_direct_dependencies():
         "PyInstaller",
         "pywin32",
         "defusedxml",
+        "onnxruntime",
     }
     pinned = {}
     for line in lock_lines:

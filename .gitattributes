@@ -1,0 +1,2 @@
+# 화면 글자 따기 모델은 바이트 그대로 둔다 (MANIFEST.json SHA-256 고정)
+screen_text/models/* -text

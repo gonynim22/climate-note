@@ -8,3 +8,4 @@ pytest-timeout
 PyInstaller
 pywin32
 defusedxml
+onnxruntime

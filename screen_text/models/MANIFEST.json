@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "source": "https://huggingface.co/monkt/paddleocr-onnx (PaddleOCR 모델의 ONNX 변환본)",
+  "revision": "7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65",
+  "license": "Apache-2.0",
+  "files": [
+    {"role": "det", "name": "det.onnx", "model": "PP-OCRv3_mobile_det",
+     "url": "https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/detection/v3/det.onnx",
+     "size": 2429873, "sha256": "ee40e80071ba3a320d4efda75f3e22047a7d049e9bf7bcaaf9daea23fc21b935"},
+    {"role": "rec", "name": "rec.onnx", "model": "korean_PP-OCRv5_mobile_rec",
+     "url": "https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/korean/rec.onnx",
+     "size": 13401252, "sha256": "322f140154c820fcb83c3d24cfe42c9ec70dd1a1834163306a7338136e4f1eaa"},
+    {"role": "dict", "name": "dict.txt", "model": "ppocrv5_korean_dict",
+     "url": "https://huggingface.co/monkt/paddleocr-onnx/resolve/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65/languages/korean/dict.txt",
+     "size": 47451, "sha256": "a88071c68c01707489baa79ebe0405b7beb5cca229f4fc94cc3ef992328802d7"}
+  ]
+}

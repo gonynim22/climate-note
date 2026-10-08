@@ -1,0 +1,35 @@
+# 작업 기록: 화면 글자 따기 미니앱
+
+작성일: 2026-10-08 / 상태: 진행 중
+
+## 목표와 범위
+
+- 목표: 공모전(행정업무 효율화)용 다섯 번째 미니앱. 화면 영역의 한국어를 PC 안 소형 모델로 읽고 표는 칸을 유지해 복사한다. 폴더 하나와 등록 한 줄로 걷어낼 수 있다.
+- 변경 대상: `screen_text/`, `optional_mini_apps.py`, `ui_mini_apps.py`, `ui_main.py`(공용 연결부), `build.spec`, 의존성·라이선스·문서, `app_info.py`(v3.9).
+- 데이터 영향: 없음. DB v17·Export v2·salt·설정 키·바로가기 6슬롯 유지. 결과·화면은 메모리 전용.
+- 제외 범위: 전역 단축키, 파일 끌어놓기, 스티키 보내기, PDF, 기울기 보정, push·Release 게시.
+- 시작 시 사용자 변경: `AGENTS.md`, `docs/RELEASE_HISTORY.md` 수정과 미추적 `docs/work/` 5개를 보존한다. 시작 HEAD는 계획 커밋.
+
+## 완료 조건
+
+- [ ] 설계 문서의 화면 흐름·인식·표 재구성·수명 처리·걷어내기 절차 구현
+- [ ] `quick --tests` 각 단계, 125/150% 합성 배율, `release` 1회
+- [ ] 업무 PC 수동 확인(캡처 차단, 한글 표 붙여넣기, 혼합 DPI, 실측)
+
+## 결정과 진행
+
+- 2026-10-08: 설계 승인, 계획 작성. 개발 PC 시제품에서 13px 한국어 문장·표를 거의 정확히 읽음(마침표 뒤 공백 누락), 폭 정렬 묶음으로 인식 약 0.2~0.35초. 같은 이미지에서 Windows 내장 OCR은 줄 누락·오인식.
+
+## 검증 증거
+
+| 명령/범위 | 상태(통과·실패·미실행) | 실행 ID / 결과 경로 | 검사 입력·유의사항 |
+|---|---|---|---|
+| `tools/verify.py doctor` (Task 1) | 통과 | `20261008-214618-1e951b20f9` (`output/harness/`) | onnxruntime 1.30.0 설치 후. errors 없음 |
+| `tools/verify.py quick --tests tests/test_packaging.py tests/test_screen_text_engine.py` (Task 1) | 통과 | `20261008-214620-611fde71dc` (`output/harness/`) | 75개 통과, 실패·오류·skip 0. 모델 SHA-256·size는 고정 리비전과 일치 |
+
+## 미해결과 인계
+
+- 남은 문제 / 수동 확인: 업무 PC 확인 전부
+- 변경한 정본 문서: (Task 8에서 기입)
+- 다음 행동: Task 1부터 진행
+- 배포·커밋·push 여부: 로컬 커밋만. push·Release 게시는 별도 승인
