@@ -412,6 +412,7 @@ from ui_schedule_emoji import (
 )
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
+import optional_mini_apps
 from ui_mini_apps import MiniAppsButton, MiniAppsPocket, pocket_position
 from ui_unit_converter import UnitConverterWindow
 from ui_date_time_calculator import DateTimeCalculatorWindow
@@ -1217,6 +1218,7 @@ class MainCalendarWindow(QWidget):
         self._date_time_calculator = None
         self._money_notation = None
         self._document_converter = None
+        self._optional_windows = {}
         self._mini_apps_previous_focus = None
         self._mini_apps_focus_timer = QTimer(self)
         self._mini_apps_focus_timer.setSingleShot(True)
@@ -1326,6 +1328,7 @@ class MainCalendarWindow(QWidget):
             self._hide_date_time_calculator()
             self._hide_money_notation()
             self._hide_document_converter()
+            self._hide_optional_mini_apps()
 
         # 시각적 업데이트 중단 (최소화)
         self.setUpdatesEnabled(False)
@@ -1565,6 +1568,7 @@ class MainCalendarWindow(QWidget):
             self._hide_date_time_calculator()
             self._hide_money_notation()
             self._hide_document_converter()
+            self._hide_optional_mini_apps()
 
         for object_name in ("headerSection", "calendarSection"):
             section = self.right_content.findChild(QWidget, object_name)
@@ -3250,6 +3254,7 @@ class MainCalendarWindow(QWidget):
             self._settings_window.reset_succeeded.connect(self._discard_date_time_calculator)
             self._settings_window.reset_succeeded.connect(self._discard_money_notation)
             self._settings_window.reset_succeeded.connect(self._discard_document_converter)
+            self._settings_window.reset_succeeded.connect(self._discard_optional_mini_apps)
         # 스티키/위젯(Qt.Tool)이 앞에 있어도 설정창을 확실히 포그라운드로:
         # raise_()만으로는 Windows에서 활성 창이 바뀌지 않으므로 최소화 해제 + activateWindow.
         win = self._settings_window
@@ -3304,6 +3309,7 @@ class MainCalendarWindow(QWidget):
         self._hide_date_time_calculator()
         self._hide_money_notation()
         self._hide_document_converter()
+        self._hide_optional_mini_apps()
         self._reset_calendar_drag()
         self._close_schedule_emoji_popups()
         self._cancel_sticky_file_links()
@@ -3384,6 +3390,7 @@ class MainCalendarWindow(QWidget):
         self._hide_date_time_calculator()
         self._hide_money_notation()
         self._hide_document_converter()
+        self._hide_optional_mini_apps()
         self._hidden_to_tray = True
         self._reset_calendar_drag()
         self._update_calendar_move_control()
@@ -3447,6 +3454,7 @@ class MainCalendarWindow(QWidget):
             self._discard_date_time_calculator()
             self._discard_money_notation()
             self._discard_document_converter()
+            self._discard_optional_mini_apps()
             return True
         _logger.error("스티키 노트 저장 실패로 앱 종료를 보류합니다")
         if not self.isVisible():
@@ -3568,6 +3576,7 @@ class MainCalendarWindow(QWidget):
             self._document_converter.cancel_conversion()
             self._document_converter.hide_owned_popups()
             self._document_converter.fit_to_screen()
+        self._fit_optional_mini_apps()
 
         # 1) 캘린더 기하 복원. 자유 위치는 저장 좌표, 기존 사용자는 모서리 설정 유지.
         # medium/large는 화면 크기에 비례하는 스케일이므로 좌표만 보정하면
@@ -3656,13 +3665,14 @@ class MainCalendarWindow(QWidget):
         self._close_schedule_emoji_popups()
         self._mini_apps_focus_timer.stop()
         self._mini_apps_previous_focus = QApplication.focusWidget()
-        popup = MiniAppsPocket(self)
+        popup = MiniAppsPocket(self, optional_apps=optional_mini_apps.OPTIONAL_MINI_APPS)
         self._mini_apps_popup = popup
         popup.dismissed.connect(lambda restore: self._on_mini_apps_dismissed(popup, restore))
         popup.unit_converter_requested.connect(self._open_unit_converter)
         popup.date_time_calculator_requested.connect(self._open_date_time_calculator)
         popup.money_notation_requested.connect(self._open_money_notation)
         popup.document_converter_requested.connect(self._open_document_converter)
+        popup.optional_app_requested.connect(self._open_optional_mini_app)
         anchor = button.rect().translated(button.mapToGlobal(QPoint()))
         screen = QApplication.screenAt(anchor.center()) or self.screen()
         available = screen.availableGeometry()
@@ -3791,6 +3801,48 @@ class MainCalendarWindow(QWidget):
         win = self._document_converter
         self._document_converter = None
         if win is not None:
+            win.shutdown()
+            win.hide_owned_popups()
+            win.hide()
+            win.deleteLater()
+
+    # ─── 선택형 미니앱 (optional_mini_apps 등록부, 걷어낼 수 있음) ───
+    def _open_optional_mini_app(self, app_id: str) -> None:
+        if not self._mini_apps_allowed() or not self._save_schedule_edit():
+            return
+        spec = next((s for s in optional_mini_apps.OPTIONAL_MINI_APPS if s.app_id == app_id), None)
+        if spec is None:
+            return
+        self._close_mini_apps()
+        self._close_schedule_emoji_popups()
+        win = self._optional_windows.get(app_id)
+        if win is None:
+            win = spec.create_window(self)
+            self._optional_windows[app_id] = win
+        button = self.sidebar.mini_apps_button
+        anchor = button.rect().translated(button.mapToGlobal(QPoint()))
+        screen = QApplication.screenAt(anchor.center()) or self.screen()
+        win.setEnabled(True)
+        win.show_near(anchor, screen.availableGeometry())
+
+    def _hide_optional_mini_apps(self) -> None:
+        for win in self._optional_windows.values():
+            win.cancel_work()
+            win.hide_owned_popups()
+            win.hide()
+
+    def _disable_optional_mini_apps(self) -> None:
+        for win in self._optional_windows.values():
+            win.setEnabled(False)
+
+    def _fit_optional_mini_apps(self) -> None:
+        for win in self._optional_windows.values():
+            win.hide_owned_popups()
+            win.fit_to_screen()
+
+    def _discard_optional_mini_apps(self) -> None:
+        windows, self._optional_windows = self._optional_windows, {}
+        for win in windows.values():
             win.shutdown()
             win.hide_owned_popups()
             win.hide()
@@ -3984,6 +4036,7 @@ class MainCalendarWindow(QWidget):
         self._hide_date_time_calculator()
         self._hide_money_notation()
         self._hide_document_converter()
+        self._hide_optional_mini_apps()
         if self._unit_converter is not None:
             self._unit_converter.setEnabled(False)
         if self._date_time_calculator is not None:
@@ -3992,6 +4045,7 @@ class MainCalendarWindow(QWidget):
             self._money_notation.setEnabled(False)
         if self._document_converter is not None:
             self._document_converter.setEnabled(False)
+        self._disable_optional_mini_apps()
         self._is_locked = True
         self._reset_calendar_drag()
         self._update_calendar_move_control()

@@ -1,4 +1,9 @@
 """개발자 제공 미니앱의 실행 주머니(A안 앱 런처). 사용자 데이터나 DB에 접근하지 않는다."""
+import math
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
@@ -13,6 +18,25 @@ TILE_WIDTH, TILE_HEIGHT = 104, 100
 POCKET_WIDTH, POCKET_HEIGHT = 252, 280
 SHADOW_MARGIN = 24
 TILE_SLOTS = 4
+MAX_VISIBLE_ROWS = 3
+
+
+@dataclass(frozen=True)
+class MiniAppSpec:
+    """걷어낼 수 있는 선택형 미니앱 정보. 창은 show_near·hide_owned_popups·cancel_work·
+    fit_to_screen·shutdown을 제공한다 (optional_mini_apps.py 참고)."""
+    app_id: str
+    title: str
+    accessible_name: str
+    description: str
+    icon_path: Path
+    create_window: Callable
+
+
+def pocket_body_height(app_count: int) -> int:
+    """머리 48 + 위 6 + 줄×100 + 사이×10 + 아래 14 + 테두리 2. 2줄 280, 3줄 390."""
+    rows = min(MAX_VISIBLE_ROWS, max(2, math.ceil(app_count / 2)))
+    return 60 + 110 * rows
 
 
 def mini_app_icon(name: str) -> QIcon:
@@ -79,9 +103,10 @@ class MiniAppsPocket(QWidget):
     date_time_calculator_requested = Signal()
     money_notation_requested = Signal()
     document_converter_requested = Signal()
+    optional_app_requested = Signal(str)
     shadow_margin = SHADOW_MARGIN
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, optional_apps=()):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setObjectName("miniAppsPocket")
         self.setAccessibleName("미니앱 주머니")
@@ -92,7 +117,9 @@ class MiniAppsPocket(QWidget):
         self._return_focus = False
         self.pending_cards = []
         self._app_count = 0
-        self.resize(POCKET_WIDTH + 2 * SHADOW_MARGIN, POCKET_HEIGHT + 2 * SHADOW_MARGIN)
+        self.optional_cards = {}
+        self.resize(POCKET_WIDTH + 2 * SHADOW_MARGIN,
+                    pocket_body_height(TILE_SLOTS + len(optional_apps)) + 2 * SHADOW_MARGIN)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN)
         self.card = QFrame(self)
@@ -141,7 +168,7 @@ class MiniAppsPocket(QWidget):
         tiles = QWidget(self.card)
         tiles_layout = QVBoxLayout(tiles)
         # 오른쪽 8px 뒤의 6px은 앱이 5개 이상일 때의 스크롤바 자리다.
-        # 카드 테두리 1px이 위아래 2px을 차지하므로 48+6+100+10+100+14+2=280이다.
+        # 높이 계산은 pocket_body_height()를 따른다(2줄 280, 3줄 390).
         tiles_layout.setContentsMargins(16, 6, 8, 14)
         self.apps_scroll = QScrollArea(tiles)
         self.apps_scroll.setWidgetResizable(True)
@@ -187,6 +214,15 @@ class MiniAppsPocket(QWidget):
         )
         self.document_card.setObjectName("documentConverterCard")
         self.document_card.setAccessibleName("문서 형식 변환 실행")
+        for spec in optional_apps:
+            card = self.add_app(
+                spec.title, spec.app_id, spec.description,
+                lambda checked=False, app_id=spec.app_id: self.optional_app_requested.emit(app_id),
+                icon=QIcon(str(spec.icon_path)),
+            )
+            card.setObjectName(f"optionalMiniApp_{spec.app_id}")
+            card.setAccessibleName(spec.accessible_name)
+            self.optional_cards[spec.app_id] = card
         for index in range(self._app_count, TILE_SLOTS):
             card = self._make_tile("준비 중", mini_app_icon("upcoming"))
             card.setObjectName(f"upcomingMiniApp{index}")

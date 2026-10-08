@@ -12,6 +12,7 @@ import database as db
 import security
 import ui_document_converter as module
 import ui_main
+import optional_mini_apps
 import ui_settings
 import hwp_conversion_runner
 from hwp_conversion import ConversionEnvironment
@@ -119,7 +120,8 @@ def test_controls_fit_small_screens(qtbot, size):
 
 
 @pytest.mark.parametrize("action", ["lock", "tray", "hide", "sidebar", "reset_prepare", "screen", "quit"])
-def test_main_lifecycle_owns_fourth_app_and_preserves_data(qtbot, action):
+def test_main_lifecycle_owns_fourth_app_and_preserves_data(qtbot, action, monkeypatch):
+    monkeypatch.setattr(optional_mini_apps, "OPTIONAL_MINI_APPS", ())
     main = MainCalendarWindow()
     qtbot.addWidget(main)
     main.show()

@@ -16,6 +16,7 @@ from app_paths import resource_root
 import database as db
 import security
 import ui_main
+import optional_mini_apps
 from ui_main import MainCalendarWindow
 from ui_mini_apps import MiniAppsButton, MiniAppsPocket, pocket_position
 
@@ -27,6 +28,8 @@ def isolated_ui(app_dir, qapp, monkeypatch):
     db.save_setting(db.SETTING_KEEP_ON_SHOW_DESKTOP, "0")
     db.save_setting(db.SETTING_SHOW_SIDEBAR, "1")
     monkeypatch.setattr(ui_main.InfoBar, "error", lambda **kw: None)
+    # 기존 4개 앱의 주머니 계약을 검사한다. 선택형 앱은 test_optional_mini_apps.py가 맡는다.
+    monkeypatch.setattr(optional_mini_apps, "OPTIONAL_MINI_APPS", ())
     yield
     qapp.setFont(previous_font)
     setFontFamilies(previous_families, save=False)
