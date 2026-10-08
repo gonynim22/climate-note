@@ -15,6 +15,15 @@ block_cipher = None
 dist_name = f"{APP_DISPLAY_NAME}_{APP_VERSION}"
 version_info = make_windows_version_info()
 
+# 화면 글자 따기(걷어낼 수 있는 선택형 미니앱): 폴더가 있을 때만 모델·onnxruntime·numpy를 넣는다.
+_SCREEN_TEXT = (_SPEC_DIR / "screen_text").is_dir()
+_SCREEN_TEXT_DATAS = [
+    ('screen_text/models', 'screen_text/models'),
+    ('screen_text/icon.svg', 'screen_text'),
+    ('screen_text/licenses', 'screen_text/licenses'),
+] if _SCREEN_TEXT else []
+_SCREEN_TEXT_IMPORTS = ['onnxruntime', 'numpy'] if _SCREEN_TEXT else []
+
 a = Analysis(
     ['main.py'],
     pathex=['.'],
@@ -24,7 +33,7 @@ a = Analysis(
         ('fonts', 'fonts'),
         ('resources', 'resources'),
         ('licenses', 'licenses'),
-    ],
+    ] + _SCREEN_TEXT_DATAS,
     hiddenimports=[
         'PySide6.QtCore',
         'PySide6.QtGui',
@@ -46,14 +55,13 @@ a = Analysis(
         'xml.etree.ElementTree',
         'defusedxml',
         'defusedxml.ElementTree',
-    ],
+    ] + _SCREEN_TEXT_IMPORTS,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
         # 불필요한 모듈 제외 (경량화)
         'matplotlib',
-        'numpy',
         'pandas',
         'PIL',
         'scipy',
@@ -125,7 +133,7 @@ a = Analysis(
         'PySide6.QtConcurrent',
         'PySide6.QtDBus',
         'PySide6.QtHttpServer',
-    ],
+    ] + ([] if _SCREEN_TEXT else ['numpy']),
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

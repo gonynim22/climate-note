@@ -196,6 +196,7 @@ def test_windows_version_parts_maps_letter_suffix_to_patch_position():
     assert _windows_version_parts("v3.8c") == (3, 8, 3, 0)
     assert _windows_version_parts("v3.8d") == (3, 8, 4, 0)
     assert _windows_version_parts("v3.8e") == (3, 8, 5, 0)
+    assert _windows_version_parts("v3.9") == (3, 9, 0, 0)
 
     # 접미사가 붙은 버전은 붙지 않은 같은 base보다 커야 한다.
     assert _windows_version_parts("v3.6a") > _windows_version_parts("v3.6")
@@ -206,3 +207,30 @@ def test_windows_version_parts_rejects_malformed_versions():
     for bad in ("v3.6ab", "v3.6.", "abc", "v3.6.1.2a", ""):
         with pytest.raises(ValueError):
             _windows_version_parts(bad)
+
+
+def _spec_analysis(spec_dir):
+    captured = {}
+
+    def analysis(*args, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(pure=[], zipped_data=[], scripts=[], binaries=[], zipfiles=[], datas=[])
+
+    namespace = {"SPECPATH": str(spec_dir), "Analysis": analysis, "PYZ": lambda *a, **k: object(),
+                 "EXE": lambda *a, **k: object()}
+    with open(ROOT / "build.spec", encoding="utf-8") as f:
+        exec(compile(f.read(), str(ROOT / "build.spec"), "exec"), namespace)
+    return captured
+
+
+def test_build_spec_bundles_screen_text_only_when_folder_exists(tmp_path):
+    present = _spec_analysis(ROOT)
+    assert ("screen_text/models", "screen_text/models") in present["datas"]
+    assert ("screen_text/icon.svg", "screen_text") in present["datas"]
+    assert ("screen_text/licenses", "screen_text/licenses") in present["datas"]
+    assert "onnxruntime" in present["hiddenimports"]
+    assert "numpy" not in present["excludes"]
+    absent = _spec_analysis(tmp_path)  # 걷어낸 뒤: 폴더가 없으면 원래 빌드
+    assert not any("screen_text" in source for source, _ in absent["datas"])
+    assert "onnxruntime" not in absent["hiddenimports"]
+    assert "numpy" in absent["excludes"]

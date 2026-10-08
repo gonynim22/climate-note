@@ -148,3 +148,19 @@ pysidesix-frameless-window 0.8.0
 위 목록은 2026-08-18 기준으로 확인한 주요 번들 구성요소다.
 PyInstaller Analysis-00.toc와 최종 EXE를 기준으로 한 전수 SBOM은 아직
 작성하지 않았으며, AGENTS.md "Deferred Release Work"의 후속 과제로 남아 있다.
+
+
+화면 글자 따기 (선택형 미니앱, screen_text/ 폴더와 함께 걷어낼 수 있음)
+----------------------------------------------------------------------
+
+PaddleOCR 모델 ONNX 변환본 (PP-OCRv3_mobile_det, korean_PP-OCRv5_mobile_rec)
+  번들 파일: screen_text/models/det.onnx, rec.onnx, dict.txt
+  라이선스 원문: screen_text/models/LICENSE (Apache License 2.0)
+  출처·리비전·SHA-256: screen_text/models/MANIFEST.json
+
+onnxruntime 1.30.0
+  라이선스 원문: screen_text/licenses/onnxruntime-LICENSE.txt (MIT)
+  제3자 고지: screen_text/licenses/onnxruntime-ThirdPartyNotices.txt
+
+numpy 2.2.6
+  라이선스 원문: screen_text/licenses/numpy-LICENSE.txt (BSD-3-Clause 및 번들 구성요소 고지)

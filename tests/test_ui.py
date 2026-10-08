@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QLabel, QWidget
 
 import database as db
 import ui_main
-from app_info import APP_VERSION, app_credit_text, app_exe_name
+from app_info import APP_RELEASE_DATE, APP_VERSION, app_credit_text, app_exe_name
 from app_fonts import (
     APP_FONT_OPTIONS,
     available_system_fonts,
@@ -589,13 +589,13 @@ def test_settings_simplified_card_text_and_data_folder_button(qtbot, app_dir, qa
     assert win.open_data_folder_btn.toolTip() == "저장 폴더 열기"
 
 
-def test_settings_credit_uses_v38e_metadata(qtbot, app_dir, qapp):
-    """v3.8e의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
+def test_settings_credit_uses_v39_metadata(qtbot, app_dir, qapp):
+    """v3.9의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
     win = SettingsWindow()
     qtbot.addWidget(win)
 
-    assert APP_VERSION == "v3.8e"
-    assert win.author_label.text().startswith("v3.8e  ·  2026. 10. 5.")
+    assert APP_VERSION == "v3.9"
+    assert win.author_label.text().startswith(f"v3.9  ·  {APP_RELEASE_DATE}")
 
 
 def test_update_guide_text_uses_current_version():
