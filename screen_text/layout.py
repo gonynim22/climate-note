@@ -175,8 +175,37 @@ def _line_text(cells):
     return " ".join(_clean(cell.text) for cell in cells if cell.text)
 
 
+def _utf16_len(text):
+    """QTextCursor 위치는 UTF-16 코드 단위다. 이모지 같은 BMP 밖 글자는 2로 센다."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def plain_with_spans(blocks):
+    """(글자 모음, 확인 필요 칸 위치)를 함께 만든다.
+
+    위치는 (시작, 길이, 칸 글자)이며 문서 순서다. 시작·길이는 UTF-16 코드 단위라
+    QTextCursor.setPosition에 그대로 쓴다. 글자 모음은 to_plain과 같은 문자열이다.
+    """
+    lines, spans, offset = [], [], 0
+    for block in blocks:
+        for row in rows_of(block):
+            position, parts = offset, []
+            for cell in row:
+                if not cell.text:
+                    continue
+                token = _clean(cell.text)
+                if cell.unsure and token:
+                    spans.append((position, _utf16_len(token), token))
+                parts.append(token)
+                position += _utf16_len(token) + 1
+            line = " ".join(parts)
+            lines.append(line)
+            offset += _utf16_len(line) + 1
+    return "\n".join(lines), spans
+
+
 def to_plain(blocks):
-    return "\n".join(_line_text(row) for block in blocks for row in rows_of(block))
+    return plain_with_spans(blocks)[0]
 
 
 def to_tsv(blocks):

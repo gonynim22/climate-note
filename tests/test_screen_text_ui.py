@@ -1,11 +1,13 @@
 """화면 글자 따기 도구 창·등록·아이콘 (가짜 엔진·가짜 스크린샷, 실제 화면을 찍지 않는다)."""
 import re
+import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPixmap, QTextCursor
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtTest import QTest
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
@@ -27,6 +29,27 @@ TABLE = [
     TextBox(12, 58, 30, 16, "충북", 0.99), TextBox(140, 58, 16, 16, "5l", 0.95), TextBox(265, 58, 8, 16, "4", 0.99),
 ]
 SENTENCE = [TextBox(0, 0, 200, 16, "환경 점검 결과 알림", 0.99)]
+# 윗줄에 '42'가 있고 아랫줄의 '4'(점수 0.5)만 불확실한 문장형 두 줄(표가 아님)
+SUBSTRING = [TextBox(0, 0, 30, 16, "합계", 0.99), TextBox(60, 0, 20, 16, "42", 0.99), TextBox(0, 30, 10, 16, "4", 0.5)]
+# 3칸 표, 한 줄 문장, 2칸 표: 좁은 표의 3번째 칸은 비어 있는 채움 칸이 된다
+MIXED_WIDTH = [
+    TextBox(10, 0, 30, 16, "가", 0.99), TextBox(120, 0, 30, 16, "나", 0.99), TextBox(260, 0, 30, 16, "다", 0.99),
+    TextBox(10, 24, 30, 16, "1", 0.99), TextBox(120, 24, 30, 16, "2", 0.99), TextBox(260, 24, 30, 16, "3", 0.99),
+    TextBox(10, 48, 200, 16, "중간 문장", 0.99),
+    TextBox(10, 72, 30, 16, "라", 0.99), TextBox(120, 72, 30, 16, "마", 0.99),
+    TextBox(10, 96, 30, 16, "4", 0.99), TextBox(120, 96, 30, 16, "5", 0.99),
+]
+
+
+class IgnoresCancelEngine:
+    """취소 여부를 보지 않고 늦게 결과를 돌려주는 엔진(실행 번호로 버려지는지 확인용)."""
+
+    def __init__(self, gate):
+        self.gate = gate
+
+    def recognize(self, rgb, cancelled):
+        self.gate.wait(5)
+        return list(TABLE)
 
 
 class FakeEngine:
@@ -58,8 +81,9 @@ def image(width=120, height=40):
 
 @pytest.fixture
 def make(qtbot):
-    def factory(engine=None, grab=None):
-        win = ScreenTextWindow(None, engine_factory=lambda: engine or FakeEngine(TABLE), grab=grab or shot)
+    def factory(engine=None, grab=None, engine_factory=None):
+        win = ScreenTextWindow(None, engine_factory=engine_factory or (lambda: engine or FakeEngine(TABLE)),
+                               grab=grab or shot)
         qtbot.addWidget(win)
         win.show_near(QRect(100, 100, 64, 48), QGuiApplication.primaryScreen().availableGeometry())
         qtbot.waitExposed(win)
@@ -185,6 +209,118 @@ def test_cancelled_recapture_restores_previous_preview(qtbot, make):
     assert win.stack.currentWidget() is win.result_page
     assert win.preview.pixmap().size() == first
     gate.set()
+
+
+def test_late_result_that_ignores_cancel_is_discarded_by_generation(qtbot, make):
+    gate = threading.Event()
+    win = make(engine_factory=lambda: IgnoresCancelEngine(gate))
+    win._on_captured(image())
+    qtbot.mouseClick(win.cancel_button, Qt.LeftButton)
+    assert win.stack.currentWidget() is win.intro_page
+    gate.set()
+    qtbot.wait(300)
+    assert win.stack.currentWidget() is win.intro_page and win._blocks == []
+
+
+@pytest.mark.parametrize("kind", ["empty", "failed"])
+def test_empty_or_failed_recapture_restores_previous_preview(qtbot, make, kind):
+    gate = threading.Event()
+    gate.set()
+    engine = FakeEngine(TABLE, gate=gate)
+    win = make(engine)
+    recognized(qtbot, win, image(120, 40))
+    first = win.preview.pixmap().size()
+    if kind == "empty":
+        engine.boxes = []
+    else:
+        engine.error = ValueError("x")
+    win._on_captured(image(300, 200))
+    assert win.preview.pixmap().size() != first
+    qtbot.waitUntil(lambda: win.stack.currentWidget() is win.intro_page, timeout=5000)
+    assert win.preview.pixmap().size() == first
+    # 같은 상태에서 다시 고르고 읽는 중 취소해도 처음 결과의 미리보기로 돌아온다
+    engine.boxes, engine.error = TABLE, None
+    gate.clear()
+    win._on_captured(image(300, 200))
+    assert win.preview.pixmap().size() != first
+    qtbot.mouseClick(win.cancel_button, Qt.LeftButton)
+    assert win.stack.currentWidget() is win.result_page
+    assert win.preview.pixmap().size() == first
+    gate.set()
+
+
+def test_empty_first_capture_leaves_no_preview(qtbot, make):
+    win = make(FakeEngine([]))
+    recognized(qtbot, win)
+    assert win.preview.pixmap().isNull()
+
+
+def test_unsure_highlight_marks_the_unsure_cell_not_an_earlier_substring(qtbot, make):
+    win = make(FakeEngine(SUBSTRING))
+    recognized(qtbot, win)
+    assert not win.table_tab.isVisible() and win.text_tab.isChecked()
+    assert win.text_edit.toPlainText() == "합계 42\n4"
+    assert win.status_label.text() == "확인 필요 1곳"
+    selections = win.text_edit.extraSelections()
+    assert len(selections) == 1
+    assert selections[0].cursor.selectionStart() == len("합계 42\n")
+    assert selections[0].cursor.selectedText() == "4"
+    # 실제 불확실한 '4'만 '9'로 고치면 확인이 끝난다
+    cursor = QTextCursor(win.text_edit.document())
+    cursor.setPosition(len("합계 42\n"))
+    cursor.setPosition(len("합계 42\n") + 1, QTextCursor.KeepAnchor)
+    cursor.insertText("9")
+    assert win.text_edit.toPlainText() == "합계 42\n9"
+    assert win.status_label.text() == "확인 완료"
+    assert win.text_edit.extraSelections() == []
+
+
+def test_close_while_model_is_loading_does_not_block_or_keep_engine(qtbot, make):
+    gate, built = threading.Event(), threading.Event()
+
+    def slow_factory():
+        built.set()
+        gate.wait(5)
+        return FakeEngine(TABLE)
+
+    win = make(engine_factory=slow_factory)
+    win._on_captured(image())
+    assert built.wait(2)
+    started = time.monotonic()
+    win.close()
+    assert time.monotonic() - started < 1.0
+    assert win._engine is None
+    gate.set()
+    qtbot.wait(300)
+    assert win._engine is None
+    assert win.stack.currentWidget() is win.intro_page and win._blocks == []
+
+
+def test_padding_cell_of_narrower_table_is_not_editable_and_ignores_changes(qtbot, make):
+    win = make(FakeEngine(MIXED_WIDTH))
+    recognized(qtbot, win)
+    assert win.table.columnCount() == 3
+    item = win.table.item(3, 2)  # 2칸 표의 첫 행, 세 번째 칸
+    assert item is not None and not item.flags() & Qt.ItemIsEditable
+    item.setText("x")
+    # 편집기를 거치지 않는 경로(모델에 직접 값 쓰기)도 오류 없이 무시된다
+    win.table.model().setData(win.table.model().index(4, 2), "y")
+    win.table.item(3, 0).setText("바뀜")
+    assert "바뀜" in win.text_edit.toPlainText()
+
+
+@pytest.mark.parametrize("how", ["missing", "broken"])
+def test_engine_import_failure_is_reported_as_model_problem(qtbot, make, monkeypatch, how):
+    if how == "missing":
+        monkeypatch.setitem(sys.modules, "screen_text.engine", None)
+        win = make()
+    else:
+        def broken():
+            raise ImportError("onnxruntime")
+        win = make(engine_factory=broken)
+    recognized(qtbot, win)
+    assert win.message_label.text() == "인식 모델을 확인하지 못했습니다."
+    assert not win.capture_button.isEnabled()
 
 
 def test_hide_owned_popups_stops_pending_capture(qtbot, make):

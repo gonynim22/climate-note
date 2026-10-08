@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from screen_text.capture import ScreenCapture, grab_screens
-from screen_text.layout import Cell, Table, TextLine, build_blocks, has_table, rows_of, to_html, to_plain, to_tsv
+from screen_text.layout import Cell, Table, TextLine, build_blocks, has_table, plain_with_spans, rows_of, to_html, to_tsv
 
 _logger = logging.getLogger("app_error")
 CONTENT_WIDTH, CONTENT_HEIGHT, SHADOW_MARGIN = 460, 560, 24
@@ -105,7 +105,7 @@ class ScreenTextWindow(QWidget):
         self._result_preview = QPixmap()  # 현재 결과를 만든 영역 그림(다시 고르기를 취소하면 되돌린다)
         self._pending_preview = QPixmap()  # 읽는 중인 영역 그림
         self._table_rows = []
-        self._unsure_tokens = []
+        self._text_spans = []  # (글자 탭에서 확인 필요 칸을 따라가는 QTextCursor, 칸 글자)
         self._text_unsure_left = 0
         self._had_unsure = False
         self._text_dirty = False
@@ -283,13 +283,11 @@ class ScreenTextWindow(QWidget):
             self._cancel_event.set()
         self._cancel_event = None
         self._generation += 1
-        self._pending_preview = QPixmap()
+        self._restore_preview()
         if busy:
             if self._blocks:
-                self.preview.setPixmap(self._result_preview)
                 self._show_result()
             else:
-                self.preview.clear()
                 self._show_intro(None)
 
     def fit_to_screen(self, available=None):
@@ -317,10 +315,10 @@ class ScreenTextWindow(QWidget):
     def shutdown(self):
         self.hide_owned_popups()
         self.cancel_work()
-        self._blocks, self._table_rows, self._unsure_tokens = [], [], []
+        self._blocks, self._table_rows, self._text_spans = [], [], []
         self._had_unsure = False
-        self._result_preview = self._pending_preview = QPixmap()
-        self.preview.clear()
+        self._result_preview = QPixmap()
+        self._restore_preview()
         self._filling = True
         self.text_edit.clear()
         self.table.clear()
@@ -383,20 +381,45 @@ class ScreenTextWindow(QWidget):
         self._reappear()
         self.cancel_button.setFocus(Qt.OtherFocusReason)
 
-    def _engine_for_work(self):
+    def _restore_preview(self):
+        """읽던 영역 그림을 버리고, 화면에 남은 결과의 그림으로 되돌린다(결과가 없으면 비운다)."""
+        self._pending_preview = QPixmap()
+        if self._result_preview.isNull():
+            self.preview.clear()
+        else:
+            self.preview.setPixmap(self._result_preview)
+
+    def _engine_for_work(self, event):
+        """모델 만들기는 느려서 잠금 밖에서 한다. 잠금을 쥔 채면 창 닫기(모델 내리기)가 멈춘다."""
         with self._engine_lock:
+            engine = self._engine
+        if engine is not None:
+            return engine
+        built = self._engine_factory()
+        with self._engine_lock:
+            if event.is_set():
+                return built  # 그 사이 취소·닫힘: 이번 실행에만 쓰고 보관하지 않는다
             if self._engine is None:
-                self._engine = self._engine_factory()
+                self._engine = built
             return self._engine
 
     def _work(self, generation, buffer, event):
         """작업 스레드. Qt 위젯을 만지지 않고 신호로만 결과를 보낸다."""
-        from screen_text.engine import ModelIntegrityError, RecognitionCancelled, rgb_from_buffer
         try:
-            boxes = self._engine_for_work().recognize(rgb_from_buffer(*buffer), event.is_set)
+            from screen_text.engine import ModelIntegrityError, RecognitionCancelled, rgb_from_buffer
+        except ImportError as error:  # except 절이 쓸 이름이 없으므로 따로 처리한다
+            _logger.error("화면 글자 인식 모듈 불러오기 실패: %s", type(error).__name__)
+            _emit(self._bridge.failed, generation, "model")
+            return
+        try:
+            boxes = self._engine_for_work(event).recognize(rgb_from_buffer(*buffer), event.is_set)
         except RecognitionCancelled:
             return
         except ModelIntegrityError:
+            _emit(self._bridge.failed, generation, "model")
+            return
+        except ImportError as error:  # onnxruntime 같은 의존 모듈이 없을 때
+            _logger.error("화면 글자 인식 모듈 불러오기 실패: %s", type(error).__name__)
             _emit(self._bridge.failed, generation, "model")
             return
         except Exception as error:  # 작업 스레드 경계: 어떤 오류도 창을 '읽는 중'에 멈춰 두지 않는다
@@ -411,6 +434,7 @@ class ScreenTextWindow(QWidget):
         self._cancel_event = None
         blocks = build_blocks(boxes)
         if not blocks:
+            self._restore_preview()
             self._show_intro("empty")
             return
         self._blocks = blocks
@@ -425,6 +449,7 @@ class ScreenTextWindow(QWidget):
         if generation != self._generation:
             return
         self._cancel_event = None
+        self._restore_preview()
         self._show_intro(kind)
 
     # ── 결과 표시와 편집 ──
@@ -448,12 +473,19 @@ class ScreenTextWindow(QWidget):
         self._update_status()
 
     def _fill_text(self):
+        text, spans = plain_with_spans(self._blocks)
         self._filling = True
-        self.text_edit.setPlainText(to_plain(self._blocks))
+        self.text_edit.setPlainText(text)
         self._filling = False
         self._text_dirty = False
-        self._unsure_tokens = [cell.text for block in self._blocks for row in rows_of(block)
-                               for cell in row if cell.unsure]
+        # 확인 필요 칸마다 문서 위치를 따라가는 커서를 둔다. 같은 글자가 앞에 있어도 엉뚱한 곳을 표시하지 않는다.
+        document = self.text_edit.document()
+        self._text_spans = []
+        for start, length, token in spans:
+            cursor = QTextCursor(document)
+            cursor.setPosition(start)
+            cursor.setPosition(start + length, QTextCursor.KeepAnchor)
+            self._text_spans.append((cursor, token))
         self._highlight_text()
 
     def _fill_table(self):
@@ -481,6 +513,10 @@ class ScreenTextWindow(QWidget):
                     if cell.unsure:
                         item.setBackground(UNSURE_BACKGROUND)
                     self.table.setItem(position, column, item)
+                for column in range(len(row), columns):  # 더 좁은 표의 비는 칸: 고칠 칸이 없으니 편집할 수 없게 둔다
+                    padding = QTableWidgetItem("")
+                    padding.setFlags(padding.flags() & ~Qt.ItemIsEditable)
+                    self.table.setItem(position, column, padding)
         self.table.resizeColumnsToContents()
         self._filling = False
 
@@ -493,7 +529,10 @@ class ScreenTextWindow(QWidget):
             if text != " ".join(cell.text for cell in block.cells if cell.text):
                 block.cells[:] = [Cell(text)]
         else:
-            cell = block.rows[row_index][item.column()]
+            row = block.rows[row_index]
+            if item.column() >= len(row):  # 채움 칸에는 대응하는 글자가 없다
+                return
+            cell = row[item.column()]
             if text != cell.text:
                 cell.text, cell.unsure = text, False
         self._filling = True
@@ -512,18 +551,14 @@ class ScreenTextWindow(QWidget):
 
     def _highlight_text(self):
         """확인 필요 글자가 아직 그대로 남은 곳만 노랗게 표시한다."""
-        document = self.text_edit.document()
-        cursor = QTextCursor(document)
         selections = []
-        for token in self._unsure_tokens:
-            found = document.find(token, cursor)
-            if found.isNull():
+        for cursor, token in self._text_spans:
+            if cursor.selectedText() != token:  # 고쳤거나 지워졌다
                 continue
             selection = QTextEdit.ExtraSelection()
-            selection.cursor = found
+            selection.cursor = cursor
             selection.format.setBackground(UNSURE_BACKGROUND)
             selections.append(selection)
-            cursor = found
         self._text_unsure_left = len(selections)
         self.text_edit.setExtraSelections(selections)
 

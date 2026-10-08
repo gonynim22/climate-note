@@ -1,6 +1,6 @@
 """화면 글자 따기 줄·표 재구성: 순수 Python 규칙만 검사한다."""
 from screen_text.layout import (
-    Cell, Table, TextBox, TextLine, build_blocks, group_lines, has_table, rows_of,
+    Cell, Table, TextBox, TextLine, build_blocks, group_lines, has_table, plain_with_spans, rows_of,
     to_html, to_plain, to_tsv, unsure_count,
 )
 
@@ -134,3 +134,42 @@ def test_text_column_with_letters_and_digits_is_not_marked():
     assert not table.rows[1][0].unsure
     assert not table.rows[2][0].unsure
     assert not table.rows[3][0].unsure
+
+
+def utf16_slice(text, start, length):
+    """QTextCursor 위치와 같은 UTF-16 코드 단위로 잘라 되돌린다."""
+    return text.encode("utf-16-le")[start * 2:(start + length) * 2].decode("utf-16-le")
+
+
+def test_plain_with_spans_text_equals_to_plain_and_spans_point_at_unsure_cells():
+    shifted = [TextBox(b.x, b.y + 40, b.w, b.h, b.text, b.score) for b in TABLE_BOXES]
+    blocks = build_blocks([box(0, 0, "제목", w=30)] + shifted)
+    text, spans = plain_with_spans(blocks)
+    assert text == to_plain(blocks)
+    assert [token for _, _, token in spans] == ["5l"]
+    start, length, token = spans[0]
+    assert utf16_slice(text, start, length) == token
+    assert text[start:start + length] == token  # BMP 글자만 있으면 파이썬 위치와 같다
+
+
+def test_span_marks_the_unsure_cell_not_an_earlier_substring_occurrence():
+    blocks = build_blocks([box(0, 0, "합계", w=30), box(60, 0, "42", w=20), box(0, 30, "4", w=10, score=0.5)])
+    text, spans = plain_with_spans(blocks)
+    assert text == "합계 42\n4"
+    assert spans == [(len("합계 42\n"), 1, "4")]
+
+
+def test_spans_count_utf16_units_for_characters_outside_the_bmp():
+    blocks = [TextLine([Cell("😀"), Cell("5l", True)]), TextLine([Cell("가", True), Cell("😀😀"), Cell("나", True)])]
+    text, spans = plain_with_spans(blocks)
+    assert text == "😀 5l\n가 😀😀 나"
+    assert spans == [(3, 2, "5l"), (6, 1, "가"), (13, 1, "나")]
+    assert [utf16_slice(text, *span[:2]) for span in spans] == ["5l", "가", "나"]
+
+
+def test_spans_use_cleaned_tokens_and_skip_empty_and_sure_cells():
+    blocks = [Table([[Cell("a\tb\nc", True), Cell("", True), Cell("x"), Cell("  ", True)]])]
+    text, spans = plain_with_spans(blocks)
+    assert text == to_plain(blocks)
+    assert spans == [(0, 5, "a b c")]
+    assert plain_with_spans([]) == ("", [])
