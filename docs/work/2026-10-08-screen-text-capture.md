@@ -69,6 +69,7 @@
 | EXE 구성 대조 (3차 `build/build/Analysis-00.toc`) | 통과 | `20261009-021809-e30a49762e` | 아래 "EXE 대조 (3차)" 참고 |
 | 새 EXE에서 주머니 → 화면 글자 따기 → 합성 이미지 영역 인식 1회 | 수동 미실행 | - | 자동 실행 환경에서 GUI를 조작할 수 없어 업무 PC 확인 목록으로 이관. 위 합성 실행(소스 환경, 제외 모듈 차단)과 아카이브 모델 해시 대조로 대체했으며 이는 실제 EXE 실행이 아님 |
 | `tools/verify.py quick --tests tests/test_packaging.py` (Task 8 수정 1차) | 통과 | `20261009-014746-cb3cf72608` (`output/harness/`) | 75개 통과, 실패·오류·skip 0. 빌드 분기 시험이 저장소의 `screen_text/` 폴더에 기대지 않게 고침: 폴더 있음/없음을 모두 빈 임시 폴더로 만들고, `screen_text/`를 잠시 `screen_text.__hidden`으로 바꾼 채 `tests/test_packaging.py` 6개 통과를 확인한 뒤 되돌림(걷어낸 뒤에도 `full`이 통과하도록). `build.spec`은 바뀌지 않아 release 2차 EXE(`20261009-013003-bab27e5f78`)는 그대로 유효. 시험·설계 문서만 변경 |
+| main 병합 후 `quick --tests tests/test_screen_text_ui.py tests/test_optional_mini_apps.py tests/test_packaging.py` | 통과 139개 | `20261009-072411-79df0a89bc` | fast-forward 병합(`fb50f1e`) 뒤 실행. 검증 EXE를 `dist/기후노트_v3.9.exe`로 배치, SHA-256 `792FD779…BF83EB` 원본과 일치. v3.8e EXE 유지 |
 
 ## EXE 대조 (release 3차 `20261009-021809-e30a49762e`, 최종)
 
