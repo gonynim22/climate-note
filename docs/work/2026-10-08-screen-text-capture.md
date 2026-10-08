@@ -39,10 +39,13 @@
 | `tools/verify.py quick --tests tests/test_screen_text_layout.py tests/test_screen_text_engine.py` (Task 3) | 통과 | `20261008-215929-8bc0dfeb0e` (`output/harness/`) | 100개 통과, 실패·오류·skip 0. 엔진 16개는 합성 이미지(Malgun Gothic 13·16px 문장·표)로 실제 모델 인식. 경고 1건은 qfluentwidgets의 scipy 사용 중단 예고(기존) |
 | 측정 게이트 `output/spike-screen-text-20261008/measure.py` (Task 4) | 통과 | `output/spike-screen-text-20261008/report.md` | 합성 표본 16개. 평균 0.996 대 0.575, 최대 0.23초. 코드 상수 변경 없음 |
 | `tools/verify.py quick --tests tests/test_optional_mini_apps.py tests/test_ui_mini_apps.py tests/test_ui_document_converter.py tests/test_ui_data_lifecycle.py tests/test_money_notation_integration.py tests/test_date_time_integration.py` (Task 5) | 통과 | `20261008-221823-bd62618a5d` (`output/harness/`) | 205개 통과, 실패·오류·skip 0. 선택형 공용 연결부는 가짜 앱(등록부 monkeypatch)으로 검사. 기존 주머니·문서 변환 수명 테스트는 등록부를 빈 튜플로 고정. 경고 1건은 qfluentwidgets의 scipy 사용 중단 예고(기존) |
+| `tools/verify.py quick --tests tests/test_screen_text_ui.py tests/test_screen_text_capture.py tests/test_screen_text_layout.py tests/test_screen_text_engine.py tests/test_optional_mini_apps.py tests/test_ui_mini_apps.py tests/test_mini_app_icons.py tests/test_app_paths.py` (Task 7, 100%) | 통과 | `20261009-004034-b099e1ce30` (`output/harness/`) | 208개 통과, 실패·오류·skip 0. 도구 창은 가짜 엔진·가짜 스크린샷으로 검사(실제 화면·모델 미사용). 경고 1건은 qfluentwidgets의 scipy 사용 중단 예고(기존) |
+| `QT_SCALE_FACTOR=1.25 tools/verify.py quick --tests tests/test_screen_text_ui.py tests/test_screen_text_capture.py tests/test_optional_mini_apps.py` (Task 7, 125%) | 통과 | `20261009-004102-54c0827a8c` (`output/harness/`) | 118개 통과, 실패·오류·skip 0. 배율 환경변수는 harness 결과에 기록되지 않아 명령으로만 남김 |
+| `QT_SCALE_FACTOR=1.5 tools/verify.py quick --tests tests/test_screen_text_ui.py tests/test_screen_text_capture.py tests/test_optional_mini_apps.py` (Task 7, 150%) | 통과 | `20261009-004118-a6fa1bb770` (`output/harness/`) | 118개 통과, 실패·오류·skip 0. 배율 환경변수는 harness 결과에 기록되지 않아 명령으로만 남김 |
 
 ## 미해결과 인계
 
 - 남은 문제 / 수동 확인: 업무 PC 확인 전부(페이지 크기 영역 인식 시간 포함)
 - 변경한 정본 문서: (Task 8에서 기입)
-- 다음 행동: Task 6부터 진행 (Task 5 공용 연결부 완료, 등록부는 빈 튜플)
+- 다음 행동: Task 8부터 진행 (Task 7 도구 창·아이콘·등록 완료, 등록부에 화면 글자 따기 1개)
 - 배포·커밋·push 여부: 로컬 커밋만. push·Release 게시는 별도 승인

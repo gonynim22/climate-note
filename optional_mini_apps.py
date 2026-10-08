@@ -4,5 +4,6 @@
 "걷어내기"). 기존 미니앱 4개는 여기에 두지 않는다. 메인 창은 이 목록을
 주머니 타일과 9개 수명 지점에 공용으로 연결한다.
 """
+from screen_text import APP as SCREEN_TEXT_APP  # 화면 글자 따기 (걷어낼 때 이 줄을 지운다)
 
-OPTIONAL_MINI_APPS = ()
+OPTIONAL_MINI_APPS = (SCREEN_TEXT_APP,)  # 걷어낼 때 () 로 되돌린다
