@@ -171,6 +171,22 @@ def test_first_recognition_shows_model_loading_note(qtbot, make):
     qtbot.waitUntil(lambda: win.stack.currentWidget() is win.result_page, timeout=5000)
 
 
+def test_cancelled_recapture_restores_previous_preview(qtbot, make):
+    gate = threading.Event()
+    gate.set()
+    engine = FakeEngine(TABLE, gate=gate)
+    win = make(engine)
+    recognized(qtbot, win, image(120, 40))
+    first = win.preview.pixmap().size()
+    gate.clear()
+    win._on_captured(image(300, 200))
+    assert win.preview.pixmap().size() != first
+    qtbot.mouseClick(win.cancel_button, Qt.LeftButton)
+    assert win.stack.currentWidget() is win.result_page
+    assert win.preview.pixmap().size() == first
+    gate.set()
+
+
 def test_hide_owned_popups_stops_pending_capture(qtbot, make):
     win = make()
     win.start_capture()

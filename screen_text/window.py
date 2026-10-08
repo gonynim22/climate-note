@@ -102,6 +102,8 @@ class ScreenTextWindow(QWidget):
         self._generation = 0
         self._cancel_event = None
         self._blocks = []
+        self._result_preview = QPixmap()  # 현재 결과를 만든 영역 그림(다시 고르기를 취소하면 되돌린다)
+        self._pending_preview = QPixmap()  # 읽는 중인 영역 그림
         self._table_rows = []
         self._unsure_tokens = []
         self._text_unsure_left = 0
@@ -281,10 +283,13 @@ class ScreenTextWindow(QWidget):
             self._cancel_event.set()
         self._cancel_event = None
         self._generation += 1
+        self._pending_preview = QPixmap()
         if busy:
             if self._blocks:
+                self.preview.setPixmap(self._result_preview)
                 self._show_result()
             else:
+                self.preview.clear()
                 self._show_intro(None)
 
     def fit_to_screen(self, available=None):
@@ -314,6 +319,7 @@ class ScreenTextWindow(QWidget):
         self.cancel_work()
         self._blocks, self._table_rows, self._unsure_tokens = [], [], []
         self._had_unsure = False
+        self._result_preview = self._pending_preview = QPixmap()
         self.preview.clear()
         self._filling = True
         self.text_edit.clear()
@@ -365,6 +371,7 @@ class ScreenTextWindow(QWidget):
             pixmap = pixmap.scaledToHeight(PREVIEW_HEIGHT, Qt.SmoothTransformation)
         if pixmap.width() > CONTENT_WIDTH - 40:
             pixmap = pixmap.scaledToWidth(CONTENT_WIDTH - 40, Qt.SmoothTransformation)
+        self._pending_preview = pixmap
         self.preview.setPixmap(pixmap)
         self._generation += 1
         generation, event = self._generation, threading.Event()
@@ -407,6 +414,7 @@ class ScreenTextWindow(QWidget):
             self._show_intro("empty")
             return
         self._blocks = blocks
+        self._result_preview, self._pending_preview = self._pending_preview, QPixmap()
         self._had_unsure = any(cell.unsure for block in blocks for row in rows_of(block) for cell in row)
         self._tab = "table" if has_table(blocks) else "text"
         self._fill_table()
