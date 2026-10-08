@@ -171,3 +171,12 @@ def test_quit_and_reset_success_shut_down_and_delete(qtbot, route):
     assert win._optional_windows == {}
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     assert not isValid(fake)
+
+
+def test_main_window_hide_cancels_and_hides(qtbot):
+    win = window(qtbot)
+    fake = open_fake(qtbot, win)
+    fake.calls.clear()
+    win.hide()
+    assert fake.calls[:2] == ["cancel_work", "hide_owned_popups"]
+    assert not fake.isVisible()

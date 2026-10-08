@@ -3910,6 +3910,7 @@ class MainCalendarWindow(QWidget):
                 self._hide_date_time_calculator()
                 self._hide_money_notation()
                 self._hide_document_converter()
+                self._hide_optional_mini_apps()
         if event_type in (
             QEvent.Type.WindowDeactivate,
             QEvent.Type.UngrabMouse,
