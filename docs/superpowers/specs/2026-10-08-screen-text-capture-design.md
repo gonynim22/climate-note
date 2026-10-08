@@ -52,7 +52,7 @@
 
 ### 파일 구성
 ```
-optional_mini_apps.py      등록부: MiniAppSpec 정의와 OPTIONAL_MINI_APPS 목록
+optional_mini_apps.py      등록부: OPTIONAL_MINI_APPS 목록 (MiniAppSpec 정의는 순환 import를 피해 ui_mini_apps.py에 둔다)
 screen_text/
   __init__.py              APP = MiniAppSpec(...) 만 둔다. numpy·onnxruntime import 없음
   window.py                도구 창 (Qt)
@@ -66,7 +66,7 @@ tests/test_screen_text_*.py        글자 따기 전용 검사
 ```
 
 ### 등록부와 공용 연결부
-- `optional_mini_apps.MiniAppSpec` 필드는 다음과 같다.
+- `ui_mini_apps.MiniAppSpec`(순환 import를 피하려고 등록부가 아니라 `ui_mini_apps.py`에 둔다) 필드는 다음과 같다.
   - `app_id`, `title`, `accessible_name`, `description`, `icon_path`
   - `create_window(parent) -> QWidget`
 - 선택형 앱 창은 다음 메서드를 제공한다.
@@ -119,7 +119,7 @@ tests/test_screen_text_*.py        글자 따기 전용 검사
 
 ### 영역 고르기
 1. [영역 고르기]를 누르면 도구 창을 숨기고 200ms 뒤 각 화면을 `QScreen.grabWindow(0)`으로 찍는다.
-2. 찍은 화면 전체의 98% 이상이 거의 검은색(휘도 8 미만)이면 캡처가 막힌 것으로 본다. 오버레이를 띄우지 않고 "보안 프로그램이 화면 캡처를 막아 글자를 딸 수 없습니다"를 표시한다. 우회를 시도하지 않는다.
+2. 찍은 화면 전체의 98% 이상이 거의 검은색(휘도 8 미만)이면 캡처가 막힌 것으로 본다. 오버레이를 띄우지 않고 "보안 프로그램이 화면 캡처를 막아 글자를 딸 수 없습니다"를 표시한다. 우회를 시도하지 않는다. 못 찍은(널) 화면에도 오버레이를 띄우지 않으며, 남는 화면이 없으면 같은 안내를 표시한다.
 3. 화면마다 멈춘 화면을 어둡게 덮은 오버레이(`Tool | Frameless | StaysOnTop`)를 띄운다. 끌어서 사각형을 고르고 크기를 표시한다. Esc나 오른쪽 클릭은 취소다.
 4. 선택은 시작한 화면 안으로 제한한다. 8×8 논리 px보다 작으면 무시한다. 잘라내기는 해당 화면의 device pixel ratio로 실제 픽셀 좌표를 계산한다.
 5. 놓으면 오버레이를 닫고 **찍어 둔 화면 전체 이미지를 바로 버린다.** 잘라낸 이미지만 인식에 넘기고, 도구 창을 다시 표시한다.
@@ -136,6 +136,7 @@ tests/test_screen_text_*.py        글자 따기 전용 검사
 - 글자를 찾지 못하면: "고른 영역에서 글자를 찾지 못했습니다"
 - 모델 파일이 없거나 SHA-256이 다르면: "인식 모델을 확인하지 못했습니다"를 표시하고 [영역 고르기]를 비활성화한다.
 - 인식 중 예외: 오류 종류만 로그에 남기고 "글자를 읽지 못했습니다. 다시 시도해 주세요"를 표시한다.
+- 이전 결과가 있을 때 [다시 고르기]가 막히거나 비거나 실패하면 처음 화면으로 돌아가지 않고 결과 화면에 안내 줄만 띄운다(고친 결과·미리보기 유지). 모델 오류는 [다시 고르기]도 비활성화한다.
 
 ## 6. 인식 엔진 (`engine.py`)
 
@@ -197,8 +198,8 @@ tests/test_screen_text_*.py        글자 따기 전용 검사
 - 직접 의존성에 `onnxruntime`을 추가한다(1.30.0, MIT). 하위 의존성은 `flatbuffers`, `protobuf`이고, `numpy`는 이미 lock에 있다.
 - 최종 버전은 로컬 OSV 검사에서 알려진 취약점이 없는 것으로 고른다.
 - lock 갱신, 전체 재검증, EXE 재빌드, 검증 스냅샷 갱신을 한 묶음으로 처리한다.
-- `licenses/THIRD_PARTY_NOTICES.txt`에 PaddleOCR 모델(Apache-2.0), onnxruntime(MIT), numpy(BSD-3), protobuf(BSD-3), flatbuffers(Apache-2.0)를 추가한다.
-- EXE 크기는 약 59MB에서 100MB 안팎으로 늘 것으로 예상한다. release에서 실제 크기와 시작 시간을 이전 EXE와 비교해 기록한다.
+- `licenses/THIRD_PARTY_NOTICES.txt`에 PaddleOCR 모델(Apache-2.0), onnxruntime(MIT), numpy(BSD-3)를 추가한다. protobuf와 flatbuffers는 EXE에 번들되지 않아(release TOC에 없음) 항목을 두지 않는다.
+- EXE 크기는 약 59MB에서 100MB 안팎으로 늘 것으로 예상한다. release에서 실제 크기를 이전 EXE와 비교해 기록한다(실측 약 93.9MB). 시작 시간 비교는 측정하지 않았으며 아래 수동 확인(업무 PC)으로 옮긴다.
 
 ## 11. 검증
 
@@ -215,10 +216,10 @@ tests/test_screen_text_*.py        글자 따기 전용 검사
   - 복사 MIME(텍스트+HTML)
   - 노란 표시 해제
   - 첫 인식 안내와 취소
+  - `screen_text` import 위치 제한(걷어낸 뒤에는 이 파일과 함께 사라진다)
 - `test_optional_mini_apps.py`
   - 가짜 선택형 앱으로 10개 지점 수명 처리
   - 주머니 3줄 높이, 빈 등록부일 때 기존 252×280과 타일 4개
-  - `screen_text` import 위치 제한
 - UI 검사는 100/125/150% 합성 배율로 실행한다.
 - `release`: 전체 pytest, 새 EXE 빌드, 격리 실행 3개 시나리오를 거친다. 이어서 EXE 안의 모델 SHA-256, onnxruntime·numpy 포함, Qt 6.11.2 DLL, mingw DLL 부재, 크기를 기록한다.
 
@@ -227,6 +228,8 @@ tests/test_screen_text_*.py        글자 따기 전용 검사
 - 한글에 HTML 표로 붙는지, 엑셀 칸이 유지되는지
 - 혼합 DPI·KVM 환경, 실제 스캔 이미지의 품질과 속도
 - 공모전용 실측: 같은 표 옮기기를 타이핑과 이 기능으로 시간 비교
+- 새 EXE와 이전 EXE의 시작 시간 비교
+- 4K·전체 화면 같은 큰 영역의 인식 시간·정확도
 
 ## 12. 첫날 실험과 진행 기준
 
@@ -247,7 +250,7 @@ tests/test_screen_text_*.py        글자 따기 전용 검사
 | 소형 모델의 한국어 품질 부족 | 첫날 실험을 통과해야 진행. 불확실 표시와 미리보기로 사람이 확인 |
 | 업무 PC가 캡처를 막음 | 사전 확인. 막히면 기능을 시연할 수 없으므로 즉시 보고 |
 | 서버 push 보안 검사(OSV)가 새 의존성을 거부 | 로컬 OSV로 버전을 고르고 결과를 기록 |
-| EXE 크기·시작 시간 증가 | release에서 측정·기록. 걷어내기 절차로 되돌릴 수 있음 |
+| EXE 크기·시작 시간 증가 | 크기는 release에서 기록, 시작 시간은 업무 PC에서 비교. 걷어내기 절차로 되돌릴 수 있음 |
 | 한글 버전이 HTML 표 붙여넣기를 지원하지 않음 | 탭 구분 텍스트는 그대로 들어감. 안내 문구를 추가할지 수동 확인 뒤 결정 |
 | 혼합 DPI 캡처 좌표 오류 | DPR 잘라내기 테스트와 수동 확인 |
 | 2주 일정 | 범위를 이 문서로 고정하고, 제외 항목은 공모전 뒤로 미룸 |
