@@ -1,5 +1,6 @@
 """배포 패키지 메타데이터·의존성·고지 파일 회귀 테스트."""
 
+import sys
 from importlib.metadata import distribution
 from pathlib import Path
 from types import SimpleNamespace
@@ -218,20 +219,30 @@ def _spec_analysis(spec_dir):
 
     namespace = {"SPECPATH": str(spec_dir), "Analysis": analysis, "PYZ": lambda *a, **k: object(),
                  "EXE": lambda *a, **k: object()}
-    with open(ROOT / "build.spec", encoding="utf-8") as f:
-        exec(compile(f.read(), str(ROOT / "build.spec"), "exec"), namespace)
+    saved_path = sys.path[:]  # build.spec이 sys.path 앞에 spec 폴더를 끼워 넣으므로 되돌린다
+    try:
+        with open(ROOT / "build.spec", encoding="utf-8") as f:
+            exec(compile(f.read(), str(ROOT / "build.spec"), "exec"), namespace)
+    finally:
+        sys.path[:] = saved_path
     return captured
 
 
 def test_build_spec_bundles_screen_text_only_when_folder_exists(tmp_path):
-    present = _spec_analysis(ROOT)
+    # 저장소의 screen_text/ 폴더에 기대지 않는다: 걷어낸 뒤에도 이 시험이 통과해야 한다.
+    present_dir = tmp_path / "present"
+    (present_dir / "screen_text").mkdir(parents=True)
+    absent_dir = tmp_path / "absent"
+    absent_dir.mkdir()
+    present = _spec_analysis(present_dir)
     assert ("screen_text/models", "screen_text/models") in present["datas"]
     assert ("screen_text/icon.svg", "screen_text") in present["datas"]
     assert ("screen_text/licenses", "screen_text/licenses") in present["datas"]
     assert "onnxruntime" in present["hiddenimports"]
+    assert "numpy" in present["hiddenimports"]
     assert "numpy" not in present["excludes"]
     assert "html" not in present["excludes"]  # layout.py가 html.escape를 쓴다(제외하면 EXE에서 import 실패)
-    absent = _spec_analysis(tmp_path)  # 걷어낸 뒤: 폴더가 없으면 원래 빌드
+    absent = _spec_analysis(absent_dir)  # 걷어낸 뒤: 폴더가 없으면 원래 빌드
     assert not any("screen_text" in source for source, _ in absent["datas"])
     assert "onnxruntime" not in absent["hiddenimports"]
     assert "numpy" in absent["excludes"]

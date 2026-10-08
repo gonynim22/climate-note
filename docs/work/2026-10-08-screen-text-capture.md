@@ -57,6 +57,7 @@
 | PowerShell `.venv\Scripts\python.exe tools/verify.py release` (Task 8, 2차, 최종) | 통과 | `20261009-013003-bab27e5f78` (`output/harness/`) | 1,748개 통과(실패·오류·skip 0), 빌드 통과, 격리 EXE 시나리오 3개 통과. HEAD `ffdbd0f`(작업 트리는 사용자 원래 미커밋 변경 때문에 dirty). `smoke.json`의 `exe_sha256`이 아래 EXE 해시와 일치. 격리 시나리오는 도구 창을 열지 않음 |
 | EXE 구성 대조 (2차 `build/build/Analysis-00.toc`와 EXE 아카이브) | 통과 | `20261009-013003-bab27e5f78` | 아래 "EXE 대조" 참고 |
 | 새 EXE에서 주머니 → 화면 글자 따기 → 합성 이미지 영역 인식 1회 | 수동 미실행 | - | 자동 실행 환경에서 GUI를 조작할 수 없어 업무 PC 확인 목록으로 이관. 위 합성 실행(소스 환경, 제외 모듈 차단)과 아카이브 모델 해시 대조로 대체했으며 이는 실제 EXE 실행이 아님 |
+| `tools/verify.py quick --tests tests/test_packaging.py` (Task 8 수정 1차) | 통과 | `20261009-014746-cb3cf72608` (`output/harness/`) | 75개 통과, 실패·오류·skip 0. 빌드 분기 시험이 저장소의 `screen_text/` 폴더에 기대지 않게 고침: 폴더 있음/없음을 모두 빈 임시 폴더로 만들고, `screen_text/`를 잠시 `screen_text.__hidden`으로 바꾼 채 `tests/test_packaging.py` 6개 통과를 확인한 뒤 되돌림(걷어낸 뒤에도 `full`이 통과하도록). `build.spec`은 바뀌지 않아 release 2차 EXE(`20261009-013003-bab27e5f78`)는 그대로 유효. 시험·설계 문서만 변경 |
 
 ## EXE 대조 (release 2차 `20261009-013003-bab27e5f78`)
 
