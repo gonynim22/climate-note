@@ -275,6 +275,73 @@ def test_unsure_highlight_marks_the_unsure_cell_not_an_earlier_substring(qtbot, 
     assert win.text_edit.extraSelections() == []
 
 
+def text_tab_with_unsure_token(qtbot, make):
+    """글자 탭에 '5l'(확인 필요 1곳)이 표시된 창과 그 토큰의 문서 위치(시작, 끝)."""
+    win = make()
+    recognized(qtbot, win)
+    qtbot.mouseClick(win.text_tab, Qt.LeftButton)
+    assert win.status_label.text() == "확인 필요 1곳"
+    marks = win.text_edit.extraSelections()  # 목록을 쥐고 있어야 안의 커서가 살아 있다
+    assert len(marks) == 1 and marks[0].cursor.selectedText() == "5l"
+    return win, marks[0].cursor.selectionStart(), marks[0].cursor.selectionEnd()
+
+
+def place_text_cursor(win, position):
+    cursor = win.text_edit.textCursor()
+    cursor.setPosition(position)
+    win.text_edit.setTextCursor(cursor)
+
+
+def assert_unsure_mark_kept(win, start_text="5l"):
+    marks = win.text_edit.extraSelections()
+    assert len(marks) == 1 and marks[0].cursor.selectedText() == start_text
+    assert win.status_label.text() == "확인 필요 1곳"
+
+
+@pytest.mark.parametrize("typed", [" ", ".", ","])
+def test_typing_right_after_unsure_token_keeps_mark_and_count(qtbot, make, typed):
+    win, _, end = text_tab_with_unsure_token(qtbot, make)
+    place_text_cursor(win, end)
+    qtbot.keyClicks(win.text_edit, typed)
+    assert typed in win.text_edit.toPlainText()
+    assert_unsure_mark_kept(win)
+
+
+def test_enter_right_after_unsure_token_keeps_mark_and_count(qtbot, make):
+    win, _, end = text_tab_with_unsure_token(qtbot, make)
+    before = win.text_edit.toPlainText()
+    place_text_cursor(win, end)
+    qtbot.keyClick(win.text_edit, Qt.Key_Return)
+    assert win.text_edit.toPlainText() != before
+    assert_unsure_mark_kept(win)
+    # 프로그램으로 줄을 넣어도(insertText) 같다
+    place_text_cursor(win, end)
+    win.text_edit.textCursor().insertText("\n")
+    assert_unsure_mark_kept(win)
+
+
+def test_typing_before_or_at_start_of_unsure_token_keeps_mark(qtbot, make):
+    win, start, _ = text_tab_with_unsure_token(qtbot, make)
+    place_text_cursor(win, 0)
+    qtbot.keyClicks(win.text_edit, "x")
+    assert_unsure_mark_kept(win)
+    place_text_cursor(win, start + 1)  # 앞 글자 하나가 늘어난 위치: 토큰의 처음
+    qtbot.keyClicks(win.text_edit, "-")
+    assert_unsure_mark_kept(win)
+
+
+@pytest.mark.parametrize("offset", [0, 1])  # 0: 토큰 전체를 바꿈, 1: 'l'만 '1'로 바꿈
+def test_real_correction_of_unsure_token_still_clears_mark(qtbot, make, offset):
+    win, start, end = text_tab_with_unsure_token(qtbot, make)
+    cursor = win.text_edit.textCursor()
+    cursor.setPosition(start + offset)
+    cursor.setPosition(end, QTextCursor.KeepAnchor)
+    cursor.insertText("51"[offset:])
+    assert "51" in win.text_edit.toPlainText()
+    assert win.status_label.text() == "확인 완료"
+    assert win.text_edit.extraSelections() == []
+
+
 def test_close_while_model_is_loading_does_not_block_or_keep_engine(qtbot, make):
     gate, built = threading.Event(), threading.Event()
 

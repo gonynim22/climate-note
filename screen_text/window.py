@@ -485,6 +485,8 @@ class ScreenTextWindow(QWidget):
             cursor = QTextCursor(document)
             cursor.setPosition(start)
             cursor.setPosition(start + length, QTextCursor.KeepAnchor)
+            # 칸 끝에서 공백·마침표·Enter를 입력해도 선택이 따라 늘지 않게 한다(늘면 확인 안 한 칸이 '확인 완료'가 된다)
+            cursor.setKeepPositionOnInsert(True)
             self._text_spans.append((cursor, token))
         self._highlight_text()
 
