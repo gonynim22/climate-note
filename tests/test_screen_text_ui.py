@@ -236,7 +236,9 @@ def test_empty_or_failed_recapture_restores_previous_preview(qtbot, make, kind):
         engine.error = ValueError("x")
     win._on_captured(image(300, 200))
     assert win.preview.pixmap().size() != first
-    qtbot.waitUntil(lambda: win.stack.currentWidget() is win.intro_page, timeout=5000)
+    # 이전 결과가 있으면 처음 화면이 아니라 그 결과 화면에 머문다
+    qtbot.waitUntil(lambda: win.stack.currentWidget() is not win.busy_page, timeout=5000)
+    assert win.stack.currentWidget() is win.result_page
     assert win.preview.pixmap().size() == first
     # 같은 상태에서 다시 고르고 읽는 중 취소해도 처음 결과의 미리보기로 돌아온다
     engine.boxes, engine.error = TABLE, None
@@ -537,3 +539,127 @@ def test_screen_text_is_imported_only_from_registry_build_spec_and_own_tests():
             if pattern.search(stream.read()):
                 offenders.append(relative)
     assert offenders == []
+
+
+EMPTY_TEXT = "고른 영역에서 글자를 찾지 못했습니다."
+FAILED_TEXT = "글자를 읽지 못했습니다. 다시 시도해 주세요."
+BLOCKED_TEXT = "보안 프로그램이 화면 캡처를 막아 글자를 딸 수 없습니다."
+MODEL_TEXT = "인식 모델을 확인하지 못했습니다."
+
+
+def edited_result_page(qtbot, make, engine):
+    """첫 인식을 마치고 글자 탭의 글자를 고친 창과 그때의 미리보기 크기."""
+    win = make(engine)
+    recognized(qtbot, win, image(120, 40))
+    qtbot.mouseClick(win.text_tab, Qt.LeftButton)
+    win.text_edit.setPlainText("고친 글자")
+    assert win.stack.currentWidget() is win.result_page
+    return win, win.preview.pixmap().size()
+
+
+def assert_result_page_kept(win, preview_size, message):
+    assert win.stack.currentWidget() is win.result_page
+    assert win.isVisible()
+    assert win.text_edit.toPlainText() == "고친 글자"
+    assert win.preview.pixmap().size() == preview_size
+    assert win.result_message_label.isVisible() and win.result_message_label.text() == message
+    assert win.copy_button.isEnabled() and win.again_button.isEnabled()
+
+
+def test_result_page_message_is_hidden_by_default(qtbot, make):
+    win, _ = edited_result_page(qtbot, make, FakeEngine(TABLE))
+    assert win.result_message_label.isHidden() and not win.result_message_label.isVisible()
+
+
+@pytest.mark.parametrize("kind,message", [("empty", EMPTY_TEXT), ("failed", FAILED_TEXT)])
+def test_empty_or_failed_recapture_keeps_edited_result_page_with_message(qtbot, make, kind, message):
+    engine = FakeEngine(TABLE)
+    win, first = edited_result_page(qtbot, make, engine)
+    if kind == "empty":
+        engine.boxes = []
+    else:
+        engine.error = ValueError("x")
+    win._on_captured(image(300, 200))
+    qtbot.waitUntil(lambda: win.stack.currentWidget() is not win.busy_page, timeout=5000)
+    assert_result_page_kept(win, first, message)
+    assert not win.message_label.isVisible()  # 처음 화면의 안내로 넘어가지 않는다
+
+
+def test_blocked_recapture_keeps_edited_result_page_with_message(qtbot, make):
+    win, first = edited_result_page(qtbot, make, FakeEngine(TABLE))
+    win._capture._grab = lambda: shot("black")
+    win.start_capture()
+    qtbot.waitUntil(win.isVisible, timeout=2000)
+    assert_result_page_kept(win, first, BLOCKED_TEXT)
+    assert win.copy_button.hasFocus()
+
+
+def test_model_error_on_recapture_keeps_result_page_and_disables_recapture(qtbot, make):
+    engine = FakeEngine(TABLE)
+    win, first = edited_result_page(qtbot, make, engine)
+    engine.error = ModelIntegrityError("x")
+    win._on_captured(image(300, 200))
+    qtbot.waitUntil(lambda: win.stack.currentWidget() is not win.busy_page, timeout=5000)
+    assert win.stack.currentWidget() is win.result_page
+    assert win.text_edit.toPlainText() == "고친 글자" and win.preview.pixmap().size() == first
+    assert win.result_message_label.isVisible() and win.result_message_label.text() == MODEL_TEXT
+    assert not win.again_button.isEnabled() and not win.capture_button.isEnabled()
+    assert win.copy_button.isEnabled()
+
+
+def test_result_page_message_goes_away_on_next_pick_and_success(qtbot, make):
+    engine = FakeEngine(TABLE)
+    win, _ = edited_result_page(qtbot, make, engine)
+    engine.boxes = []
+    win._on_captured(image(300, 200))
+    qtbot.waitUntil(lambda: win.result_message_label.isVisible(), timeout=5000)
+    # 다시 고르기를 시작하면(오버레이 취소로 돌아와도) 지난 안내는 지운다
+    win.start_capture()
+    assert not win.result_message_label.isVisible()
+    qtbot.waitUntil(lambda: win._capture.is_active(), timeout=2000)
+    win._capture.cancel()
+    qtbot.waitUntil(win.isVisible, timeout=2000)
+    assert win.stack.currentWidget() is win.result_page and not win.result_message_label.isVisible()
+    # 실패한 뒤 성공하면 안내 없이 새 결과가 나온다
+    engine.boxes = []
+    win._on_captured(image(300, 200))
+    qtbot.waitUntil(lambda: win.result_message_label.isVisible(), timeout=5000)
+    engine.boxes = TABLE
+    win._on_captured(image(300, 200))
+    qtbot.waitUntil(lambda: win.stack.currentWidget() is win.result_page and not win.result_message_label.isVisible(),
+                    timeout=5000)
+    assert win.text_edit.toPlainText() != "고친 글자"
+
+
+def test_shutdown_hides_result_page_message(qtbot, make):
+    engine = FakeEngine(TABLE)
+    win, _ = edited_result_page(qtbot, make, engine)
+    engine.boxes = []
+    win._on_captured(image(300, 200))
+    qtbot.waitUntil(lambda: win.result_message_label.isVisible(), timeout=5000)
+    win.shutdown()
+    assert win.result_message_label.isHidden() and win.stack.currentWidget() is win.intro_page
+
+
+def test_null_captured_image_is_treated_like_cancel(qtbot, make):
+    engine = FakeEngine(TABLE)
+    win = make(engine)
+    win.hide()
+    win._on_captured(QImage())
+    assert win.isVisible() and win.stack.currentWidget() is win.intro_page
+    assert win._cancel_event is None and win._generation == 0 and win.capture_button.hasFocus()
+    qtbot.wait(150)
+    assert engine.calls == 0 and win.stack.currentWidget() is win.intro_page
+
+
+def test_null_captured_image_leaves_existing_result_page_untouched(qtbot, make):
+    engine = FakeEngine(TABLE)
+    win, first = edited_result_page(qtbot, make, engine)
+    win.hide()
+    calls = engine.calls
+    win._on_captured(QImage())
+    assert win.isVisible() and win.stack.currentWidget() is win.result_page
+    assert win.text_edit.toPlainText() == "고친 글자" and win.preview.pixmap().size() == first
+    assert win._cancel_event is None and win.copy_button.hasFocus()
+    qtbot.wait(150)
+    assert engine.calls == calls

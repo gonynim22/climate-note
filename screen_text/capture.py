@@ -44,6 +44,8 @@ def _physical(rect, ratio):
 def crop_physical(pixmap, rect):
     """논리 좌표 선택을 pixmap의 device pixel ratio로 바꿔 실제 픽셀로 자른다."""
     physical = _physical(rect, pixmap.devicePixelRatio()).intersected(QRect(0, 0, pixmap.width(), pixmap.height()))
+    if physical.isEmpty():  # 빈 사각형을 copy()에 넘기면 화면 전체가 잘려 나온다
+        return QImage()
     return pixmap.copy(physical).toImage().convertToFormat(QImage.Format_RGB888)
 
 
@@ -124,8 +126,10 @@ class ScreenCapture(QObject):
 
     def start(self):
         self._close_overlays()
-        shots = self._grab()
-        if not shots or all(is_blocked(pixmap.toImage()) for _, pixmap in shots):
+        # 못 찍었거나(널) 막힌(거의 검은) 화면에는 오버레이를 띄우지 않는다. 남는 화면이 없으면 막힌 것으로 안내한다.
+        shots = [(geometry, pixmap) for geometry, pixmap in self._grab()
+                 if not pixmap.isNull() and not is_blocked(pixmap.toImage())]
+        if not shots:
             self.blocked.emit()
             return
         for geometry, pixmap in shots:

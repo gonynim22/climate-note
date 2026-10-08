@@ -36,7 +36,7 @@ STYLE = """
     QWidget#screenTextSurface { background:#FFFFFF; border-radius:16px; }
     QLabel#screenTextTitle { color:#172B4D; font-size:15px; font-weight:bold; }
     QLabel[muted="true"] { color:#677180; font-size:11px; }
-    QLabel#screenTextMessage { background:#FFF4E5; color:#8A4B08; border-radius:8px; padding:8px 10px; }
+    QLabel#screenTextMessage, QLabel#screenTextResultMessage { background:#FFF4E5; color:#8A4B08; border-radius:8px; padding:8px 10px; }
     QLabel#screenTextPreview { background:#F5F7FA; border:1px solid #E1E6ED; border-radius:6px; }
     QLabel#screenTextStatus { background:#FFE58A; color:#5C4200; border-radius:10px; padding:2px 10px; font-size:11px; }
     QLabel#screenTextStatus[done="true"] { background:#EAF2FE; color:#1D4ED8; }
@@ -216,6 +216,11 @@ class ScreenTextWindow(QWidget):
         result = QVBoxLayout(self.result_page)
         result.setContentsMargins(0, 0, 0, 0)
         result.setSpacing(8)
+        self.result_message_label = QLabel()  # 이전 결과가 있을 때 다시 고르기가 막히거나 비거나 실패한 안내
+        self.result_message_label.setObjectName("screenTextResultMessage")
+        self.result_message_label.setWordWrap(True)
+        self.result_message_label.hide()
+        result.addWidget(self.result_message_label)
         self.preview = QLabel()
         self.preview.setObjectName("screenTextPreview")
         self.preview.setAlignment(Qt.AlignCenter)
@@ -319,6 +324,7 @@ class ScreenTextWindow(QWidget):
         self._had_unsure = False
         self._result_preview = QPixmap()
         self._restore_preview()
+        self.result_message_label.hide()
         self._filling = True
         self.text_edit.clear()
         self.table.clear()
@@ -332,6 +338,7 @@ class ScreenTextWindow(QWidget):
     def start_capture(self):
         if not self.isEnabled() or self.stack.currentWidget() is self.busy_page:
             return
+        self.result_message_label.hide()  # 지난 시도의 안내는 새 시도와 함께 지운다
         self.hide()
         self._capture_timer.start()
 
@@ -360,10 +367,14 @@ class ScreenTextWindow(QWidget):
         target.setFocus(Qt.OtherFocusReason)
 
     def _on_blocked(self):
-        self._show_intro("blocked")
+        self._show_problem("blocked")
         self._reappear()
 
     def _on_captured(self, image):
+        if image.isNull():  # 빈 영역을 골랐다: 취소와 같게 창만 되돌리고 아무것도 시작하지 않는다
+            self._reappear()
+            return
+        self.result_message_label.hide()
         pixmap = QPixmap.fromImage(image)
         if pixmap.height() > PREVIEW_HEIGHT:
             pixmap = pixmap.scaledToHeight(PREVIEW_HEIGHT, Qt.SmoothTransformation)
@@ -435,8 +446,9 @@ class ScreenTextWindow(QWidget):
         blocks = build_blocks(boxes)
         if not blocks:
             self._restore_preview()
-            self._show_intro("empty")
+            self._show_problem("empty")
             return
+        self.result_message_label.hide()
         self._blocks = blocks
         self._result_preview, self._pending_preview = self._pending_preview, QPixmap()
         self._had_unsure = any(cell.unsure for block in blocks for row in rows_of(block) for cell in row)
@@ -450,17 +462,33 @@ class ScreenTextWindow(QWidget):
             return
         self._cancel_event = None
         self._restore_preview()
-        self._show_intro(kind)
+        self._show_problem(kind)
 
     # ── 결과 표시와 편집 ──
+    def _show_problem(self, kind):
+        """다시 고르기가 막히거나 비거나 실패했을 때. 이전 결과가 있으면 그 결과 화면에서 안내한다."""
+        if not self._blocks:
+            self._show_intro(kind)
+            return
+        self._model_broken = self._model_broken or kind == "model"
+        self.result_message_label.setText(MESSAGES[kind])
+        self.result_message_label.show()
+        self._show_result()
+
     def _show_intro(self, kind):
         self._model_broken = self._model_broken or kind == "model"
         self.message_label.setText(MESSAGES.get(kind, ""))
         self.message_label.setVisible(kind is not None)
-        self.capture_button.setEnabled(not self._model_broken)
+        self._sync_capture_buttons()
         self.stack.setCurrentWidget(self.intro_page)
 
+    def _sync_capture_buttons(self):
+        """모델 오류가 나면 두 화면의 다시 읽기 버튼([영역 고르기]·[다시 고르기])을 함께 막는다."""
+        self.capture_button.setEnabled(not self._model_broken)
+        self.again_button.setEnabled(not self._model_broken)
+
     def _show_result(self):
+        self._sync_capture_buttons()
         self.stack.setCurrentWidget(self.result_page)
         self.table_tab.setVisible(has_table(self._blocks))
         self._set_tab(self._tab)

@@ -108,3 +108,29 @@ def test_is_blocked_threshold():
     painter.end()
     assert not is_blocked(image)
     assert is_blocked(QImage())
+
+
+def test_null_shot_gets_no_overlay_and_normal_one_still_does(qtbot):
+    capture, got = started(qtbot, [(QRect(0, 0, 400, 300), QPixmap()), fake_shot(QRect(400, 0, 400, 300))])
+    assert len(capture.overlays) == 1
+    assert capture.overlays[0].geometry() == QRect(400, 0, 400, 300)
+    assert got["blocked"] == 0
+
+
+def test_blocked_shot_next_to_normal_one_gets_no_overlay(qtbot):
+    capture, got = started(qtbot, [fake_shot(QRect(0, 0, 400, 300), fill="black"), fake_shot(QRect(400, 0, 400, 300))])
+    assert len(capture.overlays) == 1
+    assert capture.overlays[0].geometry() == QRect(400, 0, 400, 300)
+    assert got["blocked"] == 0
+
+
+def test_only_null_shots_report_blocked_without_overlay(qtbot):
+    capture, got = started(qtbot, [(QRect(0, 0, 400, 300), QPixmap()), (QRect(400, 0, 400, 300), QPixmap())])
+    assert got["blocked"] == 1 and not capture.overlays
+
+
+def test_crop_physical_outside_pixmap_returns_null_image():
+    _, pixmap = fake_shot(QRect(0, 0, 100, 80), 1.25)
+    assert crop_physical(pixmap, QRect(500, 500, 20, 20)).isNull()
+    assert crop_physical(pixmap, QRect(10, 10, 0, 0)).isNull()
+    assert not crop_physical(pixmap, QRect(10, 10, 9, 7)).isNull()
