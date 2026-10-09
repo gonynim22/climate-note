@@ -21,7 +21,7 @@ from PySide6.QtGui import (
     QDesktopServices, QIcon, QPixmap, QColor, QKeySequence, QShortcut,
 )
 
-from qfluentwidgets import setTheme, setThemeColor, Theme, isDarkTheme, InfoBar, InfoBarPosition
+from qfluentwidgets import setTheme, setThemeColor, Theme, InfoBar, InfoBarPosition
 
 from app_fonts import apply_app_font, load_app_fonts, load_icon_fonts, load_ui_fonts
 from app_paths import resource_root
@@ -90,18 +90,18 @@ def _refresh_startup_path():
         pass  # 레지스트리 접근 실패 시 무시 (비치명적)
 
 
-# ─── Windows 다크/라이트 모드 감지 ────────────────────────────
-def _detect_system_theme() -> Theme:
-    try:
-        import winreg
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
-        ) as key:
-            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-            return Theme.LIGHT if value == 1 else Theme.DARK
-    except (OSError, FileNotFoundError):
-        return Theme.LIGHT
+# ─── 앱 테마: Windows 다크 모드와 무관하게 항상 밝게 ─────────────
+def _apply_light_theme(app: QApplication) -> None:
+    """창 바탕이 흰색·남색으로 고정된 디자인이라 테마를 밝게 고정한다.
+
+    Windows가 다크면 Fluent 위젯뿐 아니라 Qt 기본 위젯 팔레트(windows11 스타일)도
+    어두워진다. 한쪽만 고정하면 흰 바탕에 흰 글자가 남으므로 둘 다 고정한다.
+    Qt 색 구성표를 명시해 두면 실행 중 Windows 테마가 바뀌어도 따라가지 않는다.
+    """
+    app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    setTheme(Theme.LIGHT)
+    # ── 단일 블루 액센트(#2563EB): 토글/슬라이더/포인트색을 앱 전역 통일
+    setThemeColor(QColor("#2563EB"))
 
 
 # ─── 트레이 아이콘 생성 ────────────────────────────────────────
@@ -219,11 +219,8 @@ def main():
     load_ui_fonts(_error_logger)
     apply_app_font(db.DEFAULT_APP_FONT, app)
 
-    # ── 테마 설정 (시스템 연동)
-    theme = _detect_system_theme()
-    setTheme(theme)
-    # ── 단일 블루 액센트(#2563EB): 토글/슬라이더/포인트색을 앱 전역 통일
-    setThemeColor(QColor("#2563EB"))
+    # ── 테마 설정 (항상 밝게, 창을 만들기 전에)
+    _apply_light_theme(app)
 
     # ── Win11 DWM 창 테두리가 팝업 메뉴 주위에 넓은 박스로 보이는 문제 우회
     from popup_border_fix import install_popup_border_fix
@@ -293,17 +290,6 @@ def main():
     boss_key = QShortcut(QKeySequence("Ctrl+Shift+H"), main_window)
     boss_key.setContext(Qt.ApplicationShortcut)
     boss_key.activated.connect(main_window.toggle_visibility)
-
-    # ── 시스템 테마 변경 감지 (1분 주기)
-    theme_timer = QTimer()
-    theme_timer.setInterval(60_000)
-    def _check_theme():
-        new_theme = _detect_system_theme()
-        if (new_theme == Theme.DARK) != isDarkTheme():
-            setTheme(new_theme)
-            setThemeColor(QColor("#2563EB"))  # 테마 전환 후에도 블루 액센트 유지
-    theme_timer.timeout.connect(_check_theme)
-    theme_timer.start()
 
     def _on_quit():
         audit("앱 종료", "성공")

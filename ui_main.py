@@ -735,6 +735,8 @@ class LockOverlay(QWidget):
     def __init__(self, parent: QWidget):
         super().__init__(parent)
         self.setObjectName("lockOverlay")
+        # QWidget 하위 클래스는 이 속성이 없으면 QSS 배경을 칠하지 않아 내용이 비친다.
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet("""
             #lockOverlay {
                 background: #1e1e2e; /* Fully opaque dark background */
@@ -768,7 +770,10 @@ class LockOverlay(QWidget):
         layout.addWidget(self.error_lbl)
 
         unlock_btn = TransparentPushButton("잠금 해제", self)
-        unlock_btn.setStyleSheet("color: white; border: 1px solid white;")
+        unlock_btn.setStyleSheet(
+            "color: white; border: 1px solid rgba(255, 255, 255, 0.7);"
+            " border-radius: 6px; padding: 6px 20px;"
+        )
         unlock_btn.clicked.connect(self._check_pin)
         layout.addWidget(unlock_btn, 0, Qt.AlignCenter)
 

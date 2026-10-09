@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint
 from PySide6.QtWidgets import QApplication
 from shiboken6 import isValid
 
@@ -195,6 +195,32 @@ def test_lock_survives_tray_and_restores_correct_mode(qtbot, scale):
     assert win._sticky_windows[note_id].isVisible() == (scale != "large")
     assert next(iter(win._focus_windows.values())).isVisible() == (scale != "large")
     assert next(iter(win._dday_windows.values())).isVisible() == (scale != "large")
+
+
+@pytest.mark.parametrize("scale", ["compact", "large"])
+def test_lock_overlay_paints_opaque_background_over_contents(qtbot, scale):
+    win, _ = _main(qtbot, scale)
+    db.add_schedule(datetime.now().date().isoformat(), "잠금 중에 보이면 안 되는 일정", "#FF6B6B")
+    win._lock()
+    QApplication.processEvents()
+    image = win.grab().toImage()
+    ratio = image.devicePixelRatio()
+    container = win.container
+    inset = 24  # 둥근 모서리(12px) 바깥은 피한다.
+    corners = (
+        (inset, inset),
+        (container.width() - inset, inset),
+        (inset, container.height() - inset),
+        (container.width() - inset, container.height() - inset),
+    )
+    # 머리줄·사이드바·달력·일정 자리 모두 잠금 배경으로 덮여야 한다(내용이 비치면 개인정보 노출).
+    for x, y in corners:
+        point = container.mapTo(win, QPoint(x, y))
+        assert image.pixelColor(int(point.x() * ratio), int(point.y() * ratio)).name() == "#1e1e2e"
+    for target in (win.schedule_list, win.sidebar):
+        if target.isVisible():
+            point = target.mapTo(win, target.rect().bottomLeft() + QPoint(8, -8))
+            assert image.pixelColor(int(point.x() * ratio), int(point.y() * ratio)).name() == "#1e1e2e"
 
 
 @pytest.mark.parametrize("kind", ["search", "settings", "trash"])
