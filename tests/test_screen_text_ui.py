@@ -592,7 +592,7 @@ def test_blocked_recapture_keeps_edited_result_page_with_message(qtbot, make):
     win.start_capture()
     qtbot.waitUntil(win.isVisible, timeout=2000)
     assert_result_page_kept(win, first, BLOCKED_TEXT)
-    assert win.copy_button.hasFocus()
+    assert win.focusWidget() is win.copy_button
 
 
 def test_model_error_on_recapture_keeps_result_page_and_disables_recapture(qtbot, make):
@@ -648,7 +648,7 @@ def test_null_captured_image_is_treated_like_cancel(qtbot, make):
     win.hide()
     win._on_captured(QImage())
     assert win.isVisible() and win.stack.currentWidget() is win.intro_page
-    assert win._cancel_event is None and win._generation == 0 and win.capture_button.hasFocus()
+    assert win._cancel_event is None and win._generation == 0 and win.focusWidget() is win.capture_button
     qtbot.wait(150)
     assert engine.calls == 0 and win.stack.currentWidget() is win.intro_page
 
@@ -661,7 +661,7 @@ def test_null_captured_image_leaves_existing_result_page_untouched(qtbot, make):
     win._on_captured(QImage())
     assert win.isVisible() and win.stack.currentWidget() is win.result_page
     assert win.text_edit.toPlainText() == "고친 글자" and win.preview.pixmap().size() == first
-    assert win._cancel_event is None and win.copy_button.hasFocus()
+    assert win._cancel_event is None and win.focusWidget() is win.copy_button
     qtbot.wait(150)
     assert engine.calls == calls
 
