@@ -198,6 +198,7 @@ def test_windows_version_parts_maps_letter_suffix_to_patch_position():
     assert _windows_version_parts("v3.8d") == (3, 8, 4, 0)
     assert _windows_version_parts("v3.8e") == (3, 8, 5, 0)
     assert _windows_version_parts("v3.9") == (3, 9, 0, 0)
+    assert _windows_version_parts("v3.9a") == (3, 9, 1, 0)
 
     # 접미사가 붙은 버전은 붙지 않은 같은 base보다 커야 한다.
     assert _windows_version_parts("v3.6a") > _windows_version_parts("v3.6")
