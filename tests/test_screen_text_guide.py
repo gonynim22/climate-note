@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 from PySide6.QtCore import QPoint, QSize, Qt
-from PySide6.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QFont, QImage
 from PySide6.QtTest import QTest
 
 from screen_text.guide import CAPTIONS, UsageGuide
@@ -161,3 +161,73 @@ def test_loop_edges_fade_out_so_the_repeat_has_no_hard_cut(guide):
     for edge in (0.0, 1.0):
         picture = render(guide, edge)
         assert near(picture, ACCENT) == 0 and near(picture, ORANGE) == 0 and near(picture, YELLOW) == 0
+
+
+class CountingGuide(UsageGuide):
+    """다시 그린 횟수를 센다(애니메이션이 매 프레임 그려 그림자 효과를 계속 다시 흐리게 하지 않는지 확인)."""
+
+    def __init__(self):
+        super().__init__()
+        self.paints = 0
+
+    def paintEvent(self, event):
+        self.paints += 1
+        super().paintEvent(event)
+
+
+@pytest.fixture
+def counting(qtbot):
+    widget = CountingGuide()
+    qtbot.addWidget(widget)
+    widget.resize(widget.sizeHint())
+    return widget
+
+
+def test_repaints_are_throttled_to_about_24_per_second(qtbot, counting):
+    counting.show()
+    qtbot.waitExposed(counting)
+    counting.restart()
+    qtbot.wait(50)
+    before = counting.paints
+    qtbot.wait(1000)
+    painted = counting.paints - before
+    assert counting.is_running()
+    assert 8 <= painted <= 30, painted  # 프레임마다(초당 약 60번) 그리면 이 범위를 넘는다
+
+
+def test_set_progress_and_restart_always_repaint(qtbot, counting):
+    counting.show()
+    qtbot.waitExposed(counting)
+    counting.set_progress(0.2)
+    qtbot.wait(40)
+    for progress in (0.2001, 0.2002, 0.3):  # 문턱(1/144)보다 작은 변화도 바로 다시 그린다
+        before = counting.paints
+        counting.set_progress(progress)
+        qtbot.waitUntil(lambda: counting.paints > before, timeout=1000)
+    before = counting.paints
+    counting.restart()
+    qtbot.waitUntil(lambda: counting.paints > before, timeout=1000)
+
+
+def test_step_change_repaints_immediately(qtbot, counting):
+    counting.show()
+    qtbot.waitExposed(counting)
+    counting.set_progress(1 / 3 - 0.0005)  # 문턱보다 가깝지만 단계가 바뀌는 지점을 넘는다
+    qtbot.wait(40)
+    before = counting.paints
+    counting._on_value(1 / 3 + 0.0005)
+    qtbot.waitUntil(lambda: counting.paints > before, timeout=1000)
+    assert counting.step() == 1
+
+
+def test_fonts_are_cached_and_follow_font_changes(guide):
+    first = guide._font(13)
+    assert guide._font(13) is first
+    assert guide._font(13, bold=True) is not first
+    fitted = guide._fit_caption(0, 300)
+    assert guide._fit_caption(0, 300) is fitted
+    bigger = QFont(guide.font())
+    bigger.setFamily("Arial")
+    guide.setFont(bigger)
+    assert guide._fonts == {} and guide._caption_fit == {}
+    assert guide._font(13) is not first and guide._font(13).family() == "Arial"

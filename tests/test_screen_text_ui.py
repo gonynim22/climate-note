@@ -645,6 +645,8 @@ def test_shutdown_hides_result_page_message(qtbot, make):
 def test_null_captured_image_is_treated_like_cancel(qtbot, make):
     engine = FakeEngine(TABLE)
     win = make(engine)
+    win.capture_button.clearFocus()  # 시작 때 이미 [영역 고르기]에 있던 포커스가 아니라 _reappear가 준 것임을 확인한다
+    assert win.focusWidget() is None
     win.hide()
     win._on_captured(QImage())
     assert win.isVisible() and win.stack.currentWidget() is win.intro_page
@@ -656,6 +658,8 @@ def test_null_captured_image_is_treated_like_cancel(qtbot, make):
 def test_null_captured_image_leaves_existing_result_page_untouched(qtbot, make):
     engine = FakeEngine(TABLE)
     win, first = edited_result_page(qtbot, make, engine)
+    win.copy_button.clearFocus()
+    assert win.focusWidget() is not win.copy_button  # 포커스는 _reappear가 [복사]에 준 것이어야 한다
     win.hide()
     calls = engine.calls
     win._on_captured(QImage())
