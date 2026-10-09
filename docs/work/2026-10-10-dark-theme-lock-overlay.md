@@ -1,6 +1,6 @@
 # 작업 기록: Windows 다크 모드 깨짐과 잠금 화면 투명 수정
 
-작성일: 2026-10-10 / 상태: 로컬 구현·검증 완료(main 병합·버전·빌드·push는 사용자 승인 대기)
+작성일: 2026-10-10 / 상태: 로컬 구현·검증 완료, main 병합(`d516a57`, fast-forward). 버전·빌드·push는 사용자 승인 대기
 
 ## 목표와 범위
 
@@ -43,5 +43,5 @@
 
 - 남은 문제 / 수동 확인: 실제 Windows 다크 설정에서 EXE 실행과, 실행 중 Windows 테마 전환 뒤에도 밝게 유지되는지(자동 검사는 Qt 색 구성표 요청으로만 흉내 낸다). 고대비 모드는 Qt가 색 구성표 요청을 따르지 않으며 이번 범위 밖이다.
 - 변경한 정본 문서: [UI 계약](../UI_PATTERNS.md)(Theme·전역 블루 액센트·Privacy Lock), [테스트 문서](../TESTING.md).
-- 다음 행동: 사용자 확인 뒤 `main` 병합. 버전(예: v3.9b)·PowerShell release 빌드·push는 별도 승인.
-- 배포·커밋·push 여부: 브랜치 `fix/dark-theme-lock-overlay`에 커밋만. 병합·빌드·push는 하지 않음.
+- 다음 행동: 2026-10-10 사용자 지시로 `main`에 fast-forward 병합하고 브랜치를 지웠다(사용자 미커밋 `AGENTS.md` 4줄 보존을 위해 작업 폴더를 건드리지 않는 `update-ref` 방식). 버전(예: v3.9b)·PowerShell release 빌드·push는 별도 승인. 디자인 점검 다음 항목은 3번(집중 위젯 목표 잘림), 진행 상황은 `output/design/design-audit-20261009/design-audit.html` 위쪽 "진행 상황"에 있다.
+- 배포·커밋·push 여부: `main` 커밋·병합까지. 빌드·push는 하지 않음.
