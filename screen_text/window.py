@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from screen_text.capture import ScreenCapture, grab_screens
+from screen_text.guide import UsageGuide
 from screen_text.layout import Cell, Table, TextLine, build_blocks, has_table, plain_with_spans, rows_of, to_html, to_tsv
 
 _logger = logging.getLogger("app_error")
@@ -25,6 +26,7 @@ UNSURE_BACKGROUND = QColor("#FFE58A")
 INTRO_TEXT = "복사할 수 없는 이미지나 스캔 문서의 글자를 읽습니다.\n[영역 고르기]를 누른 뒤 화면에서 끌어서 고르세요."
 OFFLINE_TEXT = "인터넷 없이 이 PC에서만 처리합니다. 결과는 저장하지 않습니다."
 FIRST_LOAD_TEXT = "처음 한 번은 모델을 불러오느라 조금 더 걸립니다."
+TIPS_TEXT = "· 필요한 영역만 고르면 더 빠르고 정확합니다\n· 노란 칸은 인식이 불확실한 곳이니 꼭 확인하세요"
 MESSAGES = {
     "blocked": "보안 프로그램이 화면 캡처를 막아 글자를 딸 수 없습니다.",
     "empty": "고른 영역에서 글자를 찾지 못했습니다.",
@@ -191,6 +193,12 @@ class ScreenTextWindow(QWidget):
         self.offline_label.setProperty("muted", True)
         self.offline_label.setWordWrap(True)
         intro.addWidget(self.offline_label)
+        self.intro_guide = UsageGuide()
+        intro.addWidget(self.intro_guide)
+        self.tips_label = QLabel(TIPS_TEXT)
+        self.tips_label.setProperty("muted", True)
+        self.tips_label.setWordWrap(True)
+        intro.addWidget(self.tips_label)
         intro.addStretch()
         self.stack.addWidget(self.intro_page)
 
@@ -260,11 +268,37 @@ class ScreenTextWindow(QWidget):
         actions.addWidget(self.copy_button)
         actions.addWidget(self.again_button)
         actions.addStretch()
+        self.help_button = QPushButton("사용법")
+        self.help_button.setToolTip("사용 방법 보기")
+        self.help_button.setAccessibleName("화면 글자 따기 사용법 보기")
+        self.help_button.clicked.connect(self._show_guide)
+        actions.addWidget(self.help_button)
         result.addLayout(actions)
         note = QLabel(OFFLINE_TEXT)
         note.setProperty("muted", True)
         result.addWidget(note)
         self.stack.addWidget(self.result_page)
+
+        self.guide_page = QWidget()  # 결과 화면에서 [사용법]으로 여는 사용 방법. 결과는 건드리지 않는다
+        guide_layout = QVBoxLayout(self.guide_page)
+        guide_layout.setContentsMargins(0, 0, 0, 0)
+        guide_layout.setSpacing(12)
+        self.guide_title_label = QLabel("사용 방법")
+        self.guide_title_label.setObjectName("screenTextTitle")
+        guide_layout.addWidget(self.guide_title_label)
+        self.help_guide = UsageGuide()
+        guide_layout.addWidget(self.help_guide)
+        self.guide_tips_label = QLabel(TIPS_TEXT)
+        self.guide_tips_label.setProperty("muted", True)
+        self.guide_tips_label.setWordWrap(True)
+        guide_layout.addWidget(self.guide_tips_label)
+        self.back_button = QPushButton("돌아가기")
+        self.back_button.setProperty("primary", True)
+        self.back_button.setFixedHeight(40)
+        self.back_button.clicked.connect(self._close_guide)
+        guide_layout.addWidget(self.back_button)
+        guide_layout.addStretch()
+        self.stack.addWidget(self.guide_page)
         for button in self.findChildren(QPushButton):
             button.installEventFilter(self)
 
@@ -342,6 +376,20 @@ class ScreenTextWindow(QWidget):
         self.hide()
         self._capture_timer.start()
 
+    def _show_guide(self):
+        """사용 방법 화면. 결과 글자·표·탭·상태는 그대로 두고 화면만 바꾼다."""
+        self.stack.setCurrentWidget(self.guide_page)
+        self.back_button.setFocus(Qt.OtherFocusReason)
+
+    def _close_guide(self):
+        """결과 화면으로 되돌린다. 결과를 다시 채우지 않으므로 고친 내용·탭·상태가 그대로다."""
+        if not self._blocks:
+            self._show_intro(None)
+            return
+        self._sync_capture_buttons()
+        self.stack.setCurrentWidget(self.result_page)
+        self.help_button.setFocus(Qt.OtherFocusReason)  # 눌렀던 단추로 돌아간다
+
     def copy_result(self):
         mime = QMimeData()
         if self._tab == "table":
@@ -363,7 +411,9 @@ class ScreenTextWindow(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
-        target = self.copy_button if self.stack.currentWidget() is self.result_page else self.capture_button
+        page = self.stack.currentWidget()
+        target = (self.copy_button if page is self.result_page
+                  else self.back_button if page is self.guide_page else self.capture_button)
         target.setFocus(Qt.OtherFocusReason)
 
     def _on_blocked(self):

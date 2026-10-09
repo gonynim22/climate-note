@@ -10,6 +10,7 @@ from PySide6.QtCore import QPoint, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPixmap, QTextCursor
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QWidget
 from qfluentwidgets.common.font import fontFamilies, setFontFamilies
 
 from app_fonts import apply_app_font
@@ -20,7 +21,7 @@ import ui_main
 from screen_text import APP
 from screen_text.engine import ModelIntegrityError, RecognitionCancelled
 from screen_text.layout import TextBox
-from screen_text.window import ScreenTextWindow
+from screen_text.window import CONTENT_HEIGHT, CONTENT_WIDTH, SHADOW_MARGIN, ScreenTextWindow
 
 ROOT = Path(__file__).resolve().parents[1]
 TABLE = [
@@ -663,3 +664,173 @@ def test_null_captured_image_leaves_existing_result_page_untouched(qtbot, make):
     assert win._cancel_event is None and win.copy_button.hasFocus()
     qtbot.wait(150)
     assert engine.calls == calls
+
+
+TIPS_TEXT = "· 필요한 영역만 고르면 더 빠르고 정확합니다\n· 노란 칸은 인식이 불확실한 곳이니 꼭 확인하세요"
+
+
+def shown_children(page):
+    return [child for child in page.findChildren(QWidget, options=Qt.FindDirectChildrenOnly) if child.isVisible()]
+
+
+def assert_no_overlap(page):
+    rects = {child: child.geometry() for child in shown_children(page)}
+    assert rects and all(page.rect().contains(rect) for rect in rects.values())
+    items = list(rects.items())
+    for index, (first, a) in enumerate(items):
+        for second, b in items[index + 1:]:
+            assert not a.intersects(b), (first, second)
+
+
+def test_intro_page_shows_usage_guide_and_tips(qtbot, make):
+    win = make()
+    assert win.stack.currentWidget() is win.intro_page
+    guide = win.intro_guide
+    assert guide.isVisible() and guide.is_running()
+    assert win.tips_label.text() == TIPS_TEXT and win.tips_label.wordWrap()
+    assert win.tips_label.property("muted") is True
+    assert win.tips_label.isVisible()
+    # 순서: 설명 → 영역 고르기 → 인터넷 없음 안내 → 애니메이션 → 팁. 서로 겹치지 않고 페이지 안에 있다
+    assert win.offline_label.geometry().bottom() < guide.geometry().top()
+    assert win.tips_label.geometry().top() > guide.geometry().bottom()
+    assert guide.height() >= guide.minimumSizeHint().height() and guide.height() >= 160
+    assert_no_overlap(win.intro_page)
+    win.hide()
+    assert not guide.is_running()
+    win.show()
+    qtbot.waitUntil(guide.is_running, timeout=2000)
+
+
+def test_intro_guide_stops_when_page_changes_and_resumes(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    assert win.intro_guide.is_running()
+    recognized(qtbot, win)
+    assert win.stack.currentWidget() is win.result_page
+    assert not win.intro_guide.is_running()
+    win.shutdown()
+    assert win.stack.currentWidget() is win.intro_page
+    assert win.intro_guide.is_running()
+
+
+def test_window_still_fits_content_size_on_every_page(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    limit_w, limit_h = CONTENT_WIDTH + 2 * SHADOW_MARGIN, CONTENT_HEIGHT + 2 * SHADOW_MARGIN
+    assert win.width() <= limit_w and win.height() <= limit_h
+    recognized(qtbot, win)
+    win._show_guide()
+    for page in (win.intro_page, win.result_page, win.guide_page):
+        win.stack.setCurrentWidget(page)
+        assert win.minimumSizeHint().width() <= win.width(), page
+        assert win.minimumSizeHint().height() <= win.height(), page
+    win.stack.setCurrentWidget(win.guide_page)
+    assert_no_overlap(win.guide_page)
+
+
+def test_result_page_has_help_button_right_of_again_button(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    recognized(qtbot, win)
+    assert win.help_button.text() == "사용법"
+    assert win.help_button.toolTip() == "사용 방법 보기"
+    assert win.help_button.accessibleName() == "화면 글자 따기 사용법 보기"
+    again, help_rect, copy = win.again_button.geometry(), win.help_button.geometry(), win.copy_button.geometry()
+    assert help_rect.left() > again.right() and abs(help_rect.center().y() - again.center().y()) <= 2
+    assert copy.right() < again.left()
+    assert help_rect.right() <= win.result_page.rect().right()
+
+
+def test_help_opens_guide_page_and_back_restores_result_untouched(qtbot, make):
+    win, preview_size = edited_result_page(qtbot, make, FakeEngine(TABLE))
+    status, tab, status_done = win.status_label.text(), win._tab, win.status_label.property("done")
+    blocks, spans, rows = win._blocks, list(win._text_spans), list(win._table_rows)
+    qtbot.mouseClick(win.help_button, Qt.LeftButton)
+    assert win.stack.currentWidget() is win.guide_page
+    assert win.help_guide.isVisible() and win.help_guide.is_running()
+    assert win.back_button.text() == "돌아가기" and win.focusWidget() is win.back_button
+    assert win.guide_title_label.text() == "사용 방법" and win.guide_tips_label.text() == TIPS_TEXT
+    assert_no_overlap(win.guide_page)
+    qtbot.mouseClick(win.back_button, Qt.LeftButton)
+    assert win.stack.currentWidget() is win.result_page
+    assert not win.help_guide.is_running()
+    assert win.text_edit.toPlainText() == "고친 글자"
+    assert win._tab == tab and win.text_tab.isChecked() and win.result_stack.currentWidget() is win.text_edit
+    assert win.status_label.text() == status and win.status_label.property("done") == status_done
+    assert win.preview.pixmap().size() == preview_size
+    assert win._blocks is blocks and win._text_spans == spans and win._table_rows == rows
+    assert win.copy_button.isEnabled() and win.again_button.isEnabled() and win.help_button.isEnabled()
+
+
+def test_help_round_trip_keeps_table_edit_and_table_tab(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    recognized(qtbot, win)
+    assert win._tab == "table"
+    win.table.item(1, 1).setText("43")
+    status, texts = win.status_label.text(), win.text_edit.toPlainText()
+    qtbot.mouseClick(win.help_button, Qt.LeftButton)
+    qtbot.mouseClick(win.back_button, Qt.LeftButton)
+    assert win.stack.currentWidget() is win.result_page and win._tab == "table" and win.table_tab.isChecked()
+    assert win.table.item(1, 1).text() == "43" and win.status_label.text() == status
+    assert win.text_edit.toPlainText() == texts
+
+
+def test_back_without_results_falls_back_to_intro(qtbot, make):
+    win = make()
+    win._show_guide()
+    assert win.stack.currentWidget() is win.guide_page and win.help_guide.is_running()
+    win._close_guide()
+    assert win.stack.currentWidget() is win.intro_page and not win.help_guide.is_running()
+
+
+def test_enter_on_guide_buttons_clicks_them(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    recognized(qtbot, win)
+    QTest.keyClick(win.help_button, Qt.Key_Return)
+    assert win.stack.currentWidget() is win.guide_page
+    QTest.keyClick(win.back_button, Qt.Key_Enter)
+    assert win.stack.currentWidget() is win.result_page
+
+
+def test_escape_on_guide_page_still_closes_the_window(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    recognized(qtbot, win)
+    win._show_guide()
+    QTest.keyClick(win.back_button, Qt.Key_Escape)
+    assert not win.isVisible() and not win.help_guide.is_running()
+    assert win.stack.currentWidget() is win.guide_page  # 닫아도 결과·화면은 다음 열기까지 유지
+
+
+def test_reopening_on_guide_page_focuses_back_button(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    recognized(qtbot, win)
+    win._show_guide()
+    win.close()
+    assert not win.help_guide.is_running()
+    win.show_near(QRect(100, 100, 64, 48), QGuiApplication.primaryScreen().availableGeometry())
+    qtbot.waitExposed(win)
+    assert win.stack.currentWidget() is win.guide_page and win.focusWidget() is win.back_button
+    assert win.help_guide.is_running()
+
+
+def test_lifecycle_calls_work_on_guide_page(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    recognized(qtbot, win)
+    win._show_guide()
+    win.hide_owned_popups()
+    win.cancel_work()
+    win.fit_to_screen()
+    assert win.stack.currentWidget() is win.guide_page and win.help_guide.is_running()
+    win.shutdown()
+    assert win.stack.currentWidget() is win.intro_page
+    assert not win.help_guide.is_running() and win.intro_guide.is_running()
+    assert win._blocks == [] and win.text_edit.toPlainText() == ""
+
+
+def test_model_error_keeps_help_available(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    recognized(qtbot, win)
+    win._model_broken = True
+    win._sync_capture_buttons()
+    assert not win.again_button.isEnabled() and win.help_button.isEnabled()
+    qtbot.mouseClick(win.help_button, Qt.LeftButton)
+    assert win.stack.currentWidget() is win.guide_page
+    qtbot.mouseClick(win.back_button, Qt.LeftButton)
+    assert win.stack.currentWidget() is win.result_page and not win.again_button.isEnabled()
