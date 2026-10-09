@@ -46,7 +46,7 @@ def test_three_steps_render_distinct_frames_with_step_colors(guide):
     assert pixels(first).tobytes() != pixels(second).tobytes()
     assert pixels(second).tobytes() != pixels(third).tobytes()
     assert pixels(first).tobytes() != pixels(third).tobytes()
-    rows = int(guide.scene_rect().bottom())
+    rows = int(guide.scene_rect().bottom() * first.devicePixelRatio())  # 그림 영역(장치 픽셀)
     assert near(second, ORANGE, rows) >= 20  # 2단계: 주황 상자
     assert near(third, YELLOW, rows) >= 100  # 3단계: 확인 필요 노란 칸
     assert near(first, YELLOW, rows) == 0 and near(second, YELLOW, rows) == 0

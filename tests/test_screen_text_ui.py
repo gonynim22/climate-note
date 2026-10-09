@@ -726,6 +726,23 @@ def test_window_still_fits_content_size_on_every_page(qtbot, make):
     assert_no_overlap(win.guide_page)
 
 
+@pytest.mark.parametrize("height", [520, 440, 410])
+def test_small_screen_compresses_the_guide_without_clipping_or_overlap(qtbot, height):
+    win = ScreenTextWindow(None, engine_factory=lambda: FakeEngine(TABLE), grab=shot)
+    qtbot.addWidget(win)
+    win.show_near(QRect(10, 10, 64, 48), QRect(0, 0, 700, height))
+    qtbot.waitExposed(win)
+    assert win.height() <= height
+    assert win.minimumSizeHint().height() <= win.height()
+    for guide, page, last in ((win.intro_guide, win.intro_page, win.tips_label), (win.help_guide, win.guide_page, win.back_button)):
+        win.stack.setCurrentWidget(page)
+        qtbot.waitUntil(lambda: guide.isVisible(), timeout=2000)
+        assert guide.height() >= guide.minimumSizeHint().height() >= 160 - 8
+        assert guide.rect().adjusted(0, 0, 1, 1).contains(guide.scene_rect().toAlignedRect())
+        assert last.geometry().bottom() <= page.rect().bottom()
+        assert_no_overlap(page)
+
+
 def test_result_page_has_help_button_right_of_again_button(qtbot, make):
     win = make(FakeEngine(TABLE))
     recognized(qtbot, win)

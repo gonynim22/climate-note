@@ -121,7 +121,7 @@ class UsageGuide(QWidget):
         height = max(1, self.height() - CAPTION_H)
         scale = min(self.width() / SCENE_W, height / SCENE_H)
         width, tall = SCENE_W * scale, SCENE_H * scale
-        return QRectF((self.width() - width) / 2, (height - tall) / 2, width, tall)
+        return QRectF(max(0.0, (self.width() - width) / 2), max(0.0, (height - tall) / 2), width, tall)
 
     def caption_rect(self):
         return QRectF(8, self.height() - CAPTION_H + 2, max(1, self.width() - 16), 24)
