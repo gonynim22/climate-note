@@ -44,7 +44,7 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 
 금액·숫자 표기 도우미는 `tests/test_money_notation.py`, `tests/test_ui_money_notation.py`, `tests/test_money_notation_integration.py`, `tests/test_ui_mini_apps.py`, `tests/test_mini_app_icons.py`를 함께 검사한다. 순수 계산은 시행규칙 예시·경계와 별도 참조 구현(결정적 난수 2만 건)을 대조하고 입력 거부·사사오입 경계·`Decimal` 정확도를 확인한다. UI는 세 모드×정상/오류/최장 입력×1000×900·480×500·420×500 작업 영역에서 스크롤·잘림이 없는지, 복사 형식·최근 기록·키보드를 검사한다. 통합은 세 앱의 독립 세션과 9개 수명 지점, DB/Export/salt 불변을 검사한다. `QT_SCALE_FACTOR=1.25`/`1.5`의 합성 배율은 실제 혼합 DPI/KVM 확인을 대체하지 않는다. 상세 기준은 [금액·숫자 표기 계약](MONEY_NOTATION.md)을 따른다.
 
-화면 글자 따기는 `tests/test_screen_text_layout.py`, `test_screen_text_engine.py`, `test_screen_text_capture.py`, `test_screen_text_ui.py`, `test_optional_mini_apps.py`를 함께 실행한다. 실제 화면을 찍지 않고 가짜 스크린샷과 Qt로 그린 합성 이미지만 쓴다. 125/150%는 `QT_SCALE_FACTOR` 합성 실행이며 실제 혼합 DPI/KVM·보안 프로그램 캡처 차단·한글 표 붙여넣기 확인을 대신하지 않는다.
+화면 글자 따기는 `tests/test_screen_text_layout.py`, `test_screen_text_engine.py`, `test_screen_text_capture.py`, `test_screen_text_ui.py`, `test_screen_text_guide.py`, `test_optional_mini_apps.py`를 함께 실행한다. 사용법 애니메이션은 단계별 프레임·단계 점·한 바퀴 처음과 끝의 흐려짐·좁은 크기와 125/150% 장치 배율·1초 동안 다시 그린 횟수(초당 약 24번 이하, 그림자 효과가 매 프레임 표면을 다시 흐리지 않게)를 `test_screen_text_guide.py`가, 사용법 화면 왕복(결과·탭·상태 유지)은 `test_screen_text_ui.py`가 검사한다. 포커스 검사는 OS 포그라운드와 무관하게 `focusWidget()`을 쓴다(`hasFocus()`는 사용자가 다른 앱을 쓰는 중이면 실패한다). 실제 화면을 찍지 않고 가짜 스크린샷과 Qt로 그린 합성 이미지만 쓴다. 125/150%는 `QT_SCALE_FACTOR` 합성 실행이며 실제 혼합 DPI/KVM·보안 프로그램 캡처 차단·한글 표 붙여넣기 확인을 대신하지 않는다.
 
 ### 실행 격리와 증거
 
