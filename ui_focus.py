@@ -5,9 +5,9 @@ import random
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDialog,
-    QGridLayout,
+    QGridLayout, QSizePolicy,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QRectF, QPoint
+from PySide6.QtCore import Qt, QTimer, Signal, QRectF, QPoint, QEvent
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPen, QPixmap
 
 from qfluentwidgets import (
@@ -193,6 +193,45 @@ class FocusProgressRing(QWidget):
         progress_pen.setCapStyle(Qt.RoundCap)
         painter.setPen(progress_pen)
         painter.drawArc(rect, 90 * 16, int(-360 * 16 * self._progress))
+
+
+class FocusGoalLabel(QLabel):
+    """목표 문구를 칸 폭에 맞게 말줄임한다. 줄였을 때만 전체 문구를 툴팁으로 보여 준다.
+
+    QLabel은 글자 전체 폭을 최소 폭으로 잡아, 고정 폭 위젯에서는 끝이 잘리고
+    크게 모드 오른쪽 열에서는 카드 폭을 밀어낸다. 가로 Ignored로 레이아웃이 준 폭만 쓴다.
+    """
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        self._full_text = text or ""
+        self._apply_elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply_elide()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        # 스타일시트 글꼴(12px 굵게)은 표시 직전에 적용되므로 그때 다시 잰다.
+        if event.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self._apply_elide()
+
+    def _apply_elide(self) -> None:
+        width = self.contentsRect().width()
+        shown = (
+            self.fontMetrics().elidedText(self._full_text, Qt.ElideRight, width)
+            if width > 0 else self._full_text
+        )
+        if shown != self._full_text and shown.endswith("…"):
+            shown = shown[:-1].rstrip() + "…"  # 단어 사이에서 잘리면 "초안 …" 대신 "초안…"
+        super().setText(shown)
+        self.setToolTip(self._full_text if shown != self._full_text else "")
 
 
 class _ClickableLabel(QLabel):
@@ -426,7 +465,7 @@ class FocusWidgetWindow(QWidget):
 
         text_col = QVBoxLayout()
         text_col.setSpacing(0)
-        self.goal_label = QLabel(self._goal or "집중 목표")
+        self.goal_label = FocusGoalLabel(self._goal or "집중 목표", self)
         self.goal_label.setStyleSheet("font-size: 12px; font-weight: 700; color: #172033; background: transparent;")
         self.goal_label.setFixedHeight(22)
         text_col.addWidget(self.goal_label)

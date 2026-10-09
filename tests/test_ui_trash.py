@@ -1,5 +1,6 @@
 # tests/test_ui_trash.py - 휴지통 창 UI 테스트
 import pytest
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
 import database as db
@@ -41,6 +42,33 @@ def test_empty_state_when_no_trash(trash_win):
     assert trash_win.table.rowCount() == 0
     assert trash_win.empty_label.isVisible()
 
+
+@pytest.mark.parametrize("selected", [False, True])
+def test_color_column_draws_note_color_dot(qtbot, app_dir, qapp, selected):
+    """표 스타일시트가 칸 배경을 덮어도 지운 노트의 색이 칸 가운데 작은 원으로 보인다."""
+    nid = db.create_sticky_note("memo", 200, 200, "#C4D5FF")
+    db.trash_sticky_note(nid)
+    win = StickyTrashWindow()
+    qtbot.addWidget(win)
+    win.show()
+    qtbot.waitExposed(win)
+    if selected:
+        win.table.selectRow(0)
+    else:
+        win.table.clearSelection()
+    QApplication.processEvents()
+
+    image = win.table.viewport().grab().toImage()
+    ratio = image.devicePixelRatio()
+    rect = win.table.visualRect(win.table.model().index(0, 0))
+
+    def pixel(point):
+        return image.pixelColor(int(point.x() * ratio), int(point.y() * ratio)).name()
+
+    assert pixel(rect.center()) == "#c4d5ff"
+    if not selected:
+        # 칸 전체가 아니라 가운데 원만 칠한다(모서리는 표 바탕).
+        assert pixel(rect.topLeft() + QPoint(3, 3)) == "#ffffff"
 
 def test_restore_emits_signal_and_refreshes(qtbot, app_dir, qapp):
     nid = db.create_sticky_note()

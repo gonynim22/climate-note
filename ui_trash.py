@@ -3,10 +3,10 @@ import logging
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QSizePolicy
+    QHeaderView, QAbstractItemView, QSizePolicy, QStyledItemDelegate
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QColor, QTextDocument
+from PySide6.QtCore import Qt, Signal, QRectF
+from PySide6.QtGui import QFont, QColor, QTextDocument, QPainter, QPen
 
 from qfluentwidgets import (
     PrimaryPushButton, PushButton, BodyLabel, CaptionLabel, MessageBox,
@@ -15,6 +15,9 @@ from qfluentwidgets import (
 import database as db
 
 _logger = logging.getLogger("app_error")
+
+_NOTE_COLOR_ROLE = Qt.UserRole + 1
+_COLOR_DOT_SIZE = 14
 
 
 def _preview_text(html: str, limit: int = 40) -> str:
@@ -25,6 +28,28 @@ def _preview_text(html: str, limit: int = 40) -> str:
     if not text:
         return "(빈 노트)"
     return text[:limit] + ("..." if len(text) > limit else "")
+
+
+class _ColorDotDelegate(QStyledItemDelegate):
+    """색상 칸 가운데에 노트 색 원을 그린다.
+
+    표 QSS의 `::item` 규칙이 칸 배경색(BackgroundRole)을 덮어 칸이 비어 보였다.
+    연한 노트 색도 흰 바탕에서 보이도록 한 단계 진한 1px 테두리를 둔다.
+    """
+
+    def paint(self, painter, option, index):
+        super().paint(painter, option, index)
+        color = QColor(index.data(_NOTE_COLOR_ROLE) or "")
+        if not color.isValid():
+            return
+        dot = QRectF(0, 0, _COLOR_DOT_SIZE, _COLOR_DOT_SIZE)
+        dot.moveCenter(QRectF(option.rect).center())
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(color.darker(130), 1))
+        painter.setBrush(color)
+        painter.drawEllipse(dot.adjusted(0.5, 0.5, -0.5, -0.5))
+        painter.restore()
 
 
 class StickyTrashWindow(QWidget):
@@ -74,6 +99,7 @@ class StickyTrashWindow(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.setItemDelegateForColumn(0, _ColorDotDelegate(self.table))
         self.table.setShowGrid(True)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.table.setStyleSheet("""
@@ -130,7 +156,7 @@ class StickyTrashWindow(QWidget):
         self.table.setRowCount(len(items))
         for row, it in enumerate(items):
             color_item = QTableWidgetItem("")
-            color_item.setBackground(QColor(it["color"]))
+            color_item.setData(_NOTE_COLOR_ROLE, it["color"])
             color_item.setData(Qt.UserRole, it["id"])  # 행 식별용 note_id
 
             content_item = QTableWidgetItem(_preview_text(it["content"]))

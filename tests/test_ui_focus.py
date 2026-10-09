@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication, QPushButton, QLabel
 
 import database as db
@@ -140,6 +140,41 @@ def test_focus_widget_ambient_hides_remaining_and_glance_shows(qtbot, app_dir, q
     assert "stop:0.48 #EEF6FF" in win.container.styleSheet()
     assert "stop:1 #DDE8FF" in win.container.styleSheet()
 
+
+def _shown_focus_window(qtbot, goal):
+    wid = db.create_focus_widget(goal, "25/5")
+    data = next(w for w in db.get_open_focus_widgets() if w["id"] == wid)
+    win = FocusWidgetWindow(wid, data)
+    qtbot.addWidget(win)
+    win.show()
+    qtbot.waitExposed(win)
+    return win
+
+
+@pytest.mark.parametrize("mode", ["ambient", "glance"])
+def test_focus_widget_long_goal_is_elided_beside_tomato(qtbot, app_dir, qapp, mode):
+    """긴 목표가 토마토·닫기 버튼 밑으로 파고들지 않고 말줄임되며, 전체 문구는 툴팁으로 남는다."""
+    goal = "보고서 초안 작성과 검토 의견 반영"
+    win = _shown_focus_window(qtbot, goal)
+    win._set_display_mode(mode)
+    QApplication.processEvents()
+
+    label = win.goal_label
+    neighbor = win.tomato_mini_label if mode == "ambient" else win.close_btn
+    label_right = label.mapTo(win, QPoint(label.width(), 0)).x()
+    neighbor_left = neighbor.mapTo(win, QPoint(0, 0)).x()
+    assert label_right <= neighbor_left
+    assert label.text().endswith("…")
+    assert not label.text()[:-1].endswith(" ")  # "초안 …"이 아니라 "초안…"
+    assert label.fontMetrics().horizontalAdvance(label.text()) <= label.contentsRect().width()
+    assert label.toolTip() == goal
+
+
+def test_focus_widget_short_goal_shows_full_text_without_tooltip(qtbot, app_dir, qapp):
+    win = _shown_focus_window(qtbot, "분석")
+
+    assert win.goal_label.text() == "분석"
+    assert win.goal_label.toolTip() == ""
 
 def test_focus_widget_control_mode_is_removed(qtbot, app_dir, qapp):
     wid = db.create_focus_widget("수정창 제거", "25/5")

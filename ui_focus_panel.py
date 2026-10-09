@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QLabel, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import TransparentToolButton, FluentIcon as FIF
 
-from ui_focus import FOCUS_ACCENT_COLOR, FocusProgressRing
+from ui_focus import FOCUS_ACCENT_COLOR, FocusGoalLabel, FocusProgressRing
 
 
 class FocusMiniCard(QWidget):
@@ -31,7 +31,7 @@ class FocusMiniCard(QWidget):
 
         col = QVBoxLayout()
         col.setSpacing(0)
-        self.goal_label = QLabel("집중 목표", self)
+        self.goal_label = FocusGoalLabel("집중 목표", self)
         self.goal_label.setStyleSheet(
             "font-size:12px;font-weight:700;color:#172033;background:transparent;"
         )

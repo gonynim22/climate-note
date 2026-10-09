@@ -38,6 +38,22 @@ def test_focus_mini_card_mirrors_progress(app_dir, qtbot, qapp):
     assert "미러" in card.goal_label.text()
 
 
+def test_focus_mini_card_long_goal_does_not_widen_card(app_dir, qtbot, qapp):
+    """크게 모드 오른쪽 열에서 긴 목표(최대 60자)가 카드 최소 폭을 밀어내지 않고 말줄임된다."""
+    from ui_focus_panel import FocusMiniCard
+    long_goal = "보고서 초안 작성과 검토 의견 반영 " * 3
+    short_card = FocusMiniCard(_make_source(qtbot, goal="짧은 목표"))
+    long_card = FocusMiniCard(_make_source(qtbot, goal=long_goal))
+    qtbot.addWidget(short_card)
+    qtbot.addWidget(long_card)
+
+    assert long_card.minimumSizeHint().width() <= short_card.minimumSizeHint().width()
+    long_card.resize(240, long_card.sizeHint().height())
+    long_card.show()
+    qtbot.waitExposed(long_card)
+    assert long_card.goal_label.text().endswith("…")
+    assert long_card.goal_label.toolTip() == long_goal
+
 def test_focus_panel_bind_and_clear(app_dir, qtbot, qapp):
     from ui_focus_panel import FocusSidePanel
     src = _make_source(qtbot)

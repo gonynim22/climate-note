@@ -111,6 +111,8 @@
 
 ## 기록 관리
 
+- 2026-10-10 집중 목표 잘림·휴지통 색상 칸 수정(디자인 점검 3·4번, 버전 v3.9a 유지, 커밋 전): 집중 위젯과 large 미니 카드의 목표를 `ui_focus.FocusGoalLabel`(가로 Ignored·말줄임·줄였을 때만 툴팁)로 바꿨다. 일반 QLabel이 목표 전체 폭을 최소 폭으로 잡아 241px 위젯에서는 끝이 잘리고 large 오른쪽 열은 긴 목표 때 300→471px로 넓어졌다. 휴지통 '색상' 칸은 표 QSS가 칸 배경색을 덮으므로 0열 delegate가 노트 색 원을 그린다. 데이터 영향 없음. full **20261010-003503-fbdda3f7ad**(1,827개)와 100/125/150% quick 각 277개 통과. 실제 EXE 확인·버전·빌드·push는 미실행이다. [작업 기록](docs/work/2026-10-10-focus-goal-trash-color.md)
+
 - 2026-10-10 Windows 다크 모드 깨짐·잠금 화면 투명 수정(디자인 점검 1·2번, 버전 v3.9a 유지, main 병합 `d516a57`): `main._apply_light_theme()`이 창을 만들기 전에 Qt 색 구성표와 qfluentwidgets 테마를 둘 다 밝게 고정하고 60초 Windows 테마 폴링을 지웠다. Windows가 다크면 Qt 기본 팔레트도 어두워지므로 Fluent만 고정하는 수정은 하지 않는다(측정: 설정 66%·D-Day 만들기 84% 픽셀이 여전히 다름). `LockOverlay`는 `WA_StyledBackground`로 불투명 배경을 칠해 창 전체를 덮는다. 데이터 영향 없음. full **20261010-001520-a5f256d488**(1,821개)와 100/125/150% quick 각 157개 통과. 실제 Windows 다크 설정의 EXE 확인, 버전·빌드·push는 미실행이다. [작업 기록](docs/work/2026-10-10-dark-theme-lock-overlay.md)
 
 - 2026-10-09 라이선스 안내·고지 정비는 **v3.9a (Windows 3.9.1.0, 버전·출시일 유지)** 후속이다. 기본 19개+선택형 OCR 3개 원문 열람과 HWP·PaddleOCR·Python/Qt 하위 고지를 보강했다. PowerShell `release` **20261009-183942-21246a4373**의 **1,816개 테스트·새 빌드·격리 EXE 3개 시나리오**, 125/150% quick 각 82개, 실제 EXE의 GPL/OCR 열람·닫기와 합성 데이터 불변 검증을 통과했다. 최신 `dist/기후노트_v3.9a.exe`는 **94,012,479 bytes**, SHA-256 **`3C80DBB06028A035EAADD866A21940D5AA95143E6CF61B5A2907E4DD92B6A41A`**다. 이전 사용법 안내 빌드와 버전이 같으므로 해시로 구분하며 이전 파일은 `output/harness/20261009-132546-f2aab9b4b1/dist/`에 보존했다. 모델·사전·Qt/네이티브·폰트·아이콘 160개는 이전 EXE와 동일하고 DB v17·Export v2·salt·설정·기능 로직·Qt/lock을 유지했다. 고지 정비가 공모전/배포 조건 전체의 확인을 뜻하지 않으며 GitLab Release 게시는 별도다. 실패한 보조 검사와 최종 증빙은 [작업 기록](docs/work/2026-10-09-license-notices-update.md)에 구분해 보존한다.
