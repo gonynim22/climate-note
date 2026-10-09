@@ -32,7 +32,7 @@ from ui_main import (
 )
 from ui_search import SearchWindow
 from ui_settings import (
-    HEADER_BG, HEADER_BORDER, LICENSE_TEXT, ScheduleColorPicker, SettingsWindow,
+    HEADER_BG, HEADER_BORDER, ScheduleColorPicker, SettingsWindow,
 )
 from ui_update import (
     UPDATE_GUIDE_HIGHLIGHT,
@@ -752,14 +752,18 @@ def test_build_spec_bundles_fluent_icon_resources():
 def test_settings_license_mentions_fluent_ui_system_icons(qtbot, app_dir, qapp):
     win = SettingsWindow()
     qtbot.addWidget(win)
-
-    assert "Fluent UI System Icons" in LICENSE_TEXT
-    assert "라이선스: MIT" in LICENSE_TEXT
-    assert "https://github.com/microsoft/fluentui-system-icons" in LICENSE_TEXT
-    assert "Pretendard 1.3.9" in LICENSE_TEXT
-    assert "Font Awesome Free 6.7.2" in LICENSE_TEXT
-    assert "SIL Open Font License 1.1" in LICENSE_TEXT
-    assert Path("licenses/fluentui-system-icons.LICENSE").exists()
+    win.show()
+    win._on_license()
+    dlg = win._license_dialog
+    index = dlg.component_combo.findData("fluent-icons")
+    assert index >= 0
+    dlg.component_combo.setCurrentIndex(index)
+    text = dlg.document.toPlainText()
+    assert "Fluent UI System Icons" in text
+    assert "라이선스: MIT" in text
+    assert "https://github.com/microsoft/fluentui-system-icons" in text
+    assert "Microsoft Corporation" in text
+    dlg.reject()
 
 
 def test_calendar_weekend_dates_use_weekend_colors(qtbot, app_dir, qapp):

@@ -1,0 +1,23 @@
+Python 및 네이티브 구성요소
+=========================
+Python 3.13.5: Python Software Foundation 및 동봉 LICENSE의 기여자.
+Python-LICENSE.txt에는 Python의 역사적 라이선스, Windows 배포 조건,
+libffi와 bzip2 등 설치 배포판이 제공하는 추가 고지가 포함되어 있습니다.
+소스: https://www.python.org/downloads/release/python-3135/
+
+OpenSSL 3.0.16: CPython의 libcrypto-3.dll / libssl-3.dll.
+OpenSSL 4.0.1: cryptography 50.0.0 wheel의 네이티브 확장 내부.
+Copyright (c) The OpenSSL Project Authors. 각 버전 AUTHORS와 Apache-2.0
+전문을 함께 제공합니다. 두 버전의 LICENSE.txt는 동일합니다.
+https://github.com/openssl/openssl/tree/openssl-3.0.16
+https://github.com/openssl/openssl/tree/openssl-4.0.1
+
+SQLite: CPython _sqlite3와 sqlite3.dll. SQLite 원저작자는 소스를
+public domain으로 제공합니다. 기후노트는 별도 SQLite 확장이나
+상용 암호화 엔진을 추가하지 않습니다.
+https://www.sqlite.org/copyright.html
+
+Microsoft Visual C++ runtime: Microsoft Corporation.
+Python 및 PySide6/shiboken6 등의 Windows wheel이 포함한 런타임 DLL입니다.
+Python-LICENSE.txt의 Windows binary build 추가 조건을 보존합니다.
+이 고지는 Microsoft 런타임을 GPL로 변경하거나 소유권을 주장하지 않습니다.

@@ -34,6 +34,7 @@ a = Analysis(
         ('fonts', 'fonts'),
         ('resources', 'resources'),
         ('licenses', 'licenses'),
+        ('LICENSE', '.'),
     ] + _SCREEN_TEXT_DATAS,
     hiddenimports=[
         'PySide6.QtCore',

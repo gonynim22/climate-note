@@ -19,6 +19,7 @@
 - 글자 탭의 불확실 표시는 칸마다 따로 위치 커서로 추적한다. 칸 끝에서 공백·마침표·Enter를 입력해도 표시 범위는 늘지 않으며, 칸의 글자를 실제로 고쳐야 표시가 풀린다.
 
 ## 엔진
+- 모델·사전·런타임 고지 목록은 `screen_text/licenses/components.json`에 두고 설정 → 라이선스에서 원문을 읽는다. PaddleOCR 원저작권을 보존한 `models/LICENSE`, 원 모델/변환본/고정 리비전/변경 여부를 구분한 `licenses/MODEL-ATTRIBUTION.txt`, ONNX Runtime/NumPy 원문을 함께 번들한다. 폴더가 없으면 목록과 원문도 함께 제외한다. 고지 정비로 모델·사전·MANIFEST 해시나 인식 동작을 바꾸지 않는다.
 - PP-OCRv3 mobile det + korean PP-OCRv5 mobile rec ONNX(Apache-2.0), onnxruntime CPU, numpy만 사용한다. 모델은 `screen_text/models/MANIFEST.json`의 크기·SHA-256이 맞을 때만 불러온다.
 - 엔진은 처음 인식할 때 작업 스레드에서 불러오고, 사용자가 창을 닫거나 초기화·종료하면 내린다. 첫 불러오기 중에 창을 닫으면 모델을 보관하지 않는다. 텔레메트리를 끈다. 네트워크를 쓰지 않는다.
 - 엔진 모듈을 불러오지 못하면 "모델" 오류로 안내한다.
@@ -45,6 +46,6 @@
 1. `screen_text/` 폴더 삭제
 2. `optional_mini_apps.py`의 등록 줄 삭제(`OPTIONAL_MINI_APPS = ()`)
 3. `tests/test_screen_text_*.py` 삭제
-4. `AGENTS.md`·`README_detail.md`·`docs/ARCHITECTURE.md`·`docs/TESTING.md`의 해당 항목, `licenses/THIRD_PARTY_NOTICES.txt`의 "화면 글자 따기" 절, `.gitattributes`의 모델 줄, 이 문서 삭제
+4. `AGENTS.md`·`README_detail.md`·`docs/ARCHITECTURE.md`·`docs/TESTING.md`의 해당 항목, `.gitattributes`의 모델 줄, 이 문서 삭제. 라이선스 목록·원문은 1번의 폴더 삭제에 포함되며 기본 `licenses/components.json`을 수정할 필요는 없다.
 5. (선택) `requirements.txt`·`requirements-lock.txt`·`tools/verify.py`·`tests/test_packaging.py`에서 onnxruntime·flatbuffers·protobuf 제거
 6. `full` 검증 → 빌드 → EXE 크기 원복과 numpy 미포함 확인. `build.spec`은 폴더가 없으면 자동으로 원래 빌드가 된다.

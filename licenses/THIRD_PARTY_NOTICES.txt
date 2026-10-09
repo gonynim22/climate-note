@@ -1,166 +1,20 @@
-기후노트 - THIRD-PARTY NOTICES
-================================
+기후노트 — 제3자 고지
+====================
+기후노트의 GPLv3 전문은 배포 루트 LICENSE입니다.
+각 구성요소의 적용 조건·저작권·원문·출처는 licenses/components.json을
+정본 목록으로 관리하며 설정 → 라이선스에서 오프라인으로 읽을 수 있습니다.
+외부 URL은 출처 텍스트이며 앱이 브라우저로 열지 않습니다.
 
-이 문서는 배포 패키지에 포함되는 제3자 구성요소와 라이선스 원문의
-출처를 기록한다. 라이선스 조건을 해석하거나 특정 배포 방식의 적합성을
-판단하는 문서가 아니다.
+이 폴더의 원문은 원저작자의 언어와 조건을 보존합니다.
+한국어 설명은 기후노트가 작성한 안내이며 원문을 대체하지 않습니다.
+원문을 복사한 위치와 SHA-256은 ORIGINS.json에 기록합니다.
+본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
 
+선택형 앱의 고지는 해당 앱 폴더 안에 있습니다. 폴더를 제거하는 빌드에서는
+그 앱의 목록·원문도 함께 제외됩니다. 원문이 누락되면 설정에 읽기 오류를
+표시하며 정상 고지로 처리하지 않습니다.
 
-Pretendard 1.3.9
-----------------
-
-번들 파일:
-  fonts/Pretendard-Medium.ttf
-  fonts/Pretendard-SemiBold.ttf
-  fonts/Pretendard-Bold.ttf
-  fonts/Pretendard-ExtraBold.ttf
-
-라이선스 원문:
-  licenses/Pretendard-LICENSE.txt
-
-공식 릴리스:
-  https://github.com/orioncactus/pretendard/releases/tag/v1.3.9
-
-원문 출처:
-  https://raw.githubusercontent.com/orioncactus/pretendard/v1.3.9/LICENSE
-
-번들 TTF는 공식 v1.3.9 릴리스 자산의 같은 파일과 SHA-256이 일치함을
-2026-07-23 검증 환경에서 확인했다.
-
-
-Font Awesome Free 6.7.2
------------------------
-
-번들 파일:
-  fonts/fa-regular-400.ttf
-  fonts/fa-solid-900.ttf
-
-라이선스 원문:
-  licenses/Font-Awesome-Free-LICENSE.txt
-
-공식 소스 태그:
-  https://github.com/FortAwesome/Font-Awesome/tree/6.7.2
-
-원문 출처:
-  https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.7.2/LICENSE.txt
-
-번들 TTF는 공식 6.7.2 소스 태그의 같은 webfonts 파일과 SHA-256이
-일치함을 2026-07-23 검증 환경에서 확인했다.
-
-
-PySide6-Fluent-Widgets 1.11.1 (import package: qfluentwidgets)
-----------------------------------------------------------------
-
-번들 대상:
-  설치된 PySide6-Fluent-Widgets 배포판의 qfluentwidgets 패키지
-
-라이선스 원문:
-  licenses/QFluentWidgets-LICENSE.txt
-
-복사 출처:
-  설치 배포판 pyside6_fluent_widgets-1.11.1.dist-info/LICENSE
-
-공식 패키지 페이지:
-  https://pypi.org/project/PySide6-Fluent-Widgets/1.11.1/
-
-업스트림 원문:
-  https://raw.githubusercontent.com/zhiyiYo/PyQt-Fluent-Widgets/PySide6/LICENSE
-
-프로젝트 메타데이터가 제시하는 라이선스 및 별도 라이선스 선택지는
-위 공식 패키지 페이지와 프로젝트 문서를 기준으로 배포 전에 확인한다.
-
-
-PySide6 6.11.2 / Qt 6.11.2 (shiboken6 6.11.2 포함)
---------------------------------------------------
-
-번들 대상:
-  PyInstaller 산출물에 포함되는 PySide6 확장 모듈과 Qt 런타임 라이브러리
-  (QtCore, QtGui, QtWidgets, QtXml, QtSvg, QtSvgWidgets, QtNetwork 등),
-  그리고 이를 지원하는 shiboken6 바인딩 런타임
-
-배포판 메타데이터가 제시하는 라이선스:
-  LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
-  (PySide6-6.11.2.dist-info/METADATA, shiboken6-6.11.2.dist-info/METADATA)
-
-라이선스 원문:
-  licenses/LGPL-3.0.txt
-  LGPLv3는 GPLv3를 참조하여 적용되므로 GPLv3 원문도 함께 본다.
-  GPLv3 원문은 프로젝트 루트 LICENSE 및 licenses/QFluentWidgets-LICENSE.txt와 같다.
-
-LGPLv3 원문 출처:
-  https://www.gnu.org/licenses/lgpl-3.0.txt
-  2026-08-18 내려받은 정본(7,652 bytes, SHA-256
-  E3A994D82E644B03A792A930F574002658412F62407F5FEE083F2555C5F23118)을 그대로 두었다.
-  설치 배포판에 동봉된 LGPLv3 사본과 본문이 완전히 일치함을 확인했다(끝 개행만 차이).
-
-상용 라이선스 참조:
-  PySide6/shiboken6 배포판은 LicenseRef-Qt-Commercial.txt만 동봉하며
-  LGPL/GPL 원문은 동봉하지 않는다.
-
-주의:
-  이 항목은 번들 사실과 라이선스 표기를 기록한 것이지, 특정 배포 방식의
-  적합성을 판단한 것이 아니다. LGPL 경로를 택할 경우 수령자가 Qt를 교체·
-  재링크할 수 있어야 한다는 조건이 PyInstaller one-file 배포에서 충족되는지는
-  별도 검토가 필요하다. AGENTS.md "Deferred Release Work" 항목을 따른다.
-
-
-cryptography 50.0.0
--------------------
-
-번들 대상:
-  PyInstaller 산출물에 포함되는 cryptography 패키지와 네이티브 확장
-  (Fernet 암복호화, PBKDF2HMAC 키 유도에 사용)
-
-배포판 메타데이터가 제시하는 라이선스:
-  Apache-2.0 OR BSD-3-Clause
-
-라이선스 원문:
-  licenses/cryptography-LICENSE.txt          (이중 라이선스 안내)
-  licenses/cryptography-LICENSE.APACHE.txt   (Apache License 2.0)
-  licenses/cryptography-LICENSE.BSD.txt      (BSD 3-Clause)
-
-복사 출처:
-  설치 배포판 cryptography-50.0.0.dist-info/licenses/
-
-공식 패키지 페이지:
-  https://pypi.org/project/cryptography/50.0.0/
-
-
-pysidesix-frameless-window 0.8.0
---------------------------------
-
-번들 대상:
-  PySide6-Fluent-Widgets가 의존하는 프레임리스 창 패키지로 산출물에 포함된다.
-
-배포판 메타데이터가 제시하는 라이선스:
-  GNU Lesser General Public License v3 (LGPL-3.0)
-
-라이선스 원문:
-  licenses/LGPL-3.0.txt (PySide6/Qt 항목과 동일 원문 공유)
-
-복사 출처:
-  설치 배포판 pysidesix_frameless_window-0.8.0.dist-info/LICENSE
-
-
-기록 범위에 대한 안내
----------------------
-
-위 목록은 2026-08-18 기준으로 확인한 주요 번들 구성요소다.
-PyInstaller Analysis-00.toc와 최종 EXE를 기준으로 한 전수 SBOM은 아직
-작성하지 않았으며, AGENTS.md "Deferred Release Work"의 후속 과제로 남아 있다.
-
-
-화면 글자 따기 (선택형 미니앱, screen_text/ 폴더와 함께 걷어낼 수 있음)
-----------------------------------------------------------------------
-
-PaddleOCR 모델 ONNX 변환본 (PP-OCRv3_mobile_det, korean_PP-OCRv5_mobile_rec)
-  번들 파일: screen_text/models/det.onnx, rec.onnx, dict.txt
-  라이선스 원문: screen_text/models/LICENSE (Apache License 2.0)
-  출처·리비전·SHA-256: screen_text/models/MANIFEST.json
-
-onnxruntime 1.30.0
-  라이선스 원문: screen_text/licenses/onnxruntime-LICENSE.txt (MIT)
-  제3자 고지: screen_text/licenses/onnxruntime-ThirdPartyNotices.txt
-
-numpy 2.2.6
-  라이선스 원문: screen_text/licenses/numpy-LICENSE.txt (BSD-3-Clause 및 번들 구성요소 고지)
+이 목록은 확인한 번들 구성요소의 고지입니다. DLL 내부의 모든 정적 의존성을
+분석한 전수 SBOM이나 배포 적합성 인증을 뜻하지 않습니다. Qt 하위 구성의
+전수 고지·대응 소스 제공, 외부 수령자의 소스 접근, 기관 계약·자산 권리 등
+배포자의 후속 점검은 docs/RELEASE_HISTORY.md의 Deferred Release Work를 따릅니다.

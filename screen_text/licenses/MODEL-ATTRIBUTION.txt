@@ -1,0 +1,28 @@
+화면 글자 따기 — 모델·사전 출처
+==============================
+원 모델: PaddleOCR / PaddlePaddle Authors
+Copyright (c) 2016 PaddlePaddle Authors. All Rights Reserved.
+라이선스: Apache License 2.0 (screen_text/models/LICENSE)
+
+글자 영역 탐지: PP-OCRv3_mobile_det
+https://huggingface.co/PaddlePaddle/PP-OCRv3_mobile_det
+공식 카드 확인 리비전: 58f4e5b132e34e516486fb0d0266c662feb48ca1
+한국어 인식: korean_PP-OCRv5_mobile_rec
+https://huggingface.co/PaddlePaddle/korean_PP-OCRv5_mobile_rec
+공식 카드 확인 리비전: c02ecaf1f22bfd1c618cce154fd19185b47e663a
+
+ONNX 변환본 공급자: monkt/paddleocr-onnx
+https://huggingface.co/monkt/paddleocr-onnx/tree/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65
+고정 리비전: 7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65
+공급자 README는 원 모델과 paddle2onnx 변환 도구를 밝히고 Apache-2.0을 표시합니다.
+이 앱은 변환본을 그대로 사용하며 가중치의 재학습·미세조정·추가 변환을 하지 않았습니다.
+
+한국어 사전은 아래 공식 사전과 바이트 단위로 동일함을 확인했습니다.
+https://github.com/PaddlePaddle/PaddleOCR/blob/dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf/ppocr/utils/dict/ppocrv5_korean_dict.txt
+LICENSE 원문도 같은 PaddleOCR 리비전에서 확보했습니다.
+파일별 다운로드 주소·크기·SHA-256은 screen_text/models/MANIFEST.json을 따릅니다.
+
+이 문서는 기후노트가 작성한 출처 안내입니다. 공급자의 원본 NOTICE 파일이 아닙니다.
+앱은 PaddleOCR 전체 프레임워크·Paddle2ONNX·클라우드 AI 서비스를 배포하지 않습니다.
+영역 선택·로컬 실행 연결·줄/표 재구성·편집·표 복사·앱 통합은 기후노트가 구현합니다.
+OCR 대상 문서의 저작권과 이용조건은 원자료에 적용되는 조건을 따릅니다.

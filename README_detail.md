@@ -207,4 +207,12 @@ UI 프레임워크로 사용하는 `PySide6-Fluent-Widgets`가 GPLv3이므로, �
 
 번들된 제3자 구성요소와 각 라이선스 원문은 [`licenses/`](licenses/)에 있습니다.
 
+앱의 **설정 → 라이선스**에서 구성요소별 출처와 원문을 인터넷 연결 없이 읽고 복사할 수 있습니다. 화면 글자 따기를 포함한 배포본은 PaddleOCR 모델·한국어 사전, ONNX Runtime 및 NumPy 고지도 함께 제공합니다. 모델 가중치를 자체 학습한 것으로 표시하지 않으며 [모델 출처](screen_text/licenses/MODEL-ATTRIBUTION.txt)와 [기본 구성요소 목록](licenses/components.json)을 참조하세요.
+
+본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+
+문서 형식 변환은 별도 설치된 한글과 공식 HWPX 변환기를 이용하며 해당 제품의 사용권은 별도로 적용됩니다. 기후노트는 한컴 엔진이나 설치 프로그램을 포함하지 않습니다. [한컴 명세 사용권](https://www.store.hancom.com/support/downloadCenter/hwpOwpml)
+
+소스 저장소는 기관 내부 GitLab이므로 외부 수령자의 접근은 별도로 확인해야 합니다. 배포자는 전달한 EXE와 일치하는 소스·빌드 자료 및 필요한 의존 구성요소의 대응 소스를 제공할 경로를 함께 안내해야 합니다. [소스 안내](licenses/APP-NOTICE.txt)
+
 만든이: 기후에너지환경부 보문산불주먹

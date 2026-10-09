@@ -1,0 +1,44 @@
+PySide6 / shiboken6 / Qt 6.11.2
+=============================
+Qt 및 바인딩: The Qt Company Ltd. 및 각 소스에 기재된 기여자.
+대표 원문 표시(전체 저작권자 목록을 대신하지 않음):
+Copyright (C) 2020 The Qt Company Ltd.
+Copyright (C) 2013 Olivier Goffart <ogoffart@woboq.com>
+(qtbase/src/corelib/kernel/qobject.h)
+Copyright (C) 2016 The Qt Company Ltd.
+(pyside-setup/sources/pyside6/libpyside/pyside.h)
+
+PySide6/shiboken6의 공개 배포판은 LGPL-3.0-only OR GPL-2.0-only OR
+GPL-3.0-only로 표시됩니다. Qt는 모듈별로 조건이 다릅니다.
+기후노트는 GPLv3로 배포되며 LGPLv3와 GPLv3 원문을 함께 제공합니다.
+
+현재 Windows 번들에 확인된 Qt DLL:
+Qt6Core, Qt6Gui, Qt6Widgets, Qt6Network, Qt6Xml, Qt6Svg, Qt6SvgWidgets,
+Qt6OpenGL, Qt6Qml, Qt6QmlMeta, Qt6QmlModels, Qt6QmlWorkerScript,
+Qt6Quick, Qt6Pdf, Qt6VirtualKeyboard 및 Qt 플랫폼/이미지/입력 플러그인.
+Python 모듈을 제외한 것과 네이티브 DLL의 포함 여부는 다릅니다.
+
+Qt Virtual Keyboard는 GPLv3 또는 별도 상용 라이선스입니다.
+Qt PDF는 LGPLv3/GPLv2 또는 별도 상용 라이선스이며 PDFium 등
+제3자 구성요소의 조건도 적용됩니다. Qt 전체를 LGPL 하나로 표시하지 않습니다.
+https://doc.qt.io/qt-6.11/qtvirtualkeyboard-index.html
+https://doc.qt.io/qt-6.11/qtpdf-index.html
+https://doc.qt.io/qt-6.11/licenses-used-in-qt.html
+
+소스(해당 버전과 빌드 구성으로 확인):
+https://code.qt.io/cgit/pyside/pyside-setup.git/?h=v6.11.2
+https://code.qt.io/cgit/qt/qtbase.git/?h=v6.11.2
+https://code.qt.io/cgit/qt/qtdeclarative.git/?h=v6.11.2
+https://code.qt.io/cgit/qt/qtsvg.git/?h=v6.11.2
+https://code.qt.io/cgit/qt/qtvirtualkeyboard.git/?h=v6.11.2
+https://code.qt.io/cgit/qt/qtwebengine.git/?h=v6.11.2
+
+각 라이선스가 허용하는 수정·교체·재링크 및 이를 위한 역공학 권리를
+기후노트의 안내로 제한하지 않습니다. 소스 URL의 표시는 대응 소스 제공
+의무를 대신하지 않습니다. 배포자는 실제 포함 구성의 제3자 고지와
+대응 소스 제공 방법을 함께 갖추어야 합니다.
+
+Qt-THIRD-PARTY-NOTICES.txt는 위 번들 모듈과 이미지 플러그인의 공식 Qt 6.11.2
+문서가 제공하는 제3자 라이선스 원문 블록 124개(66페이지)를 보존합니다.
+플랫폼별 잠재 구성도 포함하므로 모든 항목이 이 EXE에서 활성이라는 뜻은 아닙니다.
+추출한 페이지·해시는 Qt-THIRD-PARTY-SOURCES.json에 기록했습니다.

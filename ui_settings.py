@@ -99,36 +99,6 @@ def _set_startup(enabled: bool) -> None:
             except FileNotFoundError:
                 pass  # 이미 등록 해제된 상태 - 삭제할 값 없음(정상, 0023_NOACTION 사유 명시)
 
-LICENSE_TEXT = """오픈소스 라이선스 고지
-
-■ PySide6
-라이선스: LGPL-3.0
-https://www.qt.io/licensing/
-
-■ qfluentwidgets (PyQt-Fluent-Widgets)
-라이선스: GPLv3 / 상용 라이선스 (이중 라이선스)
-공공기관 납품 시 상용 라이선스 검토 필요
-https://github.com/zhiyiYo/PyQt-Fluent-Widgets
-
-■ Fluent UI System Icons
-라이선스: MIT
-https://github.com/microsoft/fluentui-system-icons
-
-■ Pretendard 1.3.9
-라이선스: SIL Open Font License 1.1
-https://github.com/orioncactus/pretendard
-
-■ Font Awesome Free 6.7.2
-라이선스: SIL Open Font License 1.1
-https://fontawesome.com/license/free
-
-■ cryptography
-라이선스: Apache License 2.0 또는 BSD 3-Clause
-https://cryptography.io/en/latest/
-
-위 라이브러리들은 각각의 라이선스 조건에 따라 사용됩니다.
-"""
-
 
 class _SettingsPanel(CardWidget):
     """섹션 카드: 흰 배경 + 시안 A 쿨그레이 라운드 테두리."""
@@ -438,6 +408,7 @@ class SettingsWindow(QWidget):
         self.on_schedule_colors_changed = on_schedule_colors_changed
         self.on_prepare_data_change = on_prepare_data_change
         self.on_before_reset = on_before_reset
+        self._license_dialog = None
         self.setWindowTitle("설정")
         self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
         # AGENTS.md 스펙 800x560 (시안 A 무스크롤). 520이면 우측 컬럼(데이터/보안/시스템,
@@ -1221,11 +1192,18 @@ class SettingsWindow(QWidget):
 
     # ─── 라이선스 ──────────────────────────────────────────────
     def _on_license(self):
-        dlg = MessageBox("오픈소스 라이선스 정보", LICENSE_TEXT, self)
-        dlg.yesButton.setText("확인")
-        dlg.cancelButton.hide()
-        dlg.exec()
-        dlg.deleteLater()  # 0026_RESLEAK: 모달 종료 후 팝업 해제
+        from ui_licenses import LicenseDialog
+
+        if not self.isVisible() or not self.isEnabled():
+            return
+        if self._license_dialog is not None:
+            self._license_dialog.raise_()
+            self._license_dialog.activateWindow()
+            return
+        dlg = LicenseDialog(self)
+        self._license_dialog = dlg
+        dlg.finished.connect(lambda _result: setattr(self, "_license_dialog", None))
+        dlg.open()
 
     # ─── 앱 종료 ───────────────────────────────────────────────
     def _on_quit(self):

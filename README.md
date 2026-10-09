@@ -38,4 +38,8 @@ Windows 10 이상(Windows 11 권장). Windows 전용입니다.
 
 GNU GPL v3.0 — [LICENSE](LICENSE). 제3자 구성요소 고지는 [licenses/](licenses/)에 있습니다.
 
+설정 → 라이선스에서 구성요소별 원문과 출처를 오프라인으로 열람·복사할 수 있습니다. [기본 목록](licenses/components.json), [소스 제공 안내](licenses/APP-NOTICE.txt)를 참조하세요.
+
+본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. 한글·HWPX 변환기는 별도 설치 제품으로 해당 사용권이 적용됩니다.
+
 만든이: 기후에너지환경부 보문산불주먹

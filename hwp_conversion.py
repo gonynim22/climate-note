@@ -1,4 +1,7 @@
-"""HWP → HWPX의 설치 확인·입출력 검증. Qt/DB와 사용자 한글 창에 접근하지 않는다."""
+"""HWP → HWPX의 설치 확인·입출력 검증. Qt/DB와 사용자 한글 창에 접근하지 않는다.
+
+본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+"""
 from dataclasses import dataclass
 import os
 from pathlib import Path

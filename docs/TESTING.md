@@ -48,6 +48,8 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 
 ### 실행 격리와 증거
 
+라이선스 안내는 `quick --tests tests/test_ui_licenses.py tests/test_ui.py tests/test_packaging.py`로 검사한다. 구성요소 원문·저작권·기록 해시, OCR 폴더 유무에 따른 목록, 파일 누락 표시, 실제 버튼 열기·전체 복사·닫기, 부모 숨김/비활성/닫기·메인 PIN 잠금, 작은 작업 영역과 합성 DB dump/Export/salt 불변을 확인한다. 125/150% 별도 quick의 합성 PNG를 확인하고 `release` 후 실제 EXE의 고지·모델·Qt/네이티브 DLL 해시를 이전 검증본과 대조한다. 이 검사는 법적 적합성·전수 SBOM 또는 외부 심사자 소스 접근을 대신하지 않는다.
+
 최초 크기 선택은 `tests/test_first_run.py`에서 신규 선택·취소·기존/손상 분기, 세 크기의 DB/첫 백업/메인/재실행과 Export/Import, 넓은·한 열 배치의 키보드와 작은 작업 영역 8종을 검사한다. 미리보기 크기 규칙은 `ui_main`의 크기 계산·모서리 좌표(5mm 스냅 이내)와 대조하고, 선택 후 실제 그림 위치 픽셀·애니메이션 중 재선택·다크 테마에서의 밝은 화면·Pretendard 부재 시 폴백 배치를 확인한다. 125/150%는 별도 `QT_SCALE_FACTOR` 합성 실행으로 확인한다. release의 fresh 시나리오는 이번 Job 소유의 실제 최초 설정창에서 Enter로 기본 선택을 확정하고, 선택 전 DB/salt/백업 미생성 및 선택 후 메인·백업·저장값을 검사한다. existing/blocked에는 최초 설정이 없어야 한다. 제품 우회 플래그를 추가하거나 실사용 데이터를 검사 입력으로 쓰지 않는다. 실제 Windows 잠금·혼합 DPI/KVM은 수동 미확인과 구분한다.
 
 문서 형식 변환은 `tests/test_hwp_conversion.py`, `tests/test_hwp_conversion_runner.py`, `tests/test_ui_document_converter.py`, 주머니/SVG 검사를 함께 실행한다. HWP 보호 헤더·손상 출력·동명 비덮어쓰기·원본 보존, 실제 작업 프로세스/자식의 취소·시간 초과·Job 배정 실패, 실제 파일창/드롭·작은 화면·잠금/숨김/초기화/종료와 DB/Export/salt 보존을 검사한다. 모의 엔진 검사를 실제 문서 변환 성공으로 간주하지 않는다. 설치된 공식 CLI를 사용하는 제품 UI와 frozen worker를 별도 격리 실행하고 원본/기존 결과 해시·필수 XML·작업 모드 DB 미생성·임시 폴더 정리를 확인한다. 한글 버전/DRM/서식 시각 대조는 별도다. [계약](DOCUMENT_CONVERSION.md), [현재 기록](work/2026-10-03-hwp-document-converter.md).

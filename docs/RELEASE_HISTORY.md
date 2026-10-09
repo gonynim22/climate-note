@@ -2,6 +2,13 @@
 
 이 파일은 기존 AGENTS.md의 검증 증빙·미해결 조사 기록을 2026-09-06에 이전한 것입니다. 과거 통과 결과는 현재 소스 검증을 대신하지 않습니다. 라이선스 보류 상태는 그대로 유지합니다.
 
+## v3.9a 라이선스 안내·고지 정비 (2026-10-09, 버전 유지)
+
+- 설정의 별도 원문 열람 창, 기본 19개+선택형 OCR 3개 목록, HWP 지정 문구, PaddleOCR 원저작권/출처, Python 구성요소 및 Qt 하위 고지를 보강했다. 기능 로직·DB v17·Export v2·salt·설정·모델/사전·Qt/lock은 유지했다.
+- PowerShell `release` **20261009-183942-21246a4373**에서 **1,816개 테스트·새 빌드·격리 EXE 3개 시나리오**를 통과했다. 125/150% quick는 각 82개 통과했고 실제 EXE에서 설정 → 라이선스 → GPL/OCR 원문 → 닫기를 추가 확인했다. 라이선스 조작 전후 합성 데이터 raw/평문/ID/salt가 동일했다.
+- 최종 `dist/기후노트_v3.9a.exe`: **94,012,479 bytes**, Windows **3.9.1.0**, SHA-256 **`3C80DBB06028A035EAADD866A21940D5AA95143E6CF61B5A2907E4DD92B6A41A`**. 이전 사용법 안내 빌드와 표시 버전이 같으므로 해시로 구분한다. 이전 `ED4BBD6B…0FDF` 파일은 `output/harness/20261009-132546-f2aab9b4b1/dist/`에 보존했다.
+- 고지/목록 39개가 소스와 일치하고 모델·사전·Qt/네이티브 DLL·폰트·아이콘 등 160개 파일은 이전 EXE와 동일하다. mingw 혼입 없음. 전체 SBOM·대응 소스 전달·기관/자산/공모전 조건·서명은 별도 보류다. GitLab Release 게시는 별도이며 사용자 후속 요청으로 AGENTS 갱신·소스 커밋·main push를 진행한다. 실패한 보조 검사와 최종 검증을 구분한 [작업 기록](work/2026-10-09-license-notices-update.md)을 따른다.
+
 ## v3.8b 날짜·시간 계산기 스크롤 제거 (2026-09-24 후속)
 
 - A안의 크기를 유지하며 시작/종료 날짜를 두 열로 배치하고 입력 폼 스크롤을 제거했다. 시간 합산은 이전/다음으로 한 항목씩 편집하며 숨긴 항목을 포함한 전체 결과를 표시한다. 낮은 화면은 여백과 보조 안내를 압축한다.
@@ -180,6 +187,8 @@ App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Versio
 
 ## Deferred Release Work: 라이선스·배포 정비 (2026-08-15)
 
+2026-10-09 v3.9a 고지 정비: 버전·기능·데이터 계약을 유지하면서 설정의 구성요소별 오프라인 원문 열람, 앱 GPLv3, HWP 명세 지정 문구, PaddleOCR 원저작권/출처, 누락 Python 구성요소·Qt 모듈 및 공식 하위 고지 원문을 보강했다. 목록 정본은 `licenses/components.json`과 선택형 앱 내부의 목록이다. 실제 pywin32 원문은 구성요소별 BSD 계열, cffi 2.0.0 원문은 MIT No Attribution이므로 메타데이터의 간략 분류와 구분한다. [현재 구현·검증 기록](work/2026-10-09-license-notices-update.md)을 따른다. 전수 SBOM·외부 대응 소스 제공·기관 계약·권리 확인·서명은 별도 보류를 유지한다.
+
 > **상태: HOLD — 후속 버전에서 반드시 재개.** 2026-08-18에 기관 내부 GitLab 소스 공개(GPLv3)와 고지 보강을 진행했으나, 이것만으로 배포 라이선스 검토가 끝난 것은 아니다. **남은 것**: PyInstaller 산출물 기준 전수 SBOM, PySide6/Qt LGPL 경로에서 수령자의 교체·재링크 가능성(one-file 배포) 판단, 기관 법무·저작권 담당 확인, Authenticode 서명. **끝난 것**: 프로젝트 최상위 `LICENSE`(GPLv3) 추가, `licenses/THIRD_PARTY_NOTICES.txt`에 PySide6/Qt·shiboken6·cryptography·pysidesix-frameless-window 항목과 원문 추가, 소스 공개 경로 확보(`origin/main`).
 
 - **QFluentWidgets 경로 확정(둘 중 하나)**
@@ -193,7 +202,7 @@ App display name: **기후노트** | Internal path: `MyDesktopCalendar` | Versio
   - ✅ `licenses/LGPL-3.0.txt` — FSF 정본(https://www.gnu.org/licenses/lgpl-3.0.txt), 7,652 bytes, SHA-256 `E3A994D82E644B03A792A930F574002658412F62407F5FEE083F2555C5F23118`. 설치 배포판 동봉 사본과 본문 일치(끝 개행만 차이) 확인.
   - ✅ `licenses/cryptography-LICENSE{,.APACHE,.BSD}.txt` — 설치 배포판 `cryptography-46.0.4.dist-info/licenses/`에서 복사.
   - ✅ 소스 공개 경로 — `origin/main`(기관 내부 GitLab Public). GPLv3 대응 소스 제공 범위가 EXE 배포 범위와 일치한다.
-  - ⬜ 앱 설정에서 접근 가능한 오픈소스 고지 화면 또는 동봉 문서.
+  - ✅ 앱 설정에서 접근 가능한 오픈소스 고지 화면과 번들 원문(2026-10-09, v3.9a 고지 정비; 검증은 위 작업 기록).
   - ⬜ 배포 EXE와 정확히 대응하는 소스 묶음(`기후노트_v3.5_소스코드.zip`) 생성 여부 결정. 소스가 GitLab에 공개되어 있으므로 별도 zip이 필요한지 함께 판단한다.
 - **증빙 보존 및 완료 조건**: EXE·소스 묶음·SBOM·라이선스 문서·상용 계약(해당 시)의 SHA-256과 배포 게시 위치를 기록한다. 기관 법무/저작권 담당 확인이 필요한 배포 범위(동일 기관 내부인지, 타 기관까지 전달되는지)를 남긴다. 위 항목이 모두 충족되기 전에는 이 과제를 완료 처리하지 않는다.
 - **별도 후속 항목**: 현재 EXE는 Authenticode `NotSigned`다. 기관 정책이 요구하면 코드 서명을 적용하고 서명 상태·인증서 주체·타임스탬프를 기록한다. 이는 라이선스 정비와 별개다.

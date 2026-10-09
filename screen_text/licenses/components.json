@@ -1,0 +1,45 @@
+[
+  {
+    "id": "ocr-models",
+    "name": "PaddleOCR 모델·한국어 사전",
+    "version": "PP-OCRv3 / PP-OCRv5",
+    "license": "Apache-2.0",
+    "description": "공개 사전학습 모델의 ONNX 변환본입니다. 원 모델과 변환본 공급자를 구분해 기록했습니다.",
+    "sources": [
+      "https://github.com/PaddlePaddle/PaddleOCR",
+      "https://huggingface.co/monkt/paddleocr-onnx/tree/7b02d0a30a07ba2b92ad1ff5a8941ae2c633de65"
+    ],
+    "files": [
+      "screen_text/licenses/MODEL-ATTRIBUTION.txt",
+      "screen_text/models/LICENSE",
+      "screen_text/models/MANIFEST.json"
+    ]
+  },
+  {
+    "id": "onnxruntime",
+    "name": "ONNX Runtime",
+    "version": "1.30.0",
+    "license": "MIT 및 제3자 구성요소별 조건",
+    "description": "Copyright (c) Microsoft Corporation. 로컬 OCR 실행에 사용합니다. 제3자 원문은 번역·축약하지 않았습니다.",
+    "sources": [
+      "https://github.com/microsoft/onnxruntime/tree/v1.30.0"
+    ],
+    "files": [
+      "screen_text/licenses/onnxruntime-LICENSE.txt",
+      "screen_text/licenses/onnxruntime-ThirdPartyNotices.txt"
+    ]
+  },
+  {
+    "id": "numpy",
+    "name": "NumPy",
+    "version": "2.2.6",
+    "license": "BSD-3-Clause 및 번들 구성요소별 조건",
+    "description": "OpenBLAS·LAPACK·GCC runtime exception 등 wheel에 포함된 고지를 함께 제공합니다.",
+    "sources": [
+      "https://github.com/numpy/numpy/tree/v2.2.6"
+    ],
+    "files": [
+      "screen_text/licenses/numpy-LICENSE.txt"
+    ]
+  }
+]

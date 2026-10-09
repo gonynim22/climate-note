@@ -1,0 +1,13 @@
+HWP 공개 명세와 외부 변환기
+==========================
+본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
+
+HWP 공개 명세의 저작권은 한글과컴퓨터에 있습니다.
+사용권 안내: https://www.store.hancom.com/support/downloadCenter/hwpOwpml
+명세: https://cdn.hancom.com/link/docs/한글문서파일형식_5.0_revision1.3.pdf
+
+문서 형식 변환은 PC에 별도 설치된 한글과 공식 HWPX 변환기가 필요합니다.
+기후노트는 한글·HWPX 변환기 엔진이나 설치 프로그램을 포함하지 않습니다.
+해당 제품의 사용권은 한컴의 별도 이용조건 및 설치 조직의 계약을 따릅니다.
+공식 명령줄 도움말:
+https://help.hancom.com/hoffice120/ko-KR/HwpxConverter/convert/convert.htm

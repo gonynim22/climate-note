@@ -1,2 +1,20 @@
 # 화면 글자 따기 모델은 바이트 그대로 둔다 (MANIFEST.json SHA-256 고정)
 screen_text/models/* -text
+
+# 출처 기록의 SHA-256과 원문 바이트를 클론/체크아웃 후에도 보존한다.
+licenses/pywin32-win32-LICENSE.txt -text
+licenses/pywin32-win32com-LICENSE.txt -text
+licenses/pywin32-pythonwin-LICENSE.txt -text
+licenses/defusedxml-LICENSE.txt -text
+licenses/darkdetect-LICENSE.txt -text
+licenses/cffi-LICENSE.txt -text
+licenses/cffi-AUTHORS.txt -text
+licenses/typing_extensions-LICENSE.txt -text
+licenses/Frameless-Window-LICENSE.txt -text
+licenses/PyInstaller-COPYING.txt -text
+licenses/Python-LICENSE.txt -text
+licenses/colorthief-LICENSE.txt -text
+licenses/OpenSSL-LICENSE.txt -text
+licenses/OpenSSL-3.0.16-AUTHORS.txt -text
+licenses/OpenSSL-4.0.1-AUTHORS.txt -text
+licenses/Qt-THIRD-PARTY-NOTICES.txt -text

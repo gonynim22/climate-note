@@ -1,0 +1,82 @@
+[
+  {
+    "file": "licenses/pywin32-win32-LICENSE.txt",
+    "source": "installed wheel: win32/license.txt",
+    "sha256": "11d8462e134e8efe8f4bd52372292a72ff0b670753d2f49f71675eed0dbfd085"
+  },
+  {
+    "file": "licenses/pywin32-win32com-LICENSE.txt",
+    "source": "installed wheel: win32com/License.txt",
+    "sha256": "c3bdfa1152a9b9d404ddc90b817e1b6945803879ac53a14d2dde30d677f883bd"
+  },
+  {
+    "file": "licenses/pywin32-pythonwin-LICENSE.txt",
+    "source": "installed wheel: pythonwin/license.txt",
+    "sha256": "11d8462e134e8efe8f4bd52372292a72ff0b670753d2f49f71675eed0dbfd085"
+  },
+  {
+    "file": "licenses/defusedxml-LICENSE.txt",
+    "source": "installed wheel: defusedxml-0.7.1.dist-info/LICENSE",
+    "sha256": "b80ce9da8c42a1f91079627fbbe2bf27210ae108a0ffe5f077d5b08e076c24c8"
+  },
+  {
+    "file": "licenses/darkdetect-LICENSE.txt",
+    "source": "installed wheel: darkdetect-0.8.0.dist-info/LICENSE",
+    "sha256": "69bb84664eff933addcb271c866d67622d9c2c53a5bda31b1a7523569c250afe"
+  },
+  {
+    "file": "licenses/cffi-LICENSE.txt",
+    "source": "installed wheel: cffi-2.0.0.dist-info/licenses/LICENSE",
+    "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
+  },
+  {
+    "file": "licenses/cffi-AUTHORS.txt",
+    "source": "installed wheel: cffi-2.0.0.dist-info/licenses/AUTHORS",
+    "sha256": "2a67a60bbfb33759d67d645ff131b8e6d6bc4cafc232d751fcac3eda4d314cc8"
+  },
+  {
+    "file": "licenses/typing_extensions-LICENSE.txt",
+    "source": "installed wheel: typing_extensions-4.15.0.dist-info/licenses/LICENSE",
+    "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
+  },
+  {
+    "file": "licenses/Frameless-Window-LICENSE.txt",
+    "source": "installed wheel: pysidesix_frameless_window-0.8.0.dist-info/LICENSE",
+    "sha256": "a5681bf9b05db14d86776930017c647ad9e6e56ff6bbcfdf21e5848288dfaf1b"
+  },
+  {
+    "file": "licenses/PyInstaller-COPYING.txt",
+    "source": "installed wheel: pyinstaller-6.19.0.dist-info/licenses/COPYING.txt",
+    "sha256": "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245"
+  },
+  {
+    "file": "licenses/Python-LICENSE.txt",
+    "source": "CPython 3.13.5 Windows installer LICENSE.txt",
+    "sha256": "62bec384df47b0328307db41455ff6ea2559e5546b394ac69148561b21703120"
+  },
+  {
+    "file": "licenses/colorthief-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/fengsp/color-thief-py/0.2.1/LICENSE",
+    "sha256": "7c85aad1339b4d59055c8d3d98605c7a61e815b7914b36e232e9889143243e86"
+  },
+  {
+    "file": "licenses/OpenSSL-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.16/LICENSE.txt (identical to openssl-4.0.1)",
+    "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
+  },
+  {
+    "file": "licenses/OpenSSL-3.0.16-AUTHORS.txt",
+    "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.16/AUTHORS.md",
+    "sha256": "5076ca441daef7fb35e904c2ac070880c7b3d58300a5a6aecac41e8f525f4412"
+  },
+  {
+    "file": "licenses/OpenSSL-4.0.1-AUTHORS.txt",
+    "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-4.0.1/AUTHORS.md",
+    "sha256": "b9f638dfc06b59c2d3b808186c3b30f713805a5db390f5b77b1703ac58acb83e"
+  },
+  {
+    "file": "licenses/Qt-THIRD-PARTY-NOTICES.txt",
+    "source": "Official Qt 6.11.2 license blocks; HTML entities decoded, original language retained. See Qt-THIRD-PARTY-SOURCES.json.",
+    "sha256": "e67a933f4450612d3e6ba335d07fbd6e703a26ac50a3262e5710047c033031e0"
+  }
+]

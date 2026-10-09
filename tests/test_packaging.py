@@ -161,23 +161,18 @@ def test_bundled_third_party_license_texts_and_notices_exist():
             text = f.read()
         assert all(marker in text for marker in markers)
 
-    with open(licenses / "THIRD_PARTY_NOTICES.txt", encoding="utf-8") as f:
-        notices = f.read()
-    for marker in (
-        "Pretendard 1.3.9",
-        "Font Awesome Free 6.7.2",
-        "PySide6-Fluent-Widgets 1.11.1",
-        "PySide6 6.11.2",
-        "cryptography 50.0.0",
-        "pysidesix-frameless-window 0.8.0",
-        "Pretendard-LICENSE.txt",
-        "Font-Awesome-Free-LICENSE.txt",
-        "QFluentWidgets-LICENSE.txt",
-        "LGPL-3.0.txt",
-        "cryptography-LICENSE.APACHE.txt",
-        "cryptography-LICENSE.BSD.txt",
-    ):
-        assert marker in notices
+    import json
+    entries = json.loads((licenses / "components.json").read_text(encoding="utf-8"))
+    for entry in entries:
+        assert entry["files"], entry["id"]
+        for filename in entry["files"]:
+            assert (ROOT / filename).is_file(), filename
+    assert {"app", "qt", "fluent", "hancom", "cffi", "python", "pywin32"} <= {
+        entry["id"] for entry in entries
+    }
+    captured = _spec_analysis(ROOT)
+    assert ("LICENSE", ".") in captured["datas"]
+    assert ("licenses", "licenses") in captured["datas"]
 
 
 def test_windows_version_parts_maps_letter_suffix_to_patch_position():

@@ -1,0 +1,347 @@
+{
+  "indexes": [
+    "qtcore-index.html",
+    "qtgui-index.html",
+    "qtnetwork-index.html",
+    "qtqml-index.html",
+    "qtquick-index.html",
+    "qtsvg-index.html",
+    "qtvirtualkeyboard-index.html",
+    "qtpdf-licensing.html",
+    "qtimageformats-index.html"
+  ],
+  "pages": [
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-blake2.html",
+      "html_sha256": "c15c5a2e7a8891002afaddc362e1ceaa8de667a112f33f8101d3dc5c2000512f",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-doubleconversion.html",
+      "html_sha256": "8f278b0a3d0614bed2eff7f16401ebbe622389ee2a38acc93d717bcd44bade9d",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-easing.html",
+      "html_sha256": "81e738ad0c214d81d0ff3dc4b22478f882e64ccbd558c681f816514c6accef95",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-forkfd.html",
+      "html_sha256": "7cfcad8798f106495c8382a4359bc9a25f59dec2968aadb30d864cf98577bc6f",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-md4.html",
+      "html_sha256": "3cd379a71461e002d7c55b682b87f7f29f782455d03fec5a256fa3cf7695f62b",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-md5.html",
+      "html_sha256": "5bdfc509285f1fda24a20ae5eb51e0318dcf0b1d5450f3c72962178fec88fb55",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-pcre2-sljit.html",
+      "html_sha256": "e3366f79c9623202a311ec2a6a535f3b1be57415dfbe3a5622945a6e30d6df4a",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-pcre2.html",
+      "html_sha256": "879709e8fbdb8ab9491613b941eb5be2398f1215a4b1fdd21d3f0092dda9da53",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-qeventdispatcher-cf.html",
+      "html_sha256": "9005ab8a6e81f57586b5e8c681d1f0ae18536056e4aaa142e90d99aa2fe6718a",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-rfc6234.html",
+      "html_sha256": "70173325c5ac8e4a00601392b9f5ac5f568dbc226b99d3f6f4eb1be2eb17b134",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-sha1.html",
+      "html_sha256": "c3452a11083c2cab9816f9e89b80abebacd2f65118bde19a6215dbd741335152",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-sha3-endian.html",
+      "html_sha256": "9cdc8643aedd71c2c7ecc14cec0efbae9dedd340f9671565e8df90fef1e1ea67",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-sha3-keccak.html",
+      "html_sha256": "e075c7dd7e3d4628b6da67afaea3a03861df87783bd3ea339aab2e6a441b2278",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-siphash.html",
+      "html_sha256": "0f84aa28d13902be42d0afddc385456d47c81b75a3c3db530734170afe91991f",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-tika-mimetypes.html",
+      "html_sha256": "cc970077733934085d59d9346644b3bccc2792096b109fabded44a5318f5a55a",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-tinycbor.html",
+      "html_sha256": "76e9342674266d8cadc12b3a27831a929c0748f9fb627016896329353c9755d3",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-tlexpected.html",
+      "html_sha256": "5b10ad331f87c2c90c71fb27cc6830b8655106e3f75c8e07ea83a4229415e408",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-unicode-character-database.html",
+      "html_sha256": "440a13bb53a807615d74ee710da9092f96518345a42df60ed1627dabe79a0e00",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-unicode-cldr.html",
+      "html_sha256": "add84040ba01a848e4947edd9e1cb13992804467c1b7855edb651f538a608398",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtcore-attribution-zlib.html",
+      "html_sha256": "f09f85986a6e80fc34a0076f5525ea8ead43cfcab497503c80d5d6a5343a001b",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-aglfn.html",
+      "html_sha256": "090a805cd5108a3bb90785b9b7f794c4b18d7ca10c200def97dc475b1e77b7a6",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-android-native-style.html",
+      "html_sha256": "7b0354a08ad300587ee7638fa0254ff0445c79539e44ece1e17ef0dea9c01911",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-cocoa-platform-plugin.html",
+      "html_sha256": "43cf11cd33ef99aeefb093e2e79f354bc82a1cc7b3506b359abd3a9204dcf91d",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-d3d12memoryallocator.html",
+      "html_sha256": "b745228f1c57810541575d17af228a460cf74fc13d77e25c8db9f3bad24f0da6",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-dejayvu.html",
+      "html_sha256": "a73b547586542bf7fa2248e3996b05c2598f659f9cded30e4acadb5273a5cc73",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-emoji-segmenter.html",
+      "html_sha256": "88d9ad1dafa942572491dc6b10bf2b03d51b821d6e4ad11974dcc95394cabadc",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-freetype-bdf.html",
+      "html_sha256": "d208dd87b5b57587722abfabb045b18c871f671b966daabc449a038e7529a5ac",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-freetype-pcf.html",
+      "html_sha256": "0ba332fc4446962c247393201f0f1ec8ca5bcaf5adf3bf599ddb0b14f57531aa",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-freetype-zlib.html",
+      "html_sha256": "3d762e1143a721f65b207a1d5e4970cd145a2dbeffa1c0064759a96040dec900",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-freetype.html",
+      "html_sha256": "47d0068bf7ccc0044fa0af6dfa9718b2b494f4467604fa1202b8106a5febd8d0",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-grayraster.html",
+      "html_sha256": "fa24f4b9586cbdd6889bb09e9a3145915d74b187fc4af5213b3b520d4c7f5588",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-harfbuzz-ng.html",
+      "html_sha256": "60c0117b6fb0bf0a50eed4b71ebc1f57629bf636ae9babd841c31be6df01c553",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-icc-srgb-color-profile.html",
+      "html_sha256": "3bf1d82ce29906d0a971f4dae45ae8b8bb2534ca948032e28f5858b3a785b6f4",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-libjpeg.html",
+      "html_sha256": "78e44d48db72f43bf844539d9be8f6993aea770bf2bb256463f7b90b736c1668",
+      "license_blocks": 3
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-libpng.html",
+      "html_sha256": "08480b3d18f2ad46aa26ef2a5876b43a3242dcbeadb51ba39b9de690ce13a0d1",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-md4c.html",
+      "html_sha256": "35b39b528b4c6597faad0c68c60a8c11c25404fa4659d3e5f22b5c92179c490e",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-opengl-es2-headers.html",
+      "html_sha256": "0b6d7f5b9e11e3ef063cc7874279b333638163c01c6f40cd5c98eddce1178013",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-opengl-headers.html",
+      "html_sha256": "6b97a63879947ec9185756a30f54df9a8886bf86a46b10ccbe291cb99d8925bc",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-pixman.html",
+      "html_sha256": "f366f5361aabd425bb79add07d10feb16495a7511ae3b4c1751d24d23dfd93c0",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-rhi-miniengine-d3d12-mipmap.html",
+      "html_sha256": "858ae14cc9f8d1056ccf459c860c8f3e384c1f38d92a6cf04fe8473e7a2285e2",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-smooth-scaling-algorithm.html",
+      "html_sha256": "0a4f3a5564f163fffa407f1ffaee8398e466d68c21b0e3f55f6dcdd493b08d0e",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-vulkan-xml-spec.html",
+      "html_sha256": "1567670618ee88ee6653a1c1ebe7ad136fe6ee99542faae84022d762f34854da",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-vulkanmemoryallocator.html",
+      "html_sha256": "ad5859b86279648b79efe3cecab89bcc528a2950800c39d33f52f3a3cd0fef71",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-webgradients.html",
+      "html_sha256": "bef54bcbb1418256cc7a85f3f1a14126c65c8c00a4f6ae8eed7c7b296ee74155",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-wintab.html",
+      "html_sha256": "f5c13a0fa2a4eaa15993c9f15c3c05623b60dddd7bfac67239b408697270d22a",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-xcb-xinput.html",
+      "html_sha256": "b266935f105c1a16c12205175b9be6dc1fcf5d06768618523ad191028c64ab4d",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtgui-attribution-xserverhelper.html",
+      "html_sha256": "7197851c5e017b574f0168a55532ed7b1a1d3743a52209d4e0948dc5f8ddc8c9",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtimageformats-attribution-libtiff.html",
+      "html_sha256": "99ee35115095573cf36147abbb1b968beb70aaf4ce684cb02fcaff5c2691e9a3",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtimageformats-attribution-libwebp.html",
+      "html_sha256": "1bbbe45609769041aab96b98538077c53d93ddbc113e0ca544b7bb1b1e036a25",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtnetwork-attribution-libpsl.html",
+      "html_sha256": "7fad81d9a5f2dd2f04f4e323f2a89d5d292dd100f53a44c2fb3f211dbc9d609b",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtnetwork-attribution-psl-data.html",
+      "html_sha256": "83b681de0f730eeb762abf146189e80f61dbed3b1c70b2897bb4fc036d673af9",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-abseil.html",
+      "html_sha256": "9a83efa7502c32f27d4298d0b0c25d25ed5345c1c1345c2cf6ce7798b5aec93a",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-fast-float.html",
+      "html_sha256": "e6fd7aeed86828bacd9719862879feac88a3fbaa23d9aa38224006b982e06bcd",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-freetype.html",
+      "html_sha256": "b7ab4211678a46c56a93c07c153ce7537d96d3ced66e747685f98efddcddcd8e",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-icu.html",
+      "html_sha256": "8854c69a0b657e2eae6fb659e8ee7c65dbac6982c7360c0ad1420e8c54c6131e",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-libjpeg-turbo.html",
+      "html_sha256": "ab1e9ce5412c2bd6743f387339fb56a0230a3aa9e2e3efe022c389eae25edddb",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-libpng.html",
+      "html_sha256": "0a20f5a96fca74ec9676993231a0c042a428d603d3dd7202ca7dd229b643e97c",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-pdfium.html",
+      "html_sha256": "adf2dd0fa77c85423d7f3e2fe47069177a923ffbf8120c50ac571835cc1f3bc4",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-the-chromium-project.html",
+      "html_sha256": "d89213f07fca2ac57be697dfc74b40a700609e20f6d7d9f9d164a01270fe2d0d",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtpdf-3rdparty-zlib.html",
+      "html_sha256": "860ecdc367f740de53472ca70dde60eaed126b736ba828131afbbc87c5c42dea",
+      "license_blocks": 1
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtqml-attribution-masm.html",
+      "html_sha256": "43b1232ec24f3f3f495d51023514c594b2a69acda8fd2b8079088bdb240df4d1",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtquick-attribution-yoga.html",
+      "html_sha256": "148767c27f7e2643b3a4f384fb9e43bc1655b7261a1dda001f7aa9dfc168ab03",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtsvg-attribution-xsvg.html",
+      "html_sha256": "237388ef1841f4b164ab9dbdf454f4b5ae65662071913bf4418afdb44710ea14",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtvirtualkeyboard-attribution-openwnn.html",
+      "html_sha256": "e34634ef33aaaa42d00a9aa31299bb25de48939618472599f614339c4e9a46e1",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtvirtualkeyboard-attribution-pinyin.html",
+      "html_sha256": "7e3090f404dc3e860fe1f36825b8a203d11b9832847802fff705b58757977a91",
+      "license_blocks": 2
+    },
+    {
+      "source": "https://doc.qt.io/qt-6.11/qtvirtualkeyboard-attribution-tcime.html",
+      "html_sha256": "d5ed269b5187f4b3ccf81e37a88d2a49efd3800c6ed3ebaad239ec1606dbaef5",
+      "license_blocks": 2
+    }
+  ],
+  "no_license_blocks": [],
+  "output_sha256": "e67a933f4450612d3e6ba335d07fbd6e703a26ac50a3262e5710047c033031e0"
+}

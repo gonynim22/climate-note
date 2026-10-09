@@ -2,6 +2,8 @@
 
 ## Data Flow & Security
 
+- **라이선스 고지**: `ui_licenses.py`는 `app_paths.resource_root()`의 기본 및 선택형 구성요소 JSON과 원문을 읽는다. 설정이 열람 창을 소유하고 숨김/잠금 때 닫는다. DB·설정·네트워크 접근 없이 원문과 출처를 표시하며, `build.spec`은 루트 `LICENSE`와 고지 폴더를 포함한다. 목록과 모델 출처 변경은 계산·변환·인식 및 저장 계약을 바꾸지 않는다.
+
 - **Single Instance**: `msvcrt.locking` on `.lock` file prevents duplicate instances from corrupting the DB.
 - **Encryption**: Hardware-derived key (MachineGuid + Windows username; MAC fallback and legacy decryption supported) + PBKDF2HMAC (200k iterations) → Fernet (AES-128). Common derivation logic in `_derive_fernet_key()`. Fernet instance is **cached** at module level; cache is invalidated on Factory Reset.
 - **Path Validation**: `security.validate_app_path()` shared between `security.py` and `database.py` to prevent path traversal.

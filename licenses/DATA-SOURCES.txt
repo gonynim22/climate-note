@@ -1,0 +1,29 @@
+공공 데이터와 계산 근거
+======================
+1. 한국천문연구원 특일 정보 / 공공데이터포털
+https://www.data.go.kr/data/15012690/openapi.do
+공휴일: 2025~2027년. 날짜·시간 계산기는 자료 범위를 벗어나면
+공휴일 제외 결과를 보류합니다. 갱신은 fetch_data.py의 실제 API 자료로 합니다.
+
+2. 한국천문연구원 음양력 정보 / 공공데이터포털
+https://www.data.go.kr/data/15012679/openapi.do
+음양력: 2025~2050년. 앱에는 미리 확보한 holidays.py 자료를 포함합니다.
+위 두 서비스는 2026-10-09 조회 시 무료·이용허락범위 제한 없음으로 표시됩니다.
+앱 실행 중에는 위 API를 호출하지 않습니다.
+
+3. 단위 환산기
+NIST SP 811, KRISS 국제단위계, CODATA, IAU, KEEI, FDA 등의 정의를 참고합니다.
+항목별 근거는 소스의 unit_converter.py와 docs/UNIT_CONVERSION.md에 있습니다.
+https://www.nist.gov/pml/special-publication-811
+https://physics.nist.gov/cuu/Constants/
+NIST Chemistry WebBook (SRD 69)의 몰질량 6개(g/mol):
+CO2 44.0095, CO 28.0101, NO2 46.0055, SO2 64.064, NH3 17.0305, H2S 34.081.
+https://webbook.nist.gov/chemistry/
+NIST SRD 자료에는 일반 정부 자료와 다른 권리 조건이 적용될 수 있습니다.
+자료집 전체를 복제한 것이 아니며 위 사실값을 계산에 사용합니다.
+https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications
+
+4. 금액·숫자 표기
+행정업무의 운영 및 혁신에 관한 규정 시행규칙 제2조와 한글 맞춤법 제44항
+등을 계산·표시 근거로 사용합니다. 상세는 docs/MONEY_NOTATION.md를 따릅니다.
+법령·계산 근거와 프로그램의 소프트웨어 라이선스는 구분됩니다.
