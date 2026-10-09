@@ -3,11 +3,12 @@
 세 장면(영역 고르기 → 글자 읽기 → 표로 붙여넣기)을 6초 한 바퀴로 되풀이한다. 위젯이 보일 때만 돌고
 (showEvent·hideEvent), 저장·설정·파일·네트워크·로그를 쓰지 않는다. 표본 글자는 모두 꾸며 낸 값이다.
 """
-from PySide6.QtCore import QAbstractAnimation, QPointF, QRectF, QSize, Qt, QVariantAnimation
+from PySide6.QtCore import QAbstractAnimation, QEvent, QPointF, QRectF, QSize, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 DURATION_MS = 6000
+REPAINT_STEP = 1.0 / 144  # 진행이 이만큼(6초 한 바퀴에서 약 42ms, 초당 24번) 나아갈 때만 다시 그린다
 SCENE_W, SCENE_H = 420, 190  # 그림 좌표계. 위젯 크기에 맞춰 비율을 지켜 줄이거나 늘린다
 CAPTION_H = 46  # 아래 설명 줄과 단계 점이 차지하는 높이
 CAPTIONS = (
@@ -30,6 +31,7 @@ GRID_BORDER, HEADER_FILL, SHEET_HEADER, STRIP_FILL = QColor("#B3BECC"), QColor("
 INK, STRONG, MUTED = QColor("#253447"), QColor("#172B4D"), QColor("#677180")
 ACCENT, ORANGE, YELLOW, AMBER, TAG = QColor("#2563EB"), QColor("#E8590C"), QColor("#FFE58A"), QColor("#E5B93C"), QColor("#8A4B08")
 DOT_IDLE, ARROW = QColor("#CDD5E0"), QColor("#91AACA")
+WHITE = QColor("#FFFFFF")
 CURSOR_SHAPE = ((0, 0), (0, 16), (4.2, 12.2), (7.2, 18.6), (9.8, 17.4), (6.9, 11.2), (12.2, 11.2))
 
 
@@ -45,6 +47,10 @@ def _seg(value, start, end):
 def _ease(value):
     value = _clamp(value)
     return value * value * (3.0 - 2.0 * value)
+
+
+def _step_of(progress):
+    return min(2, int(progress * 3.0))
 
 
 def _faded(color, alpha):
@@ -65,7 +71,10 @@ class UsageGuide(QWidget):
         self.setCursor(Qt.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self._progress = 0.0
+        self._requested = -1.0  # 마지막으로 다시 그리기를 요청한 진행(애니메이션이 매 프레임 그리지 않게 한다)
         self._fade = 1.0
+        self._fonts = {}  # (px, 굵게) → 글꼴. 그릴 때마다 만들지 않고 글꼴이 바뀔 때만 비운다
+        self._caption_fit = {}  # (단계, 너비) → (px, 글자)
         self._animation = QVariantAnimation(self)
         self._animation.setStartValue(0.0)
         self._animation.setEndValue(1.0)
@@ -76,6 +85,7 @@ class UsageGuide(QWidget):
     # ── 제어 ──
     def start(self):
         if not self.is_running():
+            self._requested = -1.0
             self._animation.start()
 
     def stop(self):
@@ -85,13 +95,13 @@ class UsageGuide(QWidget):
         self._animation.stop()
         self._progress = 0.0
         self._animation.start()
-        self.update()
+        self._request_paint()
 
     def is_running(self):
         return self._animation.state() == QAbstractAnimation.Running
 
     def step(self):
-        return min(2, int(self._progress * 3.0))
+        return _step_of(self._progress)
 
     def progress(self):
         return self._progress
@@ -103,11 +113,17 @@ class UsageGuide(QWidget):
         """시험·정지 화면용: 애니메이션을 멈추고 그 시점의 한 장면을 그린다."""
         self._animation.stop()
         self._progress = _clamp(float(progress))
+        self._request_paint()
+
+    def _request_paint(self):
+        self._requested = self._progress
         self.update()
 
     def _on_value(self, value):
+        """애니메이션 값이 바뀔 때마다 다시 그리지 않는다. 그림자 효과가 창 전체를 다시 흐려 CPU를 많이 쓰기 때문이다."""
         self._progress = _clamp(float(value))
-        self.update()
+        if abs(self._progress - self._requested) >= REPAINT_STEP or _step_of(self._progress) != _step_of(self._requested):
+            self._request_paint()
 
     # ── 배치 ──
     def sizeHint(self):
@@ -135,6 +151,12 @@ class UsageGuide(QWidget):
         super().hideEvent(event)
         self.stop()
 
+    def changeEvent(self, event):
+        if event.type() in (QEvent.FontChange, QEvent.ApplicationFontChange, QEvent.StyleChange):
+            self._fonts.clear()
+            self._caption_fit.clear()
+        super().changeEvent(event)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.restart()
@@ -159,14 +181,33 @@ class UsageGuide(QWidget):
         painter.end()
 
     # ── 그리기 도우미 ──
+    def _font(self, pixels, bold=False):
+        font = self._fonts.get((pixels, bold))
+        if font is None:
+            font = QFont(self.font())
+            font.setPixelSize(pixels)
+            font.setBold(bold)
+            font.setHintingPreference(QFont.PreferNoHinting)
+            self._fonts[(pixels, bold)] = font
+        return font
+
     def _text(self, painter, rect, text, pixels, color, bold=False, align=Qt.AlignLeft | Qt.AlignVCenter):
-        font = QFont(self.font())
-        font.setPixelSize(pixels)
-        font.setBold(bold)
-        font.setHintingPreference(QFont.PreferNoHinting)
-        painter.setFont(font)
+        painter.setFont(self._font(pixels, bold))
         painter.setPen(color)
         painter.drawText(rect, align, text)
+
+    def _fit_caption(self, step, width):
+        """설명 줄이 너비에 들어가는 가장 큰 글자 크기(13→12→11px). 그래도 넘치면 11px로 말줄임."""
+        fitted = self._caption_fit.get((step, width))
+        if fitted is None:
+            text = CAPTIONS[step]
+            for pixels in (13, 12, 11):
+                if QFontMetrics(self._font(pixels)).horizontalAdvance(text) <= width:
+                    break
+            else:
+                text = QFontMetrics(self._font(11)).elidedText(text, Qt.ElideRight, width)
+            fitted = self._caption_fit[(step, width)] = (pixels, text)
+        return fitted
 
     def _set_alpha(self, painter, alpha=1.0):
         painter.setOpacity(self._fade * _clamp(alpha))
@@ -180,7 +221,7 @@ class UsageGuide(QWidget):
         for grow, alpha in ((3, 7), (2, 10), (1, 16)):
             painter.setBrush(QColor(24, 46, 76, alpha))
             painter.drawRoundedRect(QRectF(left - grow, top - grow + 2, CARD_W + 2 * grow, CARD_H + 2 * grow), 8 + grow, 8 + grow)
-        painter.setBrush(QColor("#FFFFFF"))
+        painter.setBrush(WHITE)
         painter.setPen(QPen(CARD_BORDER, 1))
         painter.drawRoundedRect(QRectF(left + 0.5, top + 0.5, CARD_W - 1, CARD_H - 1), 7, 7)
 
@@ -291,7 +332,7 @@ class UsageGuide(QWidget):
             handles = _seg(t, 0.72, 0.85) * keep
             if handles > 0.0:  # 다 고른 뒤 네 모서리 손잡이
                 painter.setPen(QPen(_faded(ORANGE, handles), 1.2))
-                painter.setBrush(_faded(QColor("#FFFFFF"), handles))
+                painter.setBrush(_faded(WHITE, handles))
                 for point in (box.topLeft(), box.topRight(), box.bottomLeft(), box.bottomRight()):
                     painter.drawRect(QRectF(point.x() - 2.5, point.y() - 2.5, 5, 5))
         visible = _seg(t, 0.0, 0.08) * (1.0 - _seg(t, 1.0, 1.18))
@@ -315,7 +356,7 @@ class UsageGuide(QWidget):
         painter.setBrush(_faded(QColor(24, 46, 76, 70), alpha))
         painter.drawPath(shadow)
         painter.setPen(QPen(_faded(INK, alpha), 1.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-        painter.setBrush(_faded(QColor("#FFFFFF"), alpha))
+        painter.setBrush(_faded(WHITE, alpha))
         painter.drawPath(path)
 
     # ── 오른쪽 시트(3단계의 주인공)와 화살표 ──
@@ -379,7 +420,7 @@ class UsageGuide(QWidget):
             painter.setBrush(_faded(TAG, popped))
             painter.drawRoundedRect(tag, 6.5 * popped, 6.5 * popped)
             if popped > 0.6:
-                self._text(painter, QRectF(center.x() - 13, center.y() - 8, 26, 16), "확인", 10, _faded(QColor("#FFFFFF"), popped),
+                self._text(painter, QRectF(center.x() - 13, center.y() - 8, 26, 16), "확인", 10, _faded(WHITE, popped),
                            bold=True, align=Qt.AlignCenter)
 
     # ── 아래 설명 줄과 단계 점 ──
@@ -387,16 +428,7 @@ class UsageGuide(QWidget):
         step = self.step()
         rise = _ease(_seg(t - step, 0.0, 0.18))
         area = self.caption_rect()
-        text = CAPTIONS[step]
-        for pixels in (13, 12, 11):
-            font = QFont(self.font())
-            font.setPixelSize(pixels)
-            if QFontMetrics(font).horizontalAdvance(text) <= area.width():
-                break
-        else:
-            font = QFont(self.font())
-            font.setPixelSize(11)
-            text = QFontMetrics(font).elidedText(text, Qt.ElideRight, int(area.width()))
+        pixels, text = self._fit_caption(step, int(area.width()))
         painter.setOpacity((0.25 + 0.75 * rise) * self._fade)  # 한 바퀴 끝에서 그림과 함께 사라진다
         self._text(painter, area.translated(0, (1.0 - rise) * 3), text, pixels, INK, align=Qt.AlignCenter)
         painter.setOpacity(self._fade)
