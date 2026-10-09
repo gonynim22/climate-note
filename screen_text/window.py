@@ -9,14 +9,16 @@ import threading
 from PySide6.QtCore import QEvent, QMimeData, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPixmap, QTextCursor
 from PySide6.QtWidgets import (
-    QAbstractButton, QApplication, QButtonGroup, QFrame, QGraphicsDropShadowEffect, QHBoxLayout,
+    QAbstractButton, QApplication, QButtonGroup, QGraphicsDropShadowEffect, QHBoxLayout,
     QLabel, QPlainTextEdit, QPushButton, QStackedWidget, QTableWidget, QTableWidgetItem, QTextEdit,
     QVBoxLayout, QWidget,
 )
 
+from app_paths import resource_root
 from screen_text.capture import ScreenCapture, grab_screens
 from screen_text.guide import UsageGuide
 from screen_text.layout import Cell, Table, TextLine, build_blocks, has_table, plain_with_spans, rows_of, to_html, to_tsv
+from ui_mini_app_frame import MiniAppTitleBar
 
 _logger = logging.getLogger("app_error")
 CONTENT_WIDTH, CONTENT_HEIGHT, SHADOW_MARGIN = 460, 560, 24
@@ -35,7 +37,7 @@ MESSAGES = {
 }
 STYLE = """
     QWidget { color:#253447; }
-    QWidget#screenTextSurface { background:#FFFFFF; border-radius:16px; }
+    QWidget#screenTextSurface { background:#FDFDFB; border-radius:16px; }
     QLabel#screenTextTitle { color:#172B4D; font-size:15px; font-weight:bold; }
     QLabel[muted="true"] { color:#677180; font-size:11px; }
     QLabel#screenTextMessage, QLabel#screenTextResultMessage { background:#FFF4E5; color:#8A4B08; border-radius:8px; padding:8px 10px; }
@@ -50,7 +52,6 @@ STYLE = """
     QPushButton[primary="true"]:disabled { background:#A9C1F2; border-color:#A9C1F2; }
     QPushButton[tab="true"] { background:transparent; border:0; color:#677180; padding:6px 14px; }
     QPushButton[tab="true"]:checked { background:#EAF2FE; color:#1D4ED8; font-weight:bold; }
-    QPushButton#screenTextClose { background:transparent; border:0; color:#7A8699; font-size:19px; padding:0 8px; }
     QPlainTextEdit, QTableWidget { border:1px solid #DCE1E8; border-radius:6px; font-size:13px; }
 """
 
@@ -148,27 +149,23 @@ class ScreenTextWindow(QWidget):
         shadow.setOffset(0, 4)
         shadow.setColor(QColor(24, 46, 76, 80))
         self.surface.setGraphicsEffect(shadow)
-        layout = QVBoxLayout(self.surface)
-        layout.setContentsMargins(18, 0, 18, 16)
+        surface_layout = QVBoxLayout(self.surface)
+        surface_layout.setContentsMargins(0, 0, 0, 0)
+        surface_layout.setSpacing(0)
+        # 미니앱 공용 어두운 제목줄. header는 끌기 처리에 쓰는 기존 이름이다.
+        self.title_bar = MiniAppTitleBar("화면 글자 따기", resource_root() / "screen_text" / "icon.svg",
+                                         self.close, self.surface)
+        self.header = self.title_bar
+        self.title_label = self.title_bar.title_label
+        self.close_button = self.title_bar.close_button
+        self.close_button.installEventFilter(self)
+        self.title_bar.installEventFilter(self)
+        surface_layout.addWidget(self.title_bar)
+        content = QWidget(self.surface)
+        surface_layout.addWidget(content, 1)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(18, 10, 18, 16)
         layout.setSpacing(10)
-
-        self.header = QFrame(self.surface)
-        self.header.setFixedHeight(48)
-        header = QHBoxLayout(self.header)
-        header.setContentsMargins(0, 0, 0, 0)
-        self.title_label = QLabel("화면 글자 따기", self.header)
-        self.title_label.setObjectName("screenTextTitle")
-        header.addWidget(self.title_label)
-        header.addStretch()
-        self.close_button = QPushButton("×", self.header)
-        self.close_button.setObjectName("screenTextClose")
-        self.close_button.setAccessibleName("화면 글자 따기 닫기")
-        self.close_button.setToolTip("닫기 (Esc)")
-        self.close_button.clicked.connect(self.close)
-        header.addWidget(self.close_button)
-        self.header.installEventFilter(self)
-        self.title_label.installEventFilter(self)
-        layout.addWidget(self.header)
 
         self.stack = QStackedWidget(self.surface)
         layout.addWidget(self.stack, 1)

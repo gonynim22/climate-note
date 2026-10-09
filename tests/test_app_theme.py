@@ -74,6 +74,7 @@ def test_text_selection_color_is_app_blue_not_windows_accent(qapp, restore_light
     for group in (QPalette.Active, QPalette.Inactive):
         assert palette.color(group, QPalette.Highlight).name() == "#2563eb"
         assert palette.color(group, QPalette.HighlightedText).name() == "#ffffff"
+        assert palette.color(group, QPalette.Accent).name() == "#2563eb"  # 체크박스·라디오 채움
     # 나머지 색은 계속 밝은 시스템 팔레트를 따른다.
     assert palette.color(QPalette.Base).lightness() > 240
     assert palette.color(QPalette.Text).lightness() < 40

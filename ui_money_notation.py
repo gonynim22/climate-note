@@ -18,6 +18,7 @@ from money_notation import (
     official_amount, parse_decimal, parse_integer, read_number, reading_hangul,
 )
 from ui_converter_combo import ConverterCombo
+from ui_mini_app_frame import MiniAppTitleBar, mini_app_icon_path
 
 WINDOW_WIDTH, WINDOW_HEIGHT, SHADOW_MARGIN = 480, 620, 24
 MODES = {"amount": "금액 표기", "read": "큰 수 읽기", "convert": "단위 환산"}
@@ -150,22 +151,14 @@ class MoneyNotationWindow(QWidget):
 
     # ── 구성 ──
     def _build_header(self, parent_layout):
-        self.header = QWidget()
-        self.header.setFixedHeight(52)
-        header = QHBoxLayout(self.header)
-        header.setContentsMargins(18, 8, 12, 8)
-        self.title_label = QLabel("금액·숫자 표기 도우미")
-        self.title_label.setStyleSheet("font-size:15px;font-weight:bold;")
-        header.addWidget(self.title_label)
-        header.addStretch()
-        self.close_button = self._button("×", self.close)
-        self.close_button.setAccessibleName("금액·숫자 표기 도우미 닫기")
-        self.close_button.setFixedSize(28, 28)
-        self.close_button.setStyleSheet("font-size:20px;padding:0;border:0;")
-        header.addWidget(self.close_button)
-        parent_layout.addWidget(self.header)
-        for widget in (self.header, self.title_label):
-            widget.installEventFilter(self)
+        # 미니앱 공용 어두운 제목줄. header는 끌기·좁은 화면 처리에 쓰는 기존 이름이다.
+        self.title_bar = MiniAppTitleBar("금액·숫자 표기 도우미", mini_app_icon_path("money_notation"), self.close, self.surface)
+        self.header = self.title_bar
+        self.title_label = self.title_bar.title_label
+        self.close_button = self.title_bar.close_button
+        self.close_button.installEventFilter(self)
+        self.title_bar.installEventFilter(self)
+        parent_layout.addWidget(self.title_bar)
 
     def _build_rail(self, area):
         self.rail = QWidget()
@@ -583,7 +576,7 @@ class MoneyNotationWindow(QWidget):
         compact = available.height() < WINDOW_HEIGHT
         margin = min(SHADOW_MARGIN, max(0, (available.width() - 420) // 2),
                      max(0, (available.height() - WINDOW_HEIGHT) // 2))
-        self.header.setFixedHeight(40 if compact else 52)
+        self.title_bar.set_compact(compact)
         self.right_layout.setContentsMargins(12 if compact else 18, 6 if compact else 17,
                                              12 if compact else 18, 6 if compact else 16)
         self.right_layout.setSpacing(4 if compact else 7)

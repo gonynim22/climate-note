@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from hwp_conversion import ConversionError, detect_environment
 from hwp_conversion_runner import ConversionRunner
+from ui_mini_app_frame import MiniAppTitleBar, mini_app_icon_path
 
 WINDOW_WIDTH, WINDOW_HEIGHT, SHADOW_MARGIN = 480, 620, 24
 MAX_FILES = 100
@@ -55,16 +56,16 @@ class DocumentConverterWindow(QWidget):
             QWidget { color:#292C33; }
             QWidget#documentSurface { background:#FDFDFB; border-radius:16px; }
             QPushButton { background:white; border:1px solid #CDD5E0; border-radius:6px; padding:5px 8px; }
-            QPushButton:hover { background:#F3EEFC; border-color:#9775FA; }
-            QPushButton:focus { border:1px solid #6741D9; }
+            QPushButton:hover { background:#EDF3FB; border-color:#91AACA; }
+            QPushButton:focus { border:1px solid #315C98; }
             QPushButton:disabled { color:#959CA6; background:#F3F4F6; }
-            QPushButton#convertStart { background:#6741D9; color:white; border:0; }
-            QPushButton#convertStart:disabled { background:#D7CDEE; color:#777080; }
+            QPushButton#convertStart { background:#2563EB; color:white; border:0; font-weight:bold; }
+            QPushButton#convertStart:disabled { background:#A9C1F2; color:#FFFFFF; }
             QTreeWidget { background:white; border:1px solid #DDE1E9; border-radius:8px; }
             QTreeWidget::item { height:32px; }
-            QHeaderView::section { background:#F4F1FA; color:#51456A; border:0; padding:7px; }
-            QProgressBar { border:0; background:#EEEAF5; border-radius:5px; text-align:center; height:16px; }
-            QProgressBar::chunk { background:#C9B6F6; border-radius:5px; }
+            QHeaderView::section { background:#F5F7FA; color:#4E5663; border:0; padding:7px; }
+            QProgressBar { border:0; background:#EEF1F5; border-radius:5px; text-align:center; height:16px; }
+            QProgressBar::chunk { background:#A9C1F2; border-radius:5px; }
         """)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN)
@@ -77,26 +78,25 @@ class DocumentConverterWindow(QWidget):
         shadow.setOffset(0, 4)
         shadow.setColor(QColor(24, 46, 76, 80))
         self.surface.setGraphicsEffect(shadow)
-        layout = QVBoxLayout(self.surface)
+        surface_layout = QVBoxLayout(self.surface)
+        surface_layout.setContentsMargins(0, 0, 0, 0)
+        surface_layout.setSpacing(0)
+        # 미니앱 공용 어두운 제목줄. header는 끌기 처리에 쓰는 기존 이름이다.
+        self.title_bar = MiniAppTitleBar("문서 형식 변환", mini_app_icon_path("document_converter"), self.close, self.surface)
+        self.header = self.title_bar
+        self.title_label = self.title_bar.title_label
+        self.close_button = self.title_bar.close_button
+        self.close_button.installEventFilter(self)
+        self.title_bar.installEventFilter(self)
+        surface_layout.addWidget(self.title_bar)
+        content = QWidget(self.surface)
+        surface_layout.addWidget(content, 1)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(18, 12, 18, 16)
         layout.setSpacing(10)
-        self.header = QWidget()
-        header = QHBoxLayout(self.header)
-        header.setContentsMargins(0, 0, 0, 0)
-        self.title_label = QLabel("문서 형식 변환")
-        self.title_label.setStyleSheet("font-size:15px;font-weight:bold;")
-        header.addWidget(self.title_label)
-        header.addStretch()
-        close = self._button("×", self.close)
-        close.setAccessibleName("문서 형식 변환 닫기")
-        close.setFixedSize(28, 28)
-        close.setStyleSheet("font-size:20px;padding:0;border:0;")
-        header.addWidget(close)
-        layout.addWidget(self.header)
-        for widget in (self.header, self.title_label):
-            widget.installEventFilter(self)
+        self.content_layout = layout
         title = QLabel("HWP  →  HWPX")
-        title.setStyleSheet("color:#6741D9;font-size:22px;font-weight:bold;")
+        title.setStyleSheet("color:#172B4D;font-size:22px;font-weight:bold;")
         layout.addWidget(title)
         self.note = QLabel("한글 문서를 개방형 형식으로 변환합니다.\n원본과 기존 변환 파일은 그대로 보존합니다.")
         self.note.setStyleSheet("color:#687080;font-size:12px;")
@@ -105,7 +105,7 @@ class DocumentConverterWindow(QWidget):
         environment_row = QHBoxLayout()
         self.environment_label = QLabel()
         self.environment_label.setWordWrap(True)
-        self.environment_label.setStyleSheet("color:#685481;font-size:12px;")
+        self.environment_label.setStyleSheet("color:#687080;font-size:12px;")
         environment_row.addWidget(self.environment_label, 1)
         self.check_button = self._button("다시 확인", self.refresh_environment)
         environment_row.addWidget(self.check_button)
@@ -385,7 +385,7 @@ class DocumentConverterWindow(QWidget):
         margin = min(SHADOW_MARGIN, max(0, (available.width() - 420) // 2), max(0, (available.height() - 480) // 2))
         self.note.setVisible(available.height() >= 560)
         self.layout().setContentsMargins(margin, margin, margin, margin)
-        self.surface.layout().setSpacing(6 if available.height() < 560 else 10)
+        self.content_layout.setSpacing(6 if available.height() < 560 else 10)
         shadow = self.surface.graphicsEffect()
         shadow.setEnabled(margin > 0)
         shadow.setBlurRadius(max(0, margin - 4))

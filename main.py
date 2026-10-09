@@ -107,6 +107,7 @@ def _apply_light_theme(app: QApplication) -> None:
     selection = QPalette()
     selection.setColor(QPalette.Highlight, QColor("#2563EB"))
     selection.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+    selection.setColor(QPalette.Accent, QColor("#2563EB"))  # 체크박스·라디오도 Windows 강조색 대신
     app.setPalette(selection)
 
 

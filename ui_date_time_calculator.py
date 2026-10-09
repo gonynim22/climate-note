@@ -16,6 +16,7 @@ from date_time_calculator import (
     sum_durations, working_days,
 )
 from ui_converter_combo import ConverterCombo
+from ui_mini_app_frame import MiniAppTitleBar, mini_app_icon_path
 
 WINDOW_WIDTH, WINDOW_HEIGHT, SHADOW_MARGIN = 480, 620, 24
 MODES = {'difference': '시간 차이', 'calendar': '날짜 연산', 'workdays': '근무일', 'sum': '시간 합산'}
@@ -77,22 +78,14 @@ class DateTimeCalculatorWindow(QWidget):
         surface_layout = QVBoxLayout(self.surface)
         surface_layout.setContentsMargins(0, 0, 0, 0)
         surface_layout.setSpacing(0)
-        self.header = QWidget()
-        self.header.setFixedHeight(52)
-        header = QHBoxLayout(self.header)
-        header.setContentsMargins(18, 8, 12, 8)
-        self.title_label = QLabel('날짜·시간 계산기')
-        self.title_label.setStyleSheet('font-size:15px;font-weight:bold;')
-        header.addWidget(self.title_label)
-        header.addStretch()
-        self.close_button = self._button('×', self.close)
-        self.close_button.setAccessibleName('날짜·시간 계산기 닫기')
-        self.close_button.setFixedSize(28, 28)
-        self.close_button.setStyleSheet('font-size:20px;padding:0;border:0;')
-        header.addWidget(self.close_button)
-        surface_layout.addWidget(self.header)
-        for widget in (self.header, self.title_label):
-            widget.installEventFilter(self)
+        # 미니앱 공용 어두운 제목줄. header는 끌기·좁은 화면 처리에 쓰는 기존 이름이다.
+        self.title_bar = MiniAppTitleBar('날짜·시간 계산기', mini_app_icon_path('date_time'), self.close, self.surface)
+        self.header = self.title_bar
+        self.title_label = self.title_bar.title_label
+        self.close_button = self.title_bar.close_button
+        self.close_button.installEventFilter(self)
+        self.title_bar.installEventFilter(self)
+        surface_layout.addWidget(self.title_bar)
         area = QHBoxLayout()
         area.setContentsMargins(0, 0, 0, 0)
         area.setSpacing(0)
@@ -704,7 +697,7 @@ class DateTimeCalculatorWindow(QWidget):
             available = screen.availableGeometry()
         compact = available.height() < 620
         margin = min(SHADOW_MARGIN, max(0, (available.width() - 420) // 2), max(0, (available.height() - 620) // 2))
-        self.header.setFixedHeight(40 if compact else 52)
+        self.title_bar.set_compact(compact)
         self.right_layout.setContentsMargins(12 if compact else 18, 6 if compact else 17, 12 if compact else 18, 6 if compact else 16)
         self.right_layout.setSpacing(4 if compact else 7)
         self.mode_title.setVisible(not compact)

@@ -12,6 +12,7 @@ from unit_converter import (
 )
 from ui_conversion_conditions import ConversionConditionsPanel, condition_summary
 from ui_converter_combo import ConverterCombo
+from ui_mini_app_frame import MiniAppTitleBar, mini_app_icon_path
 
 CONVERTER_WIDTH = 440
 CONVERTER_HEIGHT = 580
@@ -58,8 +59,8 @@ class UnitConverterWindow(QWidget):
         self.setStyleSheet("""
             QWidget { color:#292C33; }
             QWidget#converterSurface { background:#FDFDFB; border-radius:16px; }
-            QWidget#converterBody { background:#FDFDFB; border-top-right-radius:16px; border-bottom-right-radius:16px; }
-            QWidget#converterRail { background:#23252B; border-top-left-radius:16px; border-bottom-left-radius:16px; }
+            QWidget#converterBody { background:#FDFDFB; border-bottom-right-radius:16px; }
+            QWidget#converterRail { background:#23252B; border-bottom-left-radius:16px; }
             QScrollArea { background:transparent; border:0; }
             QScrollArea > QWidget > QWidget { background:transparent; }
             QScrollBar:vertical { width:5px; background:transparent; margin:0; }
@@ -67,8 +68,7 @@ class UnitConverterWindow(QWidget):
             QScrollBar::handle { background:#CDD0D2; border-radius:2px; min-height:18px; min-width:18px; }
             QScrollBar::add-line, QScrollBar::sub-line { width:0; height:0; }
             QScrollBar::add-page, QScrollBar::sub-page { background:transparent; }
-            QToolButton#converterClose, QToolButton#converterSwap { background:transparent; border:1px solid transparent; border-radius:6px; }
-            QToolButton#converterClose:hover, QToolButton#converterClose:focus,
+            QToolButton#converterSwap { background:transparent; border:1px solid transparent; border-radius:6px; }
             QToolButton#converterSwap:hover, QToolButton#converterSwap:focus { background:#EDF1F5; border-color:#B4C5DB; }
             QPushButton#otherUnit { background:transparent; border:1px solid transparent; border-radius:6px; }
             QPushButton#otherUnit:hover, QPushButton#otherUnit:focus { background:#F0F2F4; border-color:#CDD5E0; }
@@ -86,19 +86,27 @@ class UnitConverterWindow(QWidget):
         shadow.setOffset(0, 4)
         shadow.setColor(QColor(24, 46, 76, 80))
         self.surface.setGraphicsEffect(shadow)
-        root = QHBoxLayout(self.surface)
+        root = QVBoxLayout(self.surface)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+        # 미니앱 공용 어두운 제목줄. 왼쪽 분류 메뉴가 같은 색으로 아래에 이어진다.
+        self.title_bar = MiniAppTitleBar("단위 환산기", mini_app_icon_path("unit_converter"), self.close, self.surface)
+        self.header = self.title_bar
+        self.close_button = self.title_bar.close_button
+        self.close_button.installEventFilter(self)
+        self.title_bar.installEventFilter(self)
+        root.addWidget(self.title_bar)
+        area = QHBoxLayout()
+        area.setContentsMargins(0, 0, 0, 0)
+        area.setSpacing(0)
+        root.addLayout(area, 1)
         rail = QWidget(self.surface)
         self.category_rail = rail
         rail.setObjectName("converterRail")
         rail.setFixedWidth(132)
         rail_layout = QVBoxLayout(rail)
-        rail_layout.setContentsMargins(6, 12, 5, 8)
+        rail_layout.setContentsMargins(6, 4, 5, 8)
         rail_layout.setSpacing(6)
-        brand = QLabel("▪  단위 환산", rail)
-        brand.setStyleSheet("color:#F4F5F2;font-size:14px;font-weight:bold;padding:0 2px 5px;")
-        rail_layout.addWidget(brand)
         self.category_scroll = self._scroll(rail)
         category_content = QWidget()
         categories_layout = QVBoxLayout(category_content)
@@ -144,7 +152,7 @@ class UnitConverterWindow(QWidget):
         categories_layout.addStretch()
         self.category_scroll.setWidget(category_content)
         rail_layout.addWidget(self.category_scroll)
-        root.addWidget(rail)
+        area.addWidget(rail)
 
         body = QWidget(self.surface)
         body.setObjectName("converterBody")
@@ -152,27 +160,16 @@ class UnitConverterWindow(QWidget):
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(0)
-        self.header = QWidget(body)
-        self.header.setFixedHeight(44)
-        header_layout = QHBoxLayout(self.header)
-        header_layout.setContentsMargins(14, 4, 8, 2)
+        # 본문 머리줄은 고른 분류 이름만 보인다(닫기는 제목줄로 옮겼다).
+        self.category_header = QWidget(body)
+        self.category_header.setFixedHeight(36)
+        header_layout = QHBoxLayout(self.category_header)
+        header_layout.setContentsMargins(14, 6, 8, 0)
         self.title_label = QLabel()
         self.title_label.setStyleSheet("font-size:14px;font-weight:bold;")
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
-        self.close_button = QToolButton()
-        self.close_button.setObjectName("converterClose")
-        self.close_button.setText("×")
-        self.close_button.setStyleSheet("font-size:19px;")
-        self.close_button.setFixedSize(30, 30)
-        self.close_button.setToolTip("닫기 (Esc)")
-        self.close_button.setAccessibleName("단위 환산기 닫기")
-        self.close_button.clicked.connect(self.close)
-        self.close_button.installEventFilter(self)
-        header_layout.addWidget(self.close_button)
-        for target in (self.header, self.title_label):
-            target.installEventFilter(self)
-        body_layout.addWidget(self.header)
+        body_layout.addWidget(self.category_header)
         self.conditions_panel = ConversionConditionsPanel(body)
         self.basis_label = self.conditions_panel.summary
         body_layout.addWidget(self.conditions_panel)
@@ -257,7 +254,7 @@ class UnitConverterWindow(QWidget):
         body_layout.addWidget(recent)
         self.body_scroll = self._scroll(self.surface)
         self.body_scroll.setWidget(body)
-        root.addWidget(self.body_scroll, 1)
+        area.addWidget(self.body_scroll, 1)
         self.input.textChanged.connect(self.update_results)
         self.input.returnPressed.connect(self.save_recent)
         self.from_combo.currentIndexChanged.connect(self.update_results)
@@ -506,7 +503,7 @@ class UnitConverterWindow(QWidget):
             if not event.isAutoRepeat():
                 watched.click()
             return True
-        if watched in (getattr(self, "header", None), getattr(self, "title_label", None)):
+        if watched is getattr(self, "title_bar", None):
             if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
                 self._drag_origin = (event.globalPosition().toPoint(), self.pos())
                 return True
