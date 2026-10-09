@@ -16,7 +16,7 @@ from date_time_calculator import (
     sum_durations, working_days,
 )
 from ui_converter_combo import ConverterCombo
-from ui_mini_app_frame import MiniAppTitleBar, mini_app_icon_path
+from ui_mini_app_frame import MiniAppCheckBox, MiniAppTitleBar, mini_app_icon_path
 
 WINDOW_WIDTH, WINDOW_HEIGHT, SHADOW_MARGIN = 480, 620, 24
 MODES = {'difference': '시간 차이', 'calendar': '날짜 연산', 'workdays': '근무일', 'sum': '시간 합산'}
@@ -239,7 +239,7 @@ class DateTimeCalculatorWindow(QWidget):
         return container
 
     def _check(self, mode, key, title, checked=False):
-        box = QCheckBox(title)
+        box = MiniAppCheckBox(title)
         box.setChecked(checked)
         box.setAccessibleName(title)
         self.fields[mode][key] = box

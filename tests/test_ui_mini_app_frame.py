@@ -5,12 +5,12 @@ import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QCheckBox, QStyle, QStyleOptionButton
 
 import database as db
 import ui_document_converter
 from hwp_conversion import ConversionEnvironment
-from ui_mini_app_frame import FRAME_DARK, FRAME_SURFACE, TITLE_BAR_HEIGHT, MiniAppTitleBar
+from ui_mini_app_frame import FRAME_DARK, FRAME_SURFACE, TITLE_BAR_HEIGHT, MiniAppCheckBox, MiniAppTitleBar
 
 WINDOWS = {
     "unit": ("ui_unit_converter", "UnitConverterWindow", "단위 환산기", True),
@@ -112,3 +112,31 @@ def test_document_converter_has_no_purple_left():
     source = inspect.getsource(ui_document_converter)
     for purple in ("#6741D9", "#9775FA", "#F3EEFC", "#D7CDEE", "#F4F1FA", "#51456A", "#EEEAF5", "#C9B6F6", "#685481"):
         assert purple not in source, purple
+
+
+@pytest.mark.parametrize("key", ["date", "doc"])
+def test_checkboxes_draw_white_check_on_app_blue(qtbot, key):
+    """디자인 점검 8번: Windows 기본 체크(파랑 위 어두운 체크) 대신 앱 파랑 상자 + 흰 체크."""
+    win = _open(qtbot, key)
+    boxes = [box for box in win.findChildren(QCheckBox) if box.isVisible()]
+    assert boxes and all(isinstance(box, MiniAppCheckBox) for box in boxes)
+    box = boxes[0]
+    for checked in (False, True):
+        box.setChecked(checked)
+        QApplication.processEvents()
+        option = QStyleOptionButton()
+        box.initStyleOption(option)
+        rect = box.style().subElementRect(QStyle.SE_CheckBoxIndicator, option, box)
+        assert rect.width() == 18 and rect.height() == 18  # 16px 안쪽 + 1px 테두리(Fluent 체크와 같은 크기)
+        image = box.grab().toImage()
+        ratio = image.devicePixelRatio()
+
+        def pixel(fx, fy):
+            return image.pixelColor(int((rect.x() + rect.width() * fx) * ratio),
+                                    int((rect.y() + rect.height() * fy) * ratio))
+
+        if checked:
+            assert pixel(0.15, 0.85).name() == "#2563eb"  # 체크 선이 없는 상자 안쪽
+            assert pixel(0.6, 0.5).lightness() > 200      # 흰 체크 선
+        else:
+            assert pixel(0.5, 0.5).name() == "#ffffff"

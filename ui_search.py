@@ -4,14 +4,18 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QLabel, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont
+from PySide6.QtGui import QBrush, QColor
 
 from qfluentwidgets import (
-    LineEdit, PrimaryPushButton, PushButton, BodyLabel, CaptionLabel,
+    LineEdit, PrimaryPushButton, PushButton, CaptionLabel,
     FluentIcon as FIF, TransparentToolButton
 )
 
 import database as db
+from ui_window_card import TABLE_QSS, WindowCard
+
+SEARCH_HINT = "검색어를 입력하고 Enter를 누르세요.\n[전체 검색]은 모든 일정과 메모를 보여 줍니다."
+NO_RESULTS = "검색 결과가 없습니다."
 
 
 class SearchWindow(QWidget):
@@ -27,17 +31,12 @@ class SearchWindow(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        # 제목
-        title = BodyLabel("📅 일정 / 메모 검색", self)
-        title_font = QFont()
-        title_font.setPointSize(13)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        layout.addWidget(title)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        # 설정 창과 같은 흰 카드(선 아이콘 제목). 이하 내용은 카드 본문에 둔다.
+        self.card = WindowCard("일정 / 메모 검색", FIF.SEARCH, self)
+        outer.addWidget(self.card)
+        layout = self.card.body
 
         # 검색 입력
         search_row = QHBoxLayout()
@@ -82,44 +81,18 @@ class SearchWindow(QWidget):
         self.result_table.setAlternatingRowColors(False)
         
         self.result_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.result_table.setStyleSheet("""
-            QTableWidget {
-                background-color: #ffffff;
-                color: #37352f;
-                border: 1px solid #ededed;
-                border-radius: 4px;
-                gridline-color: #ededed;
-                outline: none;
-            }
-            QTableWidget::item {
-                padding: 8px 12px; /* 넉넉한 상하좌우 패딩 */
-                border-bottom: none;
-            }
-            QTableWidget::item:selected {
-                background-color: #ebeced; /* 옅은 회색 파스텔톤 선택 배경 */
-                color: #37352f;
-            }
-            QHeaderView::section {
-                background-color: #f7f7f5;
-                color: #37352f;
-                padding: 8px 12px;
-                font-weight: 500;
-                font-size: 13px;
-                text-align: left;
-                border: none;
-                border-bottom: 1px solid #ededed;
-                border-right: 1px solid #ededed;
-            }
-            QHeaderView::section:last {
-                border-right: none;
-            }
-            QHeaderView {
-                background-color: transparent;
-                border: none;
-            }
-        """)
+        self.result_table.setStyleSheet(TABLE_QSS)
         self.result_table.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self.result_table, 1)
+        # 결과가 없을 때는 큰 빈 표 대신 안내를 보인다.
+        self.empty_label = self.card.empty_label(SEARCH_HINT)
+        layout.addWidget(self.empty_label, 1)
+        self._show_results(False)
+
+    def _show_results(self, has_rows, message=SEARCH_HINT):
+        self.result_table.setVisible(has_rows)
+        self.empty_label.setVisible(not has_rows)
+        self.empty_label.setText(message)
 
     def _on_search(self, search_all=False):
         keyword = "" if search_all else self.search_input.text().strip()
@@ -130,6 +103,7 @@ class SearchWindow(QWidget):
         if not keyword and not search_all:
             self.result_count_label.setText("")
             self.result_table.setSortingEnabled(True)
+            self._show_results(False)
             return
 
         results = db.search_all(keyword)
@@ -169,6 +143,7 @@ class SearchWindow(QWidget):
             self.result_table.setItem(row, 2, content_item)
             
         self.result_table.setSortingEnabled(True)
+        self._show_results(bool(results), NO_RESULTS)
 
     def _on_item_clicked(self, item):
         date_item = self.result_table.item(item.row(), 0)

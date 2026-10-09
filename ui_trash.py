@@ -6,13 +6,14 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QSizePolicy, QStyledItemDelegate
 )
 from PySide6.QtCore import Qt, Signal, QRectF
-from PySide6.QtGui import QFont, QColor, QTextDocument, QPainter, QPen
+from PySide6.QtGui import QColor, QTextDocument, QPainter, QPen
 
 from qfluentwidgets import (
-    PrimaryPushButton, PushButton, BodyLabel, CaptionLabel, MessageBox,
+    PrimaryPushButton, PushButton, CaptionLabel, MessageBox, FluentIcon as FIF,
 )
 
 import database as db
+from ui_window_card import TABLE_QSS, WindowCard
 
 _logger = logging.getLogger("app_error")
 
@@ -66,26 +67,20 @@ class StickyTrashWindow(QWidget):
         self._refresh()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        title = BodyLabel("🗑️ 스티키 노트 휴지통", self)
-        title_font = QFont()
-        title_font.setPointSize(13)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        layout.addWidget(title)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 16, 16, 16)
+        # 설정 창과 같은 흰 카드(선 아이콘 제목). 이하 내용은 카드 본문에 둔다.
+        self.card = WindowCard("스티키 노트 휴지통", FIF.DELETE, self)
+        outer.addWidget(self.card)
+        layout = self.card.body
 
         self.count_label = CaptionLabel("", self)
         self.count_label.setStyleSheet("color: gray;")
         layout.addWidget(self.count_label)
 
-        # 빈 상태 안내
-        self.empty_label = BodyLabel("휴지통이 비어 있습니다.", self)
-        self.empty_label.setAlignment(Qt.AlignCenter)
-        self.empty_label.setStyleSheet("color: #9aa0a6; padding: 40px;")
-        layout.addWidget(self.empty_label)
+        # 빈 상태 안내(표 자리를 채운다)
+        self.empty_label = self.card.empty_label("휴지통이 비어 있습니다.")
+        layout.addWidget(self.empty_label, 1)
 
         # 결과 테이블
         self.table = QTableWidget(self)
@@ -102,27 +97,7 @@ class StickyTrashWindow(QWidget):
         self.table.setItemDelegateForColumn(0, _ColorDotDelegate(self.table))
         self.table.setShowGrid(True)
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.table.setStyleSheet("""
-            QTableWidget {
-                background-color: #ffffff;
-                color: #37352f;
-                border: 1px solid #ededed;
-                border-radius: 4px;
-                gridline-color: #ededed;
-                outline: none;
-            }
-            QTableWidget::item { padding: 8px 12px; border-bottom: none; }
-            QTableWidget::item:selected { background-color: #ebeced; color: #37352f; }
-            QHeaderView::section {
-                background-color: #f7f7f5;
-                color: #37352f;
-                padding: 8px 12px;
-                font-weight: 500;
-                font-size: 13px;
-                border: none;
-                border-bottom: 1px solid #ededed;
-            }
-        """)
+        self.table.setStyleSheet(TABLE_QSS)
         layout.addWidget(self.table, 1)
 
         # 버튼 줄

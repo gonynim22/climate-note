@@ -6,14 +6,14 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, Qt, QTimer, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QFileDialog, QGraphicsDropShadowEffect,
+    QApplication, QFileDialog, QGraphicsDropShadowEffect,
     QHeaderView, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from hwp_conversion import ConversionError, detect_environment
 from hwp_conversion_runner import ConversionRunner
-from ui_mini_app_frame import MiniAppTitleBar, mini_app_icon_path
+from ui_mini_app_frame import MiniAppCheckBox, MiniAppTitleBar, mini_app_icon_path
 
 WINDOW_WIDTH, WINDOW_HEIGHT, SHADOW_MARGIN = 480, 620, 24
 MAX_FILES = 100
@@ -130,7 +130,7 @@ class DocumentConverterWindow(QWidget):
         self.file_list.setColumnWidth(1, 76)
         self.file_list.setAccessibleName("변환할 HWP 파일 목록")
         layout.addWidget(self.file_list, 1)
-        self.same_folder = QCheckBox("원본 파일과 같은 폴더에 저장")
+        self.same_folder = MiniAppCheckBox("원본 파일과 같은 폴더에 저장")
         self.same_folder.setChecked(True)
         self.same_folder.toggled.connect(self._update_controls)
         layout.addWidget(self.same_folder)
