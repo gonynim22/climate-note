@@ -737,7 +737,7 @@ class SettingsWindow(QWidget):
         self._add_row(sec_body, "개인정보 잠금", privacy_control)
 
         self.factory_reset_btn = _HoverIconButton(
-            FIF.DELETE.icon(color=QColor("#DC2626")), "Factory Reset", self)
+            FIF.DELETE.icon(color=QColor("#DC2626")), "초기화", self)
         self.factory_reset_btn.set_hover_icons(FIF.DELETE, "#DC2626", "#FFFFFF")
         self.factory_reset_btn.setObjectName("factoryResetButton")
         self.factory_reset_btn.setToolTip("모든 데이터를 초기화")

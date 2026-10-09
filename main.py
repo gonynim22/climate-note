@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import (
-    QDesktopServices, QIcon, QPixmap, QColor, QKeySequence, QShortcut,
+    QDesktopServices, QIcon, QPixmap, QColor, QKeySequence, QShortcut, QPalette,
 )
 
 from qfluentwidgets import setTheme, setThemeColor, Theme, InfoBar, InfoBarPosition
@@ -102,6 +102,12 @@ def _apply_light_theme(app: QApplication) -> None:
     setTheme(Theme.LIGHT)
     # ── 단일 블루 액센트(#2563EB): 토글/슬라이더/포인트색을 앱 전역 통일
     setThemeColor(QColor("#2563EB"))
+    # ── 글자 선택 색: Qt 기본 입력칸은 Windows 강조색(PC마다 청록 등)을 따르므로 같은 파랑으로 고정.
+    # 두 색만 지정한 빈 팔레트라 나머지 색은 계속 밝은 시스템 팔레트를 따른다.
+    selection = QPalette()
+    selection.setColor(QPalette.Highlight, QColor("#2563EB"))
+    selection.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+    app.setPalette(selection)
 
 
 # ─── 트레이 아이콘 생성 ────────────────────────────────────────

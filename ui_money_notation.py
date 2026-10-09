@@ -175,7 +175,7 @@ class MoneyNotationWindow(QWidget):
         nav = QVBoxLayout(self.rail)
         nav.setContentsMargins(7, 18, 7, 12)
         nav.setSpacing(5)
-        brand = QLabel("NUMBER")
+        brand = QLabel("도구")
         brand.setStyleSheet("color:#959CAA;font-size:11px;padding:0 5px 8px;")
         nav.addWidget(brand)
         self.mode_buttons = {}

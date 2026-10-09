@@ -16,8 +16,10 @@ import database as db
 import main
 import ui_main
 from show_desktop_guard import ShowDesktopKeeper
+from ui_date_time_calculator import DateTimeCalculatorWindow
 from ui_dday import DDayCreateDialog
 from ui_main import MainCalendarWindow
+from ui_money_notation import MoneyNotationWindow
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +42,12 @@ def restore_light():
     setThemeColor(QColor("#2563EB"))
 
 
+@pytest.fixture
+def restore_palette(qapp):
+    yield
+    qapp.setPalette(QPalette())  # 시스템 팔레트로 되돌려 다른 시험에 새지 않게 한다.
+
+
 def _simulate_windows_dark():
     """Windows 다크 모드 상태: Qt 색 구성표와 Fluent 테마가 모두 어둡다."""
     QGuiApplication.styleHints().setColorScheme(Qt.ColorScheme.Dark)
@@ -57,6 +65,50 @@ def test_light_theme_is_kept_when_windows_is_dark(qapp, restore_light):
     palette = QLineEdit().palette()
     assert palette.color(QPalette.Base).lightness() > 240
     assert palette.color(QPalette.Text).lightness() < 40
+
+
+def test_text_selection_color_is_app_blue_not_windows_accent(qapp, restore_light, restore_palette):
+    # Qt 기본 입력칸은 선택 바탕으로 Windows 강조색(PC마다 다름, 청록 등)을 쓴다. 앱 파랑으로 고정한다.
+    main._apply_light_theme(qapp)
+    palette = QLineEdit().palette()
+    for group in (QPalette.Active, QPalette.Inactive):
+        assert palette.color(group, QPalette.Highlight).name() == "#2563eb"
+        assert palette.color(group, QPalette.HighlightedText).name() == "#ffffff"
+    # 나머지 색은 계속 밝은 시스템 팔레트를 따른다.
+    assert palette.color(QPalette.Base).lightness() > 240
+    assert palette.color(QPalette.Text).lightness() < 40
+
+
+def _app_blue_pixels(edit) -> int:
+    edit.selectAll()
+    QApplication.processEvents()
+    image = edit.grab().toImage().convertToFormat(QImage.Format.Format_RGB32)
+    blue = QColor("#2563EB").rgb()
+    return sum(image.pixel(x, y) == blue for y in range(image.height()) for x in range(image.width()))
+
+
+def test_selected_text_is_app_blue_in_schedule_and_mini_app_inputs(qtbot, qapp, restore_light, restore_palette):
+    main._apply_light_theme(qapp)
+    today = date.today().isoformat()
+    db.add_schedule(today, "주간 업무회의 10:00", "#FFD166")
+    win = MainCalendarWindow()
+    qtbot.addWidget(win)
+    win.show()
+    win._on_date_selected(today)
+    QApplication.processEvents()
+    win._on_edit_schedule(win.schedule_list.item(0))
+    edits = {"일정 편집": win._schedule_editor.edit}
+    for name, window_class in (("날짜·시간", DateTimeCalculatorWindow), ("금액", MoneyNotationWindow)):
+        window = window_class()
+        qtbot.addWidget(window)
+        window.show()
+        QApplication.processEvents()
+        edit = next(e for e in window.findChildren(QLineEdit) if e.isVisible())
+        edit.setText("113560")
+        edits[name] = edit
+
+    counts = {name: _app_blue_pixels(edit) for name, edit in edits.items()}
+    assert all(count > 20 for count in counts.values()), counts
 
 
 def test_startup_does_not_follow_windows_theme():

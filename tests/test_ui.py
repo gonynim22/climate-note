@@ -779,12 +779,12 @@ def test_calendar_weekend_dates_use_weekend_colors(qtbot, app_dir, qapp):
 
 
 def test_settings_destructive_buttons_use_icon_design(qtbot, app_dir, qapp):
-    """Factory Reset과 앱 종료 버튼은 아이콘과 명확한 버튼 스타일을 사용한다."""
+    """데이터 초기화와 앱 종료 버튼은 아이콘과 명확한 버튼 스타일을 사용한다."""
     win = SettingsWindow()
     qtbot.addWidget(win)
 
     assert win.factory_reset_btn.objectName() == "factoryResetButton"
-    assert win.factory_reset_btn.text() == "Factory Reset"
+    assert win.factory_reset_btn.text() == "초기화"  # 행 이름이 '데이터 초기화'라 영문 표기를 쓰지 않는다.
     assert win.factory_reset_btn.toolTip() == "모든 데이터를 초기화"
     assert not win.factory_reset_btn.icon().isNull()
     assert "#28a745" not in win.factory_reset_btn.styleSheet()

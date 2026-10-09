@@ -68,6 +68,12 @@ def capture(win, name):
         assert win.grab().save(str(target))
 
 
+def test_rail_header_is_korean(qtbot):
+    win = calculator(qtbot)
+    texts = [label.text() for label in win.rail.findChildren(QLabel)]
+    assert texts == ["계산 종류"]  # 영문 'CALCULATE'를 쓰지 않는다(디자인 점검 6번).
+
+
 def test_time_difference_uses_actual_input_and_preserves_seconds(qtbot):
     win = calculator(qtbot)
     fields = win.fields['difference']

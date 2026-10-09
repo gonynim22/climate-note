@@ -104,7 +104,7 @@ class DateTimeCalculatorWindow(QWidget):
         nav = QVBoxLayout(self.rail)
         nav.setContentsMargins(7, 18, 7, 12)
         nav.setSpacing(5)
-        brand = QLabel('CALCULATE')
+        brand = QLabel('계산 종류')
         brand.setStyleSheet('color:#959CAA;font-size:11px;padding:0 5px 8px;')
         nav.addWidget(brand)
         self.mode_buttons = {}

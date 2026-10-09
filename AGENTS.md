@@ -111,6 +111,8 @@
 
 ## 기록 관리
 
+- 2026-10-10 영문 표기·글자 선택 색 수정(디자인 점검 6·7번, 버전 v3.9a 유지, 커밋 전): 날짜·시간 계산기·금액 도우미 왼쪽 메뉴 머리글을 `계산 종류`·`도구`로, 설정 데이터 초기화 버튼을 `초기화`로 바꿨다. `main._apply_light_theme()`이 두 색만 지정한 빈 `QPalette`로 글자 선택 색을 `#2563EB`/흰색에 고정한다. Qt 기본 입력칸은 Windows 강조색(측정 PC 청록 `#009faa`, PC마다 다름)을 쓰고 Fluent 입력칸은 이미 파랑이라 진한 파랑으로 통일했다. 시험은 `setPalette(QPalette())`로 시스템 팔레트를 되돌린다. 데이터 영향 없음. full **20261010-011043-406027ac51**(1,831개)와 100/125/150% quick 각 408개 통과. 실제 EXE 확인·버전·빌드·push는 미실행이다. [작업 기록](docs/work/2026-10-10-english-labels-selection-color.md)
+
 - 2026-10-10 집중 목표 잘림·휴지통 색상 칸 수정(디자인 점검 3·4번, 버전 v3.9a 유지, main 병합 `726c690`): 집중 위젯과 large 미니 카드의 목표를 `ui_focus.FocusGoalLabel`(가로 Ignored·말줄임·줄였을 때만 툴팁)로 바꿨다. 일반 QLabel이 목표 전체 폭을 최소 폭으로 잡아 241px 위젯에서는 끝이 잘리고 large 오른쪽 열은 긴 목표 때 300→471px로 넓어졌다. 휴지통 '색상' 칸은 표 QSS가 칸 배경색을 덮으므로 0열 delegate가 노트 색 원을 그린다. 데이터 영향 없음. full **20261010-003503-fbdda3f7ad**(1,827개)와 100/125/150% quick 각 277개 통과. 실제 EXE 확인·버전·빌드·push는 미실행이다. [작업 기록](docs/work/2026-10-10-focus-goal-trash-color.md)
 
 - 2026-10-10 Windows 다크 모드 깨짐·잠금 화면 투명 수정(디자인 점검 1·2번, 버전 v3.9a 유지, main 병합 `d516a57`): `main._apply_light_theme()`이 창을 만들기 전에 Qt 색 구성표와 qfluentwidgets 테마를 둘 다 밝게 고정하고 60초 Windows 테마 폴링을 지웠다. Windows가 다크면 Qt 기본 팔레트도 어두워지므로 Fluent만 고정하는 수정은 하지 않는다(측정: 설정 66%·D-Day 만들기 84% 픽셀이 여전히 다름). `LockOverlay`는 `WA_StyledBackground`로 불투명 배경을 칠해 창 전체를 덮는다. 데이터 영향 없음. full **20261010-001520-a5f256d488**(1,821개)와 100/125/150% quick 각 157개 통과. 실제 Windows 다크 설정의 EXE 확인, 버전·빌드·push는 미실행이다. [작업 기록](docs/work/2026-10-10-dark-theme-lock-overlay.md)

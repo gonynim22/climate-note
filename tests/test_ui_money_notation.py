@@ -63,6 +63,12 @@ def test_window_frame_matches_date_time_calculator(qtbot):
     assert win.rail.width() == 108
 
 
+def test_rail_header_is_korean(qtbot):
+    win = helper(qtbot)
+    texts = [label.text() for label in win.rail.findChildren(QLabel)]
+    assert texts == ["도구"]  # 영문 'NUMBER'를 쓰지 않는다(디자인 점검 6번).
+
+
 def test_amount_mode_official_notation_and_copy_formats(qtbot):
     win = helper(qtbot)
     assert win.result_caption.text() == "공문서 금액 표기"
