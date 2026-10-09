@@ -397,9 +397,9 @@ class UsageGuide(QWidget):
             font = QFont(self.font())
             font.setPixelSize(11)
             text = QFontMetrics(font).elidedText(text, Qt.ElideRight, int(area.width()))
-        painter.setOpacity(0.25 + 0.75 * rise)
+        painter.setOpacity((0.25 + 0.75 * rise) * self._fade)  # 한 바퀴 끝에서 그림과 함께 사라진다
         self._text(painter, area.translated(0, (1.0 - rise) * 3), text, pixels, INK, align=Qt.AlignCenter)
-        painter.setOpacity(1.0)
+        painter.setOpacity(self._fade)
         center_y = self.height() - 11
         painter.setPen(Qt.NoPen)
         for index in range(3):

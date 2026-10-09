@@ -153,3 +153,11 @@ def test_scene_fills_the_width_at_the_hint_size(guide):
     guide.resize(guide.sizeHint())
     scene = guide.scene_rect()
     assert scene.width() >= guide.width() * 0.95 and scene.height() >= 150
+
+
+def test_loop_edges_fade_out_so_the_repeat_has_no_hard_cut(guide):
+    middle = render(guide, 0.5)
+    assert near(middle, ACCENT) > 0
+    for edge in (0.0, 1.0):
+        picture = render(guide, edge)
+        assert near(picture, ACCENT) == 0 and near(picture, ORANGE) == 0 and near(picture, YELLOW) == 0
