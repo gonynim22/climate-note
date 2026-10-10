@@ -1006,12 +1006,21 @@ def test_shortcut_sidebar_loads_normal_and_missing_slots(qtbot, app_dir, qapp, t
     assert normal.name == "정상도구"
     assert normal.path == str(existing)
     assert normal.btn.text() == ""
+    # 지우기 ×는 마우스를 올렸을 때만 보인다(디자인 점검 10번).
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QEnterEvent
+    enter = QEnterEvent(QPointF(5, 5), QPointF(5, 5), QPointF(5, 5))
+    assert normal.delete_btn.isHidden()
+    QApplication.sendEvent(normal, enter)
     assert not normal.delete_btn.isHidden()
+    QApplication.sendEvent(normal, QEvent(QEvent.Leave))
+    assert normal.delete_btn.isHidden()
 
     assert missing_slot.name == "끊긴도구"
     assert missing_slot.path == str(missing)
     assert missing_slot.name_label.text().startswith("(!)")
     assert "파일을 찾을 수 없음" in missing_slot.toolTip()
+    QApplication.sendEvent(missing_slot, enter)
     assert not missing_slot.delete_btn.isHidden()
 
 
@@ -1041,7 +1050,7 @@ def test_shortcut_slot_delete_clears_database(qtbot, app_dir, qapp, tmp_path):
     assert shortcut["name"] == ""
     assert shortcut["path"] == ""
     assert widget.slots[0].btn.text() == "+"
-    assert widget.slots[0].name_label.text() == ""
+    assert widget.slots[0].name_label.text() == "추가"  # 빈 칸은 '+ 추가'(디자인 점검 10번)
 
 
 def test_shortcut_empty_slot_can_choose_file(qtbot, app_dir, qapp, tmp_path,

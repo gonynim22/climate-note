@@ -799,11 +799,15 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QFileIconProvider
 
 class ShortcutSlot(QWidget):
+    """바로가기 한 칸(DB 행 1개). 지우기 ×는 마우스를 올렸을 때만 보인다(디자인 점검 10번)."""
+    changed = Signal()  # 등록·삭제로 빈 칸 여부가 바뀌면 사이드바가 '+ 추가' 칸을 다시 고른다
+
     def __init__(self, shortcut_id: int, parent=None):
         super().__init__(parent)
         self.shortcut_id = shortcut_id
         self.path = ""
         self.name = ""
+        self._hovered = False
         self._pending_menu_action = None
         self._menu_action_timer = QTimer(self)
         self._menu_action_timer.setSingleShot(True)
@@ -824,16 +828,15 @@ class ShortcutSlot(QWidget):
         self.btn.setStyleSheet("""
             QPushButton {
                 background: #FFFFFF;
-                border: 1px dashed #444444;
+                border: 1px dashed #9AA6B5;
                 border-radius: 8px;
-                color: #212121;
-                font-size: 24px;
-                font-weight: bold;
+                color: #5B6577;
+                font-size: 22px;
             }
             QPushButton:hover {
                 background: #FFFFFF;
-                border: 1px dashed #0078D4;
-                color: #0078D4;
+                border: 1px dashed #2563EB;
+                color: #2563EB;
             }
         """)
         self.btn.setText("+")
@@ -873,32 +876,30 @@ class ShortcutSlot(QWidget):
             # 1. 완전 빈 슬롯
             self.btn.setIcon(QIcon())
             self.btn.setText("+")
-            self.name_label.setText("")
-            self.name_label.setStyleSheet("font-size: 10px; color: #444444;")
+            self.name_label.setText("추가")
+            self.name_label.setStyleSheet("font-size: 10px; color: #5B6577;")
             self.setToolTip("클릭하거나 파일·폴더를 드래그해 등록")
             self.btn.setStyleSheet("""
                 QPushButton {
                     background: #FFFFFF;
-                    border: 1px dashed #444444;
+                    border: 1px dashed #9AA6B5;
                     border-radius: 8px;
-                    color: #212121;
-                    font-size: 24px;
-                    font-weight: bold;
+                    color: #5B6577;
+                    font-size: 22px;
                 }
                 QPushButton:hover {
                     background: #FFFFFF;
-                    border: 1px dashed #0078D4;
-                    color: #0078D4;
+                    border: 1px dashed #2563EB;
+                    color: #2563EB;
                 }
             """)
-            self.delete_btn.hide()
-            
+
         elif os.path.exists(self.path):
             # 2. 정상적인 바로가기
             provider = QFileIconProvider()
             icon = provider.icon(QFileInfo(self.path))
             self.btn.setIcon(icon)
-            self.btn.setIconSize(QSize(48, 48))
+            self.btn.setIconSize(QSize(32, 32))
             self.btn.setText("")
             
             display_name = self.name if self.name else os.path.basename(self.path)
@@ -916,10 +917,9 @@ class ShortcutSlot(QWidget):
                 }
                 QPushButton:hover {
                     background: #F5F5F5;
-                    border: 1px solid #0078D4;
+                    border: 1px solid #2563EB;
                 }
             """)
-            self.delete_btn.show()
             
         else:
             # 3. 연결 끊김 (파일이 삭제됨)
@@ -941,7 +941,21 @@ class ShortcutSlot(QWidget):
                     border-radius: 8px;
                 }
             """)
-            self.delete_btn.show()
+        self._sync_delete_button()
+        self.changed.emit()
+
+    def _sync_delete_button(self):
+        self.delete_btn.setVisible(self._hovered and bool(self.path))
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self._sync_delete_button()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._sync_delete_button()
+        super().leaveEvent(event)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -949,7 +963,7 @@ class ShortcutSlot(QWidget):
             self.btn.setStyleSheet("""
                 QPushButton {
                     background: #E3F2FD;
-                    border: 2px dashed #0078D4;
+                    border: 2px dashed #2563EB;
                     border-radius: 8px;
                 }
             """)
@@ -1180,8 +1194,11 @@ class ShortcutSidebarWidget(QWidget):
             slot = ShortcutSlot(i, slots_content)
             self.slots.append(slot)
             slots_layout.addWidget(slot, 0, Qt.AlignLeft)
+        for slot in self.slots:
+            slot.changed.connect(self._sync_empty_slots)
         slots_layout.addStretch()
         self.shortcuts_scroll.setWidget(slots_content)
+        self._sync_empty_slots()
         self.shortcuts_scroll.viewport().setAutoFillBackground(False)
         layout.addWidget(self.shortcuts_scroll, 1)
 
@@ -1191,6 +1208,55 @@ class ShortcutSidebarWidget(QWidget):
             idx = data["id"] - 1
             if 0 <= idx < len(self.slots):
                 self.slots[idx].update_data(data["name"], data["path"])
+
+    def _sync_empty_slots(self):
+        """빈 칸은 첫 번째 하나만 '+ 추가'로 보이고 나머지는 숨긴다(디자인 점검 10번).
+
+        DB의 6슬롯과 순서는 그대로다. 등록하면 다음 빈 칸이, 지우면 그 칸이 추가 칸이 된다.
+        """
+        shown_empty = False
+        for slot in self.slots:
+            visible = bool(slot.path) or not shown_empty
+            shown_empty = shown_empty or not slot.path
+            slot.setVisible(visible)
+
+
+class ScheduleRow(QWidget):
+    """일정 목록 한 줄. 삭제 버튼은 마우스를 올린 줄과 키보드로 고른 줄에만 보인다(디자인 점검 13번).
+
+    버튼 자리는 숨겨도 남겨 두어 글자 폭이 바뀌지 않는다.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._hovered = False
+        self._current = False
+        self.delete_button = None
+
+    def set_delete_button(self, button):
+        policy = button.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        button.setSizePolicy(policy)
+        self.delete_button = button
+        self._sync()
+
+    def set_current(self, current: bool):
+        self._current = current
+        self._sync()
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self._sync()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._sync()
+        super().leaveEvent(event)
+
+    def _sync(self):
+        if self.delete_button is not None:
+            self.delete_button.setVisible(self._hovered or self._current)
 
 
 class MainCalendarWindow(QWidget):
@@ -2070,9 +2136,9 @@ class MainCalendarWindow(QWidget):
         self.selected_date_label.setStyleSheet("color: #1a1a1a;")
         date_row.addWidget(self.selected_date_label)
         
-        # 음력 정보 라벨 (녹색)
+        # 음력 정보 라벨 — 개수와 같은 회색. 머리줄에서 색은 공휴일 빨강만 남긴다(디자인 점검 14번).
         self.lunar_info_label = BodyLabel("", self)
-        self.lunar_info_label.setStyleSheet("color: #2E7D32; font-weight: bold; font-size: 11px;")
+        self.lunar_info_label.setStyleSheet("color: #757575; font-size: 11px;")
         date_row.addWidget(self.lunar_info_label)
 
         # 공휴일명 라벨 (빨강) — 음력 설정과 무관하게 항상 표시
@@ -2123,6 +2189,7 @@ class MainCalendarWindow(QWidget):
             self._on_schedule_context_menu
         )
         self.schedule_list.itemDoubleClicked.connect(self._on_edit_schedule)
+        self.schedule_list.currentItemChanged.connect(self._on_current_schedule_changed)
         self._editing_item = None  # 현재 인라인 편집 중인 아이템
         self._finish_current_edit = None  # 현재 편집 종료 콜백
         self._schedule_editor = None
@@ -2295,7 +2362,7 @@ class MainCalendarWindow(QWidget):
         item.setData(Qt.UserRole + 3, decryption_failed)
         self.schedule_list.addItem(item)
 
-        row_widget = QWidget()
+        row_widget = ScheduleRow()
         row_layout = QHBoxLayout(row_widget)
         # 목록 item padding은 sizeHint에서 차감되므로 여백을 행 안에서 계산한다.
         row_layout.setContentsMargins(7, 5, 7, 5)
@@ -2324,10 +2391,18 @@ class MainCalendarWindow(QWidget):
             lambda checked=False, i=item, sid=schedule_id: self._on_delete_schedule(i, sid)
         )
         row_layout.addWidget(delete_btn)
+        row_widget.set_delete_button(delete_btn)
 
         row_widget.setProperty("schedule_color", color)
         item.setSizeHint(row_widget.sizeHint())
         self.schedule_list.setItemWidget(item, row_widget)
+
+    def _on_current_schedule_changed(self, current, previous):
+        """키보드로 고른 줄에도 삭제 버튼을 보인다(마우스를 올린 줄과 같은 규칙)."""
+        for item, active in ((previous, False), (current, True)):
+            row = self.schedule_list.itemWidget(item) if item is not None else None
+            if isinstance(row, ScheduleRow):
+                row.set_current(active)
 
     def _build_schedule_context_menu(self, item: QListWidgetItem) -> "RoundMenu":
         """일정 행 우클릭용 편집·삭제 메뉴를 만든다."""

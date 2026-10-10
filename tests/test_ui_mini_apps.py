@@ -191,7 +191,12 @@ def test_upcoming_tiles_do_not_launch_or_receive_keyboard_focus(qtbot):
     assert win._money_notation is None
 
 
-def test_short_screen_scroll_keeps_button_and_sixth_shortcut_accessible(qtbot):
+def test_short_screen_scroll_keeps_button_and_sixth_shortcut_accessible(qtbot, tmp_path):
+    # 빈 칸은 하나만 보이므로(디자인 점검 10번) 여섯 칸을 모두 채워 여섯 번째 칸까지 확인한다.
+    for slot_id in range(1, 7):
+        target = tmp_path / f"tool{slot_id}.txt"
+        target.write_text("synthetic", encoding="utf-8")
+        db.update_shortcut(slot_id, f"도구{slot_id}", str(target))
     win = window(qtbot)
     win.resize(win.width(), 500)
     qtbot.wait(20)
