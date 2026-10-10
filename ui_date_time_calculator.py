@@ -137,6 +137,10 @@ class DateTimeCalculatorWindow(QWidget):
         self._build_calendar()
         self._build_workdays()
         self._build_sum()
+        # 화면들은 가장 큰 화면 높이를 함께 쓴다. 남는 높이가 줄·안내 글자 안으로 퍼지지 않게
+        # 입력과 안내를 위로 붙이고 빈 공간은 결과 쪽(아래)으로 보낸다(디자인 점검 20번).
+        for page in self.page_widgets.values():
+            page.layout().addStretch(1)
         self.error_label = QLabel()
         self.error_label.setWordWrap(True)
         self.error_label.setStyleSheet('color:#AA2828;font-size:12px;')

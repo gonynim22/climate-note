@@ -37,10 +37,12 @@
 | 기존 UI 시험 6개 파일 | 실패 3 → 시험 갱신 후 통과 | 하네스 실행 ID 없음 | 위 Ruling의 3개(의도한 동작 변경) |
 | `verify.py quick --tests` 8개 파일 100/125/150% | 통과 | `20261010-090157-95b7a98a70` / `20261010-090342-155dae034b` / `20261010-090532-a07e18b442` | 각 373개, Git Bash `QT_SCALE_FACTOR` |
 | `verify.py full` | 통과 | `20261010-090719-7eeb647784` | 1,859개(실패·오류·건너뜀 0, 기존 1,854 + 새 5) |
+| PowerShell `verify.py release` (main `2b17cee`) | 실패(inputs_changed) | `20261010-091344-d419551687` | 시험 1,859개·빌드·격리 EXE 3개는 통과했지만, 실행 중 다른 작업이 `docs/SCREEN_TEXT.md`·`docs/TESTING.md`를 수정해(09:19, 이 작업이 아님) 입력 변경으로 실패 처리됐다. 코드 해시는 전후 같다. 이 EXE는 `dist/`에 넣지 않았다(`dist/`는 1~9번 빌드 그대로) |
+| PowerShell `verify.py release` (main `2b17cee`, 재실행) | 통과 | `20261010-092310-8c6a27c6db` | 1,859개 시험·빌드·격리 EXE 3개, mingw 혼입 없음, Qt는 프로젝트 `.venv`. 다른 작업의 문서 변경(`docs/SCREEN_TEXT.md`·`docs/TESTING.md`)은 작업 폴더에 있었지만 실행 중 바뀌지 않았다. `dist/기후노트_v3.9a.exe` 배치: 94,023,232 bytes, SHA-256 `D4A0668B61C28735135EC939B77DE586E1900517009C467B95AF88BFBE5B5A66`. 이전 EXE(`B3AFC0DD…`, 1~9번)는 `output/harness/20261010-074959-b539017280/dist/`에 있다 |
 
 ## 미해결과 인계
 
-- 남은 문제 / 수동 확인: 실제 EXE 확인. 이번 변경은 아직 EXE에 없다(마지막 빌드는 1~9번까지).
+- 남은 문제 / 수동 확인: 실제 EXE 확인(디자인 점검 1~10·13·14번이 들어간 `D4A0668B…` 빌드).
 - 변경한 정본 문서: [UI 계약](../UI_PATTERNS.md)(바로가기 인라인 관리, 일정 행 관리, 공휴일 표시), [테스트](../TESTING.md).
-- 다음 행동: 2026-10-10 사용자 지시로 `fix/design-audit-10-13-14`에 커밋(`1e9c984`)하고 `main`에 fast-forward 병합한 뒤 브랜치를 지웠다. 사용자 미커밋 `AGENTS.md` 4줄·`docs/RELEASE_HISTORY.md`·미추적 작업 기록은 보존했다. 이어서 병합된 main으로 재빌드한다. 디자인 점검 남은 항목: 11·12·15·16번, 세부 17~21번.
+- 다음 행동: 2026-10-10 사용자 지시로 `fix/design-audit-10-13-14`에 커밋(`1e9c984`)하고 `main`에 fast-forward 병합한 뒤 브랜치를 지웠다. 사용자 미커밋 `AGENTS.md` 4줄·`docs/RELEASE_HISTORY.md`·미추적 작업 기록은 보존했다. 병합된 main으로 재빌드했으나 다른 작업의 동시 문서 수정으로 release가 inputs_changed 실패했다. 그 작업이 끝난 뒤(사용자 확인) 새 실행 ID로 다시 빌드해 통과했고 `dist/`에 배치했다. 디자인 점검 남은 항목: 11·12·15·16번, 세부 17~21번.
 - 배포·커밋·push 여부: `main` 커밋·병합까지. push는 하지 않음.

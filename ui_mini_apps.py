@@ -7,8 +7,8 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
-    QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QLayout, QScrollArea, QToolButton,
-    QVBoxLayout, QWidget,
+    QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QLayout, QScrollArea, QStyle,
+    QStyleOptionToolButton, QStylePainter, QToolButton, QVBoxLayout, QWidget,
 )
 
 from app_paths import resource_root
@@ -88,6 +88,29 @@ class MiniAppsButton(QToolButton):
 
 
 class MiniAppTile(QToolButton):
+    """주머니 타일. 아이콘은 위쪽 고정, 이름은 그 바로 아래 위쪽 정렬로 그린다(디자인 점검 19번).
+
+    Qt 기본 '아이콘 아래 글자'는 글자를 남은 높이 가운데에 두어 한 줄 이름만 아래로 내려간다.
+    바탕·테두리(hover·focus·disabled)는 QSS 그대로 스타일이 그린다.
+    """
+    ICON_TOP = 8
+    TEXT_GAP = 6
+
+    def paintEvent(self, event):
+        option = QStyleOptionToolButton()
+        self.initStyleOption(option)
+        option.text = ""
+        option.icon = QIcon()
+        painter = QStylePainter(self)
+        painter.drawComplexControl(QStyle.CC_ToolButton, option)
+        size = self.iconSize()
+        icon_rect = QRect((self.width() - size.width()) // 2, self.ICON_TOP, size.width(), size.height())
+        self.icon().paint(painter, icon_rect, Qt.AlignCenter, QIcon.Normal if self.isEnabled() else QIcon.Disabled)
+        painter.setPen(QColor("#253447" if self.isEnabled() else "#9AA6B5"))
+        painter.setFont(self.font())
+        text_rect = QRect(4, icon_rect.bottom() + 1 + self.TEXT_GAP, self.width() - 8, self.height())
+        painter.drawText(text_rect, Qt.AlignHCenter | Qt.AlignTop, self.text())
+
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Return, Qt.Key_Enter):
             if not event.isAutoRepeat():

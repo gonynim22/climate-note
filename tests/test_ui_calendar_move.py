@@ -189,3 +189,23 @@ def test_header_geometry_and_synthetic_capture(qtbot, scale):
         assert win.grab().save(str(target / f"calendar-move-{scale}-on.png"))
         qtbot.mouseClick(win.calendar_move_button, Qt.LeftButton)
         assert header.grab().save(str(target / f"calendar-move-{scale}-off.png"))
+
+
+def test_on_state_is_a_small_dot_not_a_filled_box(qtbot):
+    """디자인 점검 11번: 켜짐은 연한 파랑 상자 대신 다른 아이콘처럼 투명하게 두고 아래 작은 점으로만 표시한다."""
+    win = window(qtbot)
+    header = win.findChild(QWidget, "headerSection")
+    button = win.calendar_move_button
+    origin = button.mapTo(header, QPoint())
+
+    def pixel(x, y):
+        image = header.grab().toImage()
+        ratio = image.devicePixelRatio()
+        return image.pixelColor(int((origin.x() + x) * ratio), int((origin.y() + y) * ratio)).name()
+
+    header_bg = pixel(-2, 6)  # 검색 버튼과의 4px 간격은 머리줄 바탕이다
+    for on in (True, False):
+        button.setChecked(on)
+        QApplication.processEvents()
+        assert pixel(6, 6) == header_bg  # 채운 상자·테두리 없음
+        assert (pixel(16, 29) == "#93c5fd") is on

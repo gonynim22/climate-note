@@ -545,6 +545,9 @@ class StickyFormatToolbar(QWidget):
         self.bg_btn = QPushButton(self)
         self.bg_btn.setFixedSize(24, 22)
         self.bg_btn.setToolTip("배경 색상")
+        # 색 견본만 있으면 빈 네모로 보여 무엇인지 알 수 없다(디자인 점검 16번).
+        self.bg_btn.setIcon(FIF.PALETTE.icon(color=QColor("#3D4A5C")))
+        self.bg_btn.setIconSize(QSize(13, 13))
         self.bg_btn.setFocusPolicy(Qt.NoFocus)
         self.bg_btn.clicked.connect(self._pick_bg_color)
         layout.addWidget(self.bg_btn)

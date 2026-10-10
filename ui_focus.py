@@ -252,13 +252,18 @@ class FocusCreateDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("집중 모드 추가")
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-        self.setFixedSize(430, 220)
+        self.setFixedSize(430, 270)
         self._result_goal = ""
         self._result_mode_key = db.DEFAULT_FOCUS_MODE
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 18, 20, 20)
+        layout.setSpacing(10)
+
+        # D-Day 만들기 창과 같은 틀: 창 안 제목, 버튼 위 여백(디자인 점검 17번).
+        self.title_label = QLabel("집중 모드 추가", self)
+        self.title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #172B4D;")
+        layout.addWidget(self.title_label)
 
         goal_lbl = BodyLabel("오늘의 한 가지 목표", self)
         goal_lbl.setStyleSheet("font-weight: bold;")
@@ -281,6 +286,7 @@ class FocusCreateDialog(QDialog):
         index = self.mode_combo.findData(mode_key)
         self.mode_combo.setCurrentIndex(index if index >= 0 else 0)
         layout.addWidget(self.mode_combo)
+        layout.addSpacing(6)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()

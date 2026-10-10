@@ -465,7 +465,10 @@ class SmoothCircleButton(QPushButton):
 
 
 class CalendarMoveButton(QPushButton):
-    """A안: 이동 ON은 밝은 채움, OFF는 사선. 글리프 폰트에 의존하지 않는다."""
+    """이동 켜짐은 버튼 아래 작은 점, 꺼짐은 사선(디자인 점검 11번). 글리프 폰트에 의존하지 않는다.
+
+    다른 머리줄 아이콘처럼 바탕을 채우지 않아 켜짐 상태가 검색·더보기보다 튀지 않는다.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -491,14 +494,16 @@ class CalendarMoveButton(QPushButton):
         on = self.isChecked()
         if not self.isEnabled():
             painter.setOpacity(0.45)
-        background = QColor("#E7F2FF") if on else QColor(255, 255, 255, 9)
+        frame = QRectF(0.5, 0.5, 31, 31)
         if self.underMouse() or self.isDown():
-            background = QColor("#CFE5FF") if on else QColor(255, 255, 255, 32)
-        painter.setBrush(background)
-        border = "#FBBF24" if self.hasFocus() else ("#B8D9FF" if on else "#536F95")
-        painter.setPen(QPen(QColor(border), 1))
-        painter.drawRoundedRect(QRectF(0.5, 0.5, 31, 31), 8, 8)
-        ink = QColor("#014484" if on else "#E2EAF4")
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 255, 255, 32))
+            painter.drawRoundedRect(frame, 8, 8)
+        if self.hasFocus():
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor("#FBBF24"), 1))
+            painter.drawRoundedRect(frame, 8, 8)
+        ink = QColor("#FFFFFF" if on else "#B7C6DA")
         painter.setPen(QPen(ink, 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         for x1, y1, x2, y2 in (
             (16, 6, 16, 26), (6, 16, 26, 16),
@@ -508,12 +513,15 @@ class CalendarMoveButton(QPushButton):
             (22.5, 12.5, 26, 16), (22.5, 19.5, 26, 16),
         ):
             painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
-        if not on:
+        if on:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#93C5FD"))
+            painter.drawEllipse(QPointF(16, 29), 2, 2)
+        else:
             painter.setPen(QPen(QColor("#082F61"), 4, Qt.SolidLine, Qt.RoundCap))
             painter.drawLine(QPointF(8, 24), QPointF(24, 8))
             painter.setPen(QPen(ink, 1.5, Qt.SolidLine, Qt.RoundCap))
             painter.drawLine(QPointF(8, 24), QPointF(24, 8))
-
 
 class CalendarDayButton(QWidget):
     """달력 날짜 셀 위젯 (compact / expanded 2-모드)"""
@@ -543,6 +551,7 @@ class CalendarDayButton(QWidget):
         self._count = count
         self._events = []
         self._rendering_events = False
+        self._selected = False
         self.setAttribute(Qt.WA_StyledBackground, True)
 
         layout = QVBoxLayout(self)
@@ -558,6 +567,7 @@ class CalendarDayButton(QWidget):
             font.setBold(True)
         self.day_label.setFont(font)
         layout.addWidget(self.day_label)
+        self._layout = layout
 
         # 색상 사각형 (RichText로 다중 색상 표시)
         self.squares_label = QLabel("")
@@ -607,6 +617,7 @@ class CalendarDayButton(QWidget):
 
     def _set_style(self, selected: bool):
         """오늘, 선택, 공휴일 여부에 따른 통합 스타일 적용"""
+        self._selected = selected
         base_color = "#1a1a1a"
         count_color = "#9aa0a6"
         bg_style = "border-radius: 6px;"
@@ -621,6 +632,19 @@ class CalendarDayButton(QWidget):
 
         if not self._is_current_month:
             base_color = "#BDBDBD"  # 비현재월(빈 셀) — 기존 동작 보존
+
+        if self._mode == "expanded":
+            # 중간·크게: 칸을 칠하지 않고 오늘은 숫자 뒤 남색 원, 고른 날은 남색 테두리(디자인 점검 15번).
+            if selected:
+                bg_style += "border: 2px solid #01295F;"
+            self.setStyleSheet(f"#calendarDayButton {{ {bg_style} }}")
+            if self._is_today:
+                self.day_label.setStyleSheet(
+                    "color: white; background: #01295F; border-radius: 13px; padding: 0px;")
+            else:
+                self.day_label.setStyleSheet(
+                    f"color: {base_color}; background: transparent; padding: 0px;")
+            return
 
         if self._is_today:
             bg_style += "background: #01295F;"
@@ -643,6 +667,17 @@ class CalendarDayButton(QWidget):
         self.squares_label.setVisible(not is_expanded)
         self.count_label.setVisible(not is_expanded)
         self._chips_container.setVisible(is_expanded)
+        # 중간·크게는 숫자를 일정 칩과 같은 왼쪽 기준선(왼쪽 위)에 둔다.
+        if is_expanded:
+            self.day_label.setFixedSize(26, 26)
+            self._layout.setAlignment(self.day_label, Qt.AlignLeft | Qt.AlignTop)
+            self._layout.setContentsMargins(4, 4, 2, 3)
+        else:
+            self.day_label.setMinimumSize(0, 0)
+            self.day_label.setMaximumSize(16777215, 16777215)
+            self._layout.setAlignment(self.day_label, Qt.AlignmentFlag(0))
+            self._layout.setContentsMargins(2, 3, 2, 3)
+        self._set_style(self._selected)
         if is_expanded:
             self.set_events(self._events)
         else:
@@ -2109,17 +2144,24 @@ class MainCalendarWindow(QWidget):
         weekdays = ["일", "월", "화", "수", "목", "금", "토"]
         header_layout = QGridLayout()
         header_layout.setSpacing(2)
+        self._weekday_labels = []
         for col, day in enumerate(weekdays):
             header_layout.setColumnStretch(col, 1)
             lbl = QLabel(day)
-            lbl.setAlignment(Qt.AlignCenter)
-            color = "#D32F2F" if col == 0 else ("#1565C0" if col == 6 else "")
-            if color:
-                lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold;")
-            else:
-                lbl.setStyleSheet("color: #1a1a1a; font-size: 11px; font-weight: bold;")
             header_layout.addWidget(lbl, 0, col)
+            self._weekday_labels.append(lbl)
+        self._style_weekday_header("compact")
         parent_layout.addLayout(header_layout)
+
+    def _style_weekday_header(self, calendar_scale: str):
+        """요일 글자: 기본 11px 가운데, 중간 12px·크게 13px는 날짜 숫자와 같은 왼쪽 정렬(디자인 점검 15번)."""
+        size = {"medium": 12, "large": 13}.get(calendar_scale, 11)
+        expanded = calendar_scale != "compact"
+        for col, lbl in enumerate(self._weekday_labels):
+            lbl.setAlignment((Qt.AlignLeft | Qt.AlignVCenter) if expanded else Qt.AlignCenter)
+            color = "#D32F2F" if col == 0 else ("#1565C0" if col == 6 else "#1a1a1a")
+            indent = "padding-left: 8px; " if expanded else ""
+            lbl.setStyleSheet(f"color: {color}; font-size: {size}px; font-weight: bold; {indent}")
 
     def _build_bottom_panel(self, parent_layout: QVBoxLayout):
         # compact에서는 달력 하단, expanded에서는 우측 컬럼으로 이동하는 일정 패널
@@ -2221,6 +2263,7 @@ class MainCalendarWindow(QWidget):
         self._show_lunar = db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1"
         calendar_scale = self._current_calendar_scale()
         cell_mode = "expanded" if calendar_scale != "compact" else "compact"
+        self._style_weekday_header(calendar_scale)
         month_events = (
             db.get_schedules_for_month(self._current_year, self._current_month)
             if cell_mode == "expanded" else {}

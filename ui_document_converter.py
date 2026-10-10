@@ -130,6 +130,12 @@ class DocumentConverterWindow(QWidget):
         self.file_list.setColumnWidth(1, 76)
         self.file_list.setAccessibleName("변환할 HWP 파일 목록")
         layout.addWidget(self.file_list, 1)
+        # 빈 목록에는 큰 빈 표 대신 끌어 놓기 안내를 보인다(디자인 점검 21번).
+        self.empty_hint = QLabel("여기에 HWP 파일을 끌어 놓으세요\n또는 [파일 추가]를 누르세요", self.file_list.viewport())
+        self.empty_hint.setAlignment(Qt.AlignCenter)
+        self.empty_hint.setStyleSheet("color:#7A8699;font-size:13px;background:transparent;")
+        self.empty_hint.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.file_list.viewport().installEventFilter(self)
         self.same_folder = MiniAppCheckBox("원본 파일과 같은 폴더에 저장")
         self.same_folder.setChecked(True)
         self.same_folder.toggled.connect(self._update_controls)
@@ -342,6 +348,22 @@ class DocumentConverterWindow(QWidget):
         self.retry_button.setEnabled(ready and any(e.state in ("실패", "취소") for e in self.entries))
         self.cancel_button.setEnabled(busy)
         self.open_button.setEnabled(not busy and any(e.output for e in self.entries))
+        # 자주 쓰지 않는 버튼은 쓸 일이 있을 때만 보인다(디자인 점검 21번). 활성 조건은 위 그대로다.
+        has_entries = bool(self.entries)
+        shown = {
+            self.remove_button: has_entries,
+            self.clear_button: has_entries,
+            self.retry_button: any(e.state in ("실패", "취소") for e in self.entries),
+            self.cancel_button: busy,
+            self.open_button: any(e.output for e in self.entries),
+        }
+        changed = any(button.isHidden() == visible for button, visible in shown.items())
+        for button, visible in shown.items():
+            button.setVisible(visible)
+        self.empty_hint.setVisible(not has_entries)
+        self.empty_hint.resize(self.file_list.viewport().size())
+        if changed and self.isVisible():
+            self.fit_to_screen()  # 줄이 늘어도 낮은 화면 밖으로 나가지 않게 다시 맞춘다
         self.environment_label.setText(self.environment.message)
         self.progress.setRange(0, max(1, len(self.entries)))
         self.progress.setFormat("%v / %m" if self.entries else "등록된 파일 없음")
@@ -383,12 +405,21 @@ class DocumentConverterWindow(QWidget):
                 return
             available = screen.availableGeometry()
         margin = min(SHADOW_MARGIN, max(0, (available.width() - 420) // 2), max(0, (available.height() - 480) // 2))
-        self.note.setVisible(available.height() >= 560)
+        compact = available.height() < 560
+        self.note.setVisible(not compact)
         self.layout().setContentsMargins(margin, margin, margin, margin)
-        self.content_layout.setSpacing(6 if available.height() < 560 else 10)
+        # 낮은 화면에서는 날짜·금액 창처럼 제목줄을 40px로 줄이고 위아래 여백도 줄인다.
+        self.title_bar.set_compact(compact)
+        self.content_layout.setContentsMargins(18, 6 if compact else 12, 18, 10 if compact else 16)
+        self.content_layout.setSpacing(6 if compact else 10)
         shadow = self.surface.graphicsEffect()
         shadow.setEnabled(margin > 0)
         shadow.setBlurRadius(max(0, margin - 4))
+        # 보이고 숨긴 줄의 높이를 안쪽 레이아웃부터 반영한 뒤 창을 줄인다(날짜·시간 창과 같은 방식).
+        for widget in reversed(self.findChildren(QWidget)):
+            if widget.layout() is not None:
+                widget.layout().activate()
+                widget.updateGeometry()
         self.layout().activate()
         self.resize(min(WINDOW_WIDTH + margin * 2, available.width()), min(WINDOW_HEIGHT + margin * 2, available.height()))
         self.move(max(available.left(), min(self.x(), available.right() + 1 - self.width())),
@@ -418,6 +449,8 @@ class DocumentConverterWindow(QWidget):
         return super().event(event)
 
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.Resize and hasattr(self, "empty_hint") and watched is self.file_list.viewport():
+            self.empty_hint.resize(watched.size())
         if isinstance(watched, QPushButton) and event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Return, Qt.Key_Enter):
             if not event.isAutoRepeat():
                 watched.click()

@@ -381,6 +381,46 @@ class ScheduleColorPicker(QWidget):
         menu.exec(position)
 
 
+class _PathLabel(QLabel):
+    """경로 한 줄. 폭에 맞게 가운데를 줄이고 전체 경로는 툴팁으로 보인다."""
+
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(190)
+        self.setStyleSheet("font-size:12px;color:#6B7280;background:transparent;")
+        self.set_full_text(text)
+
+    def set_full_text(self, text: str) -> None:
+        self._full_text = text
+        self.setToolTip(text)
+        self._apply()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._apply()
+
+    def _apply(self) -> None:
+        width = max(0, self.contentsRect().width())
+        metrics = self.fontMetrics()
+        text = self._full_text
+        if metrics.horizontalAdvance(text) > width:
+            # 드라이브와 마지막 폴더 이름은 남기고 그 사이만 줄인다: C:\…\MyDesktopCalendar
+            parts = [part for part in text.replace("/", "\\").split("\\") if part]
+            shortened = None
+            if len(parts) > 2:
+                tail = [parts[-1]]
+                for part in reversed(parts[1:-1]):
+                    trial = "\\".join([parts[0], "…", part, *tail])
+                    if metrics.horizontalAdvance(trial) > width:
+                        break
+                    tail.insert(0, part)
+                shortened = "\\".join([parts[0], "…", *tail])
+            if shortened is None or metrics.horizontalAdvance(shortened) > width:
+                shortened = metrics.elidedText(text, Qt.ElideMiddle, width)
+            text = shortened
+        super().setText(text)
+
+
 class SettingsWindow(QWidget):
     """설정 창 (시안 A)"""
     reset_succeeded = Signal()
@@ -512,12 +552,12 @@ class SettingsWindow(QWidget):
         return btn
 
     def _pin_edit(self) -> LineEdit:
+        # 좁은 가운데 정렬 'PIN'은 버튼처럼 보여 입력칸 모양으로 넓힌다(디자인 점검 18번).
         edit = LineEdit(self)
-        edit.setPlaceholderText("PIN")
+        edit.setPlaceholderText("PIN 4자리")
         edit.setEchoMode(QLineEdit.Password)
         edit.setMaxLength(4)
-        edit.setFixedWidth(60)
-        edit.setAlignment(Qt.AlignCenter)
+        edit.setFixedWidth(110)
         edit.setStyleSheet("LineEdit{font-size:13px;}")  # 타입 스코프(컨텍스트 메뉴 전파 방지)
         return edit
 
@@ -702,7 +742,15 @@ class SettingsWindow(QWidget):
             "PushButton#folderBtn{background:#FFFFFF;border:1px solid #D7DAE2;border-radius:8px;}"
             "PushButton#folderBtn:hover{background:#F2F3F6;}")
         self.open_data_folder_btn.clicked.connect(self._on_open_data_folder)
-        self._add_row(data_body, "저장 경로", self.open_data_folder_btn, label_width=80, divider=False)
+        # 저장 경로를 한 줄로 보이고(길면 가운데 말줄임, 전체는 툴팁) 폴더 버튼은 그대로 둔다(디자인 점검 18번).
+        path_control = QWidget(self)
+        path_row = QHBoxLayout(path_control)
+        path_row.setContentsMargins(0, 0, 0, 0)
+        path_row.setSpacing(8)
+        self.data_path_label = _PathLabel(str(APP_DIR), path_control)
+        path_row.addWidget(self.data_path_label)
+        path_row.addWidget(self.open_data_folder_btn)
+        self._add_row(data_body, "저장 경로", path_control, label_width=80, divider=False)
         right_layout.addWidget(data_panel)
 
         # ───── 보안 ─────

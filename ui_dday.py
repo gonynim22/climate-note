@@ -3,10 +3,10 @@ from datetime import date, datetime
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QDialog,
-    QGraphicsDropShadowEffect,
+    QGraphicsDropShadowEffect, QCalendarWidget,
 )
-from PySide6.QtCore import Qt, QTimer, QPoint, QPointF, Signal
-from PySide6.QtGui import QFont, QColor, QGuiApplication, QPainter, QPen
+from PySide6.QtCore import Qt, QTimer, QPoint, QPointF, Signal, QDate, QLocale
+from PySide6.QtGui import QFont, QColor, QGuiApplication, QPainter, QPen, QTextCharFormat
 
 from qfluentwidgets import (
     LineEdit, PrimaryPushButton, PushButton, BodyLabel, CaptionLabel,
@@ -117,14 +117,20 @@ class DDayCreateDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("D-Day 추가" if not name else "D-Day 편집")
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-        self.setFixedSize(320, 200)
+        self.setFixedSize(340, 316)
 
         self._result_name = ""
         self._result_date = ""
+        self.calendar_popup = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 18, 20, 20)
+        layout.setSpacing(10)
+
+        # 창 안 제목(디자인 점검 17번). 네이티브 제목줄과 같은 이름을 크게 보인다.
+        self.title_label = QLabel("D-Day 만들기" if not name else "D-Day 편집", self)
+        self.title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #172B4D;")
+        layout.addWidget(self.title_label)
 
         # 이름 입력
         name_lbl = BodyLabel("이름", self)
@@ -174,8 +180,24 @@ class DDayCreateDialog(QDialog):
         self.day_input.setText(parts[2] if len(parts) == 3 else "")
         date_row.addWidget(self.day_input)
 
+        # 달력에서 고르기: 직접 입력은 그대로 두고 세 칸을 채운다.
+        self.calendar_button = TransparentToolButton(FIF.CALENDAR, self)
+        self.calendar_button.setToolTip("달력에서 고르기")
+        self.calendar_button.clicked.connect(self._open_calendar)
+        date_row.addWidget(self.calendar_button)
+
         date_row.addStretch()
         layout.addLayout(date_row)
+
+        # 목표 날짜 미리보기: "D-13 · 10월 22일(목)"
+        self.preview_label = QLabel("", self)
+        self.preview_label.setStyleSheet("font-size: 12px; color: #315C98;")
+        layout.addWidget(self.preview_label)
+        for edit in (self.year_input, self.month_input, self.day_input):
+            edit.textChanged.connect(self._update_preview)
+        self._update_preview()
+
+        layout.addSpacing(6)
 
         # 버튼
         btn_row = QHBoxLayout()
@@ -197,6 +219,58 @@ class DDayCreateDialog(QDialog):
             edit.returnPressed.connect(self._on_ok)
 
         self.name_input.setFocus()
+
+    def _entered_date(self):
+        try:
+            return date(int(self.year_input.text()), int(self.month_input.text()), int(self.day_input.text()))
+        except (ValueError, TypeError):
+            return None
+
+    def _update_preview(self):
+        if not self.month_input.text() and not self.day_input.text():
+            self.preview_label.setText("날짜를 넣으면 남은 날이 보입니다")
+            return
+        target = self._entered_date()
+        if target is None:
+            self.preview_label.setText("날짜를 확인하세요")
+            return
+        delta = (target - date.today()).days
+        mark = "D-Day" if delta == 0 else (f"D-{delta}" if delta > 0 else f"D+{-delta}")
+        weekday = "월화수목금토일"[target.weekday()]
+        self.preview_label.setText(f"{mark} · {target.month}월 {target.day}일({weekday})")
+
+    def _open_calendar(self):
+        """앱 달력처럼 일요일 시작·한국어 요일인 달력에서 고른다(qfluentwidgets 달력은 영어·월요일 시작)."""
+        if self.calendar_popup is None:
+            popup = QCalendarWidget(self)
+            popup.setWindowFlags(Qt.Popup)
+            popup.setLocale(QLocale(QLocale.Korean, QLocale.SouthKorea))
+            popup.setFirstDayOfWeek(Qt.Sunday)
+            popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+            popup.setGridVisible(False)
+            for day, color in ((Qt.Sunday, "#D32F2F"), (Qt.Saturday, "#1565C0")):
+                fmt = QTextCharFormat()
+                fmt.setForeground(QColor(color))
+                popup.setWeekdayTextFormat(day, fmt)
+            popup.setStyleSheet(
+                "QCalendarWidget QWidget#qt_calendar_navigationbar { background: #FFFFFF; }"
+                "QCalendarWidget QToolButton { color: #172B4D; font-weight: bold; background: transparent; }"
+                "QCalendarWidget QAbstractItemView { selection-background-color: #2563EB; selection-color: #FFFFFF; }"
+            )
+            popup.clicked.connect(self._on_calendar_picked)
+            self.finished.connect(popup.close)
+            self.calendar_popup = popup
+        current = self._entered_date() or date.today()
+        self.calendar_popup.setSelectedDate(QDate(current.year, current.month, current.day))
+        anchor = self.calendar_button.mapToGlobal(QPoint(0, self.calendar_button.height() + 4))
+        self.calendar_popup.move(anchor)
+        self.calendar_popup.show()
+
+    def _on_calendar_picked(self, picked: QDate):
+        self.year_input.setText(str(picked.year()))
+        self.month_input.setText(str(picked.month()))
+        self.day_input.setText(str(picked.day()))
+        self.calendar_popup.close()
 
     def _on_ok(self):
         name = self.name_input.text().strip()

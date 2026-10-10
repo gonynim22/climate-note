@@ -1495,9 +1495,10 @@ def test_calendar_day_button_selected_style_is_scoped_to_cell(qtbot, qapp):
     cell.set_selected(True)
 
     assert "#calendarDayButton" in cell.styleSheet()
-    assert "rgba(1,41,95,20)" in cell.styleSheet()
+    # 중간·크게 칸은 고른 날을 바탕 채움 대신 테두리로 표시한다(디자인 점검 15번).
+    assert "border: 2px solid #01295F" in cell.styleSheet()
     assert "background: transparent" in cell._chips_container.styleSheet()
-    assert "rgba(1,41,95,20)" not in cell._chips_container.styleSheet()
+    assert "#01295F" not in cell._chips_container.styleSheet()
 
 
 def test_calendar_day_button_overflow_keeps_one_real_chip(qtbot, app_dir, qapp):

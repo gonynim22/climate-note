@@ -107,12 +107,21 @@ def test_batch_failure_continues_and_retry_only_failed(qtbot, tmp_path, monkeypa
 
 
 @pytest.mark.parametrize("size", [(1000, 900), (480, 500), (420, 500)])
-def test_controls_fit_small_screens(qtbot, size):
+def test_controls_fit_small_screens(qtbot, size, tmp_path):
     win = window(qtbot)
+    # 재시도·폴더 열기는 실패·결과가 있을 때만 보이므로(디자인 점검 21번) 그 상태를 만들어 함께 잰다.
+    files = [tmp_path / name for name in ("a.hwp", "b.hwp")]
+    for file in files:
+        file.touch()
+    win.add_files(files)
+    win.entries[0].state = "실패"
+    win.entries[1].state, win.entries[1].output = "완료", str(tmp_path / "b.hwpx")
+    win._update_controls()
     win.fit_to_screen(QRect(0, 0, *size))
     QApplication.processEvents()
     assert win.width() <= size[0] and win.height() <= size[1]
-    for control in (win.start_button, win.cancel_button, win.retry_button, win.open_button, win.file_list):
+    for control in (win.start_button, win.retry_button, win.open_button, win.remove_button, win.clear_button, win.file_list):
+        assert control.isVisible()
         assert win.surface.rect().contains(QRect(control.mapTo(win.surface, control.rect().topLeft()), control.size()))
     root = os.environ.get("CLIMATENOTE_TEST_APPDATA")
     if root:

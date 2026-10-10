@@ -380,3 +380,30 @@ def test_more_developer_apps_use_two_columns_and_scroll_without_resizing(qtbot):
     assert clicked == [6]
     assert popup.isVisible()
     assert popup.count_label.text() == f"{len(cards)}개"
+
+
+def test_tile_icons_and_first_name_line_share_the_same_top(qtbot):
+    """디자인 점검 19번: 이름이 한 줄(단위 환산기)이든 두 줄이든 아이콘 위치가 같다."""
+    from ui_mini_apps import MiniAppTile
+    win = window(qtbot)
+    popup = open_pocket(qtbot, win)
+    tiles = [tile for tile in popup.findChildren(MiniAppTile) if tile.isEnabled() and tile.isVisible()]
+    one_line = next(tile for tile in tiles if "\n" not in tile.text())
+    two_line = next(tile for tile in tiles if "\n" in tile.text())
+    image = popup.grab().toImage()
+    ratio = image.devicePixelRatio()
+
+    def first_text_row(tile):
+        """아이콘(48px) 아래에서 처음 나오는 진한 글자 줄의 y."""
+        origin = tile.mapTo(popup, QPoint(0, 0))
+        start = tile.ICON_TOP + tile.iconSize().height() + 4  # 배율에서 아이콘 맨 아랫줄을 글자로 세지 않는다
+        for y in range(start, tile.height() - 2):
+            for x in range(6, tile.width() - 6):
+                color = image.pixelColor(int((origin.x() + x) * ratio), int((origin.y() + y) * ratio))
+                if color.lightness() < 140:
+                    return y
+        return None
+
+    assert first_text_row(one_line) is not None
+    # 한 줄 이름이 두 줄 칸 가운데로 내려가지 않고 첫 줄 높이가 같다.
+    assert abs(first_text_row(one_line) - first_text_row(two_line)) <= 1

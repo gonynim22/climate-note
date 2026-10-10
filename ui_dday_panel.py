@@ -64,7 +64,7 @@ class DDayMiniCard(QWidget):
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(2)
         self.name_label = _ElidedLabel(self._name, self)
-        self.name_label.setFont(_dday_font(10, QFont.Weight.DemiBold))
+        self.name_label.setFont(_dday_font(11, QFont.Weight.DemiBold))  # 글자는 최소 11px(디자인 점검 16번)
         self.name_label.setStyleSheet(
             "color:rgba(255,255,255,217);background:transparent;"
         )
@@ -138,17 +138,14 @@ class DDayActionCard(QWidget):
         outer.setContentsMargins(6, 5, 6, 5)
         outer.setSpacing(0)
 
-        title = QLabel("+ D-Day" if mode == "add" else "최대 5개", self)
+        # 좁은 칸에서 두 줄로 깨지지 않게 한 줄 11px로 쓴다(디자인 점검 16번).
+        title = QLabel("+ D-Day 추가" if mode == "add" else "최대 5개 · 삭제 후 추가", self)
         title.setAlignment(Qt.AlignCenter)
+        title.setWordWrap(mode != "add")
         title.setStyleSheet(
             "font-size:11px;font-weight:700;background:transparent;"
         )
         outer.addWidget(title, 1)
-
-        caption = QLabel("추가" if mode == "add" else "삭제 후 추가", self)
-        caption.setAlignment(Qt.AlignCenter)
-        caption.setStyleSheet("font-size:10px;background:transparent;")
-        outer.addWidget(caption, 1)
 
         if mode == "add":
             self.setStyleSheet(
