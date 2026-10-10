@@ -576,7 +576,7 @@ class CalendarDayButton(QWidget):
         self.squares_label.setTextFormat(Qt.RichText)
         layout.addWidget(self.squares_label)
 
-        # 총 일정 개수 (회색 숫자, 0이면 빈칸)
+        # 색 네모로 다 보이지 못한 일정 수('+N', 디자인 점검 12번)
         self.count_label = QLabel("")
         self.count_label.setAlignment(Qt.AlignCenter)
         self.count_label.setFixedHeight(12)
@@ -602,13 +602,19 @@ class CalendarDayButton(QWidget):
         self._set_mode(mode)
 
     def set_count(self, n: int):
-        """그날 총 일정 수 표시 (0이면 빈칸)"""
+        """그날 총 일정 수. 색 네모로 다 보이지 못한 수만 '+N'으로 보인다."""
         self._count = n
-        self.count_label.setText(str(n) if n > 0 else "")
+        self._update_count_label()
+
+    def _update_count_label(self):
+        # 네모는 날짜별 서로 다른 색마다 하나(최대 3개)라, 남는 일정만 숫자로 알린다(디자인 점검 12번).
+        extra = self._count - len(self._event_colors[:3])
+        self.count_label.setText(f"+{extra}" if extra > 0 else "")
 
     def _update_squares(self, colors: list):
         """색상 사각형 업데이트 (최대 3개)"""
         self._event_colors = list(colors)
+        self._update_count_label()
         if not colors:
             self.squares_label.setText("")
             return

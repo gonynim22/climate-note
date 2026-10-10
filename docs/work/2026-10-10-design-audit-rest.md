@@ -47,10 +47,16 @@
 | 같은 quick 125% (다른 작업 종료 후) | 통과 | `20261010-214944-9650fe71b2` | 440개 |
 | `verify.py full` (재실행) | 실패 | `20261010-215112-eb1dd6a25a` | 1,947개 중 4개: 이모지 팝업·환산기 드롭다운이 열리자마자 닫힘, 바로가기 메뉴 하위 프로세스 30초 초과 — 모두 포커스 관련이며 이번 변경 영역 밖. 같은 4개(파라미터 포함 33개)를 두 번 다시 돌려 모두 통과 |
 | `verify.py full` (재실행 2) | 통과 | `20261010-215843-746e05d46b` | 1,947개(실패·오류·건너뜀 0, 다른 작업 시험 포함), 모든 코드 수정 뒤 실행 |
+| PowerShell `verify.py release` (main `8d34088`) | 통과 | `20261010-220459-0bd4f897c6` | 1,947개 시험·빌드·격리 EXE 3개, mingw 혼입 없음, Qt는 프로젝트 `.venv`, 다른 작업의 `tools/screen_text_lab` 미포함. `dist/기후노트_v3.9a.exe` 배치: 94,031,363 bytes, SHA-256 `FED6E7D270A261458710D35C476B966B08B15E54751BDFFDDCFE35A8FDF344C7`. 이전 EXE(`D4A0668B…`, 1~10·13·14번)는 `output/harness/20261010-092310-8c6a27c6db/dist/`에 있다 |
+
+## 12번 추가(2026-10-10)
+
+- 사용자 지시 "12도 진행하자 바로 깔끔하게 그냥". 기본 크기 칸의 개수 숫자는 네모(그날의 서로 다른 색마다 하나, 최대 3개)로 다 보이지 못한 일정 수만 `+N`으로 보인다. 보고서 예시('4개 이상일 때 +2')는 네모가 색마다 하나라는 점을 반영해 '네모로 못 보인 수'로 정했다(같은 색 3개면 네모 1개 + `+2`).
+- 기존 시험 3곳(`test_calendar_cell_shows_total_count`, 모드 전환 시험의 개수, `test_cell_count_updates_live_on_add_and_delete`)을 새 규칙으로 갱신했다. 새 시험 `tests/test_ui_calendar_count.py`(RED: `'1' == ''` 등 → GREEN).
 
 ## 미해결과 인계
 
 - 남은 문제 / 수동 확인: 다른 작업이 멈춘 뒤 125% quick·full을 새 실행 ID로 다시 돌린다. 실제 EXE 확인.
 - 변경한 정본 문서: [UI 계약](../UI_PATTERNS.md), [문서 변환](../DOCUMENT_CONVERSION.md), [테스트](../TESTING.md).
-- 다음 행동: 2026-10-10 사용자 확인(다른 작업 종료) 뒤 재검증하고 `feat/design-audit-rest`에 커밋(`5cc0745`), `main`에 fast-forward 병합 후 브랜치를 지웠다. 사용자·다른 작업의 미커밋 변경(`AGENTS.md` 4줄, `docs/RELEASE_HISTORY.md`, `docs/SCREEN_TEXT.md`, `docs/TESTING.md`의 진단 도구 절, `tools/screen_text_lab/` 등)은 커밋하지 않고 보존했다. 이어서 병합된 main으로 빌드한다.
+- 다음 행동: 2026-10-10 사용자 확인(다른 작업 종료) 뒤 재검증하고 `feat/design-audit-rest`에 커밋(`5cc0745`), `main`에 fast-forward 병합 후 브랜치를 지웠다. 사용자·다른 작업의 미커밋 변경(`AGENTS.md` 4줄, `docs/RELEASE_HISTORY.md`, `docs/SCREEN_TEXT.md`, `docs/TESTING.md`의 진단 도구 절, `tools/screen_text_lab/` 등)은 커밋하지 않고 보존했다. 병합된 main으로 release 빌드를 통과해 `dist/`에 배치했다(디자인 점검 12번 외 전부 포함).
 - 배포·커밋·push 여부: `main` 커밋·병합까지. push는 하지 않음.

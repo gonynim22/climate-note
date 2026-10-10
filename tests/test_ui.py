@@ -1430,7 +1430,7 @@ def test_calendar_cell_has_no_holiday_label(qtbot, app_dir, qapp):
 
 
 def test_calendar_cell_shows_total_count(qtbot, app_dir, qapp):
-    """셀에 그날 총 일정 수가 표시되고, 0개면 빈칸."""
+    """색 네모(색마다 하나)로 다 보이지 못한 일정 수만 '+N'으로 보이고, 없으면 빈칸(디자인 점검 12번)."""
     db.add_schedule("2026-07-10", "a", "#FFD166")
     db.add_schedule("2026-07-10", "b", "#FFD166")
     db.add_schedule("2026-07-10", "c", "#4CC9F0")
@@ -1439,7 +1439,7 @@ def test_calendar_cell_shows_total_count(qtbot, app_dir, qapp):
     win._current_year = 2026
     win._current_month = 7
     win._refresh_calendar()
-    assert win._day_cells["2026-07-10"].count_label.text() == "3"
+    assert win._day_cells["2026-07-10"].count_label.text() == "+1"  # 일정 3개, 네모 2개
     assert win._day_cells["2026-07-11"].count_label.text() == ""
 
 
@@ -1462,7 +1462,7 @@ def test_calendar_day_button_expanded_renders_chips(qtbot, app_dir, qapp):
     assert cell.squares_label.isVisibleTo(cell)
     assert cell.count_label.isVisibleTo(cell)
     assert not cell._chips_container.isVisibleTo(cell)
-    assert cell.count_label.text() == "3"
+    assert cell.count_label.text() == ""  # 네모 3개가 일정 3개를 다 보인다
 
 
 @pytest.mark.parametrize(
@@ -1632,7 +1632,10 @@ def test_cell_count_updates_live_on_add_and_delete(qtbot, app_dir, qapp):
     win._schedule_color = "#FFD166"
     win.schedule_input.setText("새 일정")
     win._on_add_schedule()
-    assert win._day_cells["2026-07-15"].count_label.text() == "1"
+    assert win._day_cells["2026-07-15"].squares_label.text()  # 네모 1개로 보인다
+    win.schedule_input.setText("둘째 일정")
+    win._on_add_schedule()
+    assert win._day_cells["2026-07-15"].count_label.text() == "+1"  # 같은 색 2개
 
     # 삭제
     item = win.schedule_list.item(0)
