@@ -1,6 +1,6 @@
 # 작업 기록: 디자인 점검 나머지(11·15~21번)
 
-작성일: 2026-10-10 / 상태: 로컬 구현·검증 완료(full `20261010-215843-746e05d46b`), 브랜치 `feat/design-audit-rest`. 버전 v3.9a 유지, 빌드·push 안 함
+작성일: 2026-10-10 / 상태: 로컬 구현·검증 완료(full `20261010-215843-746e05d46b`), main 병합(`5cc0745`, fast-forward). 버전 v3.9a 유지, 빌드·push 안 함
 
 ## 목표와 범위
 
@@ -52,5 +52,5 @@
 
 - 남은 문제 / 수동 확인: 다른 작업이 멈춘 뒤 125% quick·full을 새 실행 ID로 다시 돌린다. 실제 EXE 확인.
 - 변경한 정본 문서: [UI 계약](../UI_PATTERNS.md), [문서 변환](../DOCUMENT_CONVERSION.md), [테스트](../TESTING.md).
-- 다음 행동: 재검증 → 커밋·병합·빌드는 사용자 지시 후.
-- 배포·커밋·push 여부: 수행하지 않음.
+- 다음 행동: 2026-10-10 사용자 확인(다른 작업 종료) 뒤 재검증하고 `feat/design-audit-rest`에 커밋(`5cc0745`), `main`에 fast-forward 병합 후 브랜치를 지웠다. 사용자·다른 작업의 미커밋 변경(`AGENTS.md` 4줄, `docs/RELEASE_HISTORY.md`, `docs/SCREEN_TEXT.md`, `docs/TESTING.md`의 진단 도구 절, `tools/screen_text_lab/` 등)은 커밋하지 않고 보존했다. 이어서 병합된 main으로 빌드한다.
+- 배포·커밋·push 여부: `main` 커밋·병합까지. push는 하지 않음.
