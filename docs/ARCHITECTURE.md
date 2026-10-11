@@ -34,7 +34,7 @@
   - `SETTING_USE_PRIVACY_LOCK = "use_privacy_lock"`
   - `SETTING_SHOW_LUNAR = "show_lunar"`
   - `SETTING_SHOW_LAW_SEARCH = "show_law_search"` (default: `"1"` = On)
-  - `SETTING_SHOW_SIDEBAR = "show_sidebar"` (default: `"0"` = Off)
+  - `SETTING_SHOW_SIDEBAR = "show_sidebar"`: 기본 크기에서만 쓰는 바로가기 열 표시. 새 설치(`migrate(initial_calendar_scale=...)`)·초기화(`reset_database`)는 `"1"`(On, 2026-10-11), 크기 선택 없이 만든 DB와 v8→v9 이전은 `"0"`(Off). 기존 행은 바꾸지 않는다.
   - `SETTING_APP_FONT = "app_font"` (default: `"Malgun Gothic"`)
   - `SETTING_APP_OPACITY = "app_opacity"` (default: `"100"`, range: 30-100)
   - `SETTING_CALENDAR_SCALE = "calendar_scale"` (default: `"compact"`, values: compact/medium/large)

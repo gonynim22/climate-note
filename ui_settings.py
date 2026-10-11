@@ -692,7 +692,9 @@ class SettingsWindow(QWidget):
         tools_panel, tools_body = self._make_panel("위젯·도구", FIF.TILES)
         self.sidebar_switch = self._make_switch(
             db.get_setting(db.SETTING_SHOW_SIDEBAR, "0") == "1", self._on_sidebar_toggled)
-        self._add_row(tools_body, "바로가기", self.sidebar_switch)
+        # 중간·크게는 [바로가기 | 달력 | 일정] 배치라 늘 보이므로 이 스위치는 기본 크기에만 적용된다.
+        self.sidebar_switch.setToolTip("기본 크기에서 바로가기 열을 보입니다. 중간·크게에서는 늘 보입니다.")
+        self._add_row(tools_body, "기본 크기 바로가기", self.sidebar_switch)
         self.law_search_switch = self._make_switch(
             db.get_setting(db.SETTING_SHOW_LAW_SEARCH, "1") == "1", self._on_law_search_toggled)
         self._add_row(tools_body, "AI 법령검색", self.law_search_switch)

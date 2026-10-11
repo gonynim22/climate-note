@@ -323,7 +323,9 @@ class TestMigration:
         assert db.get_setting(db.SETTING_APP_OPACITY) == "73"
         assert db.get_schedule_palette() == db.DEFAULT_SCHEDULE_PALETTE
 
-    def test_fresh_install_sidebar_is_off(self, app_dir):
+    def test_migrate_without_first_run_choice_keeps_sidebar_off(self, app_dir):
+        # 처음 실행 크기 선택 없이 만든 DB(기존 이전 경로·합성 시험 DB)는 예전 값 그대로 꺼짐이다.
+        # 새 설치·초기화의 켜짐 기본값은 tests/test_sidebar_default.py가 본다.
         assert db.get_setting(db.SETTING_SHOW_SIDEBAR) == "0"
 
     def test_fresh_install_app_font_is_malgun_gothic(self, app_dir):

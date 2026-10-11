@@ -77,8 +77,9 @@ def test_first_choice_persists_in_database_backup_and_main(fresh_dir, scale, qtb
         assert window._current_calendar_scale() == scale
         assert window._sticky_in_panel_mode is (scale == "large")
         if scale == "compact":
-            assert window.maximumWidth() == 380
-            assert window.sidebar.isHidden()
+            # 새 설치는 바로가기 사이드바 켜짐이 기본(2026-10-11)이라 기본 크기도 460px이다.
+            assert window.maximumWidth() == 460
+            assert not window.sidebar.isHidden()
         else:
             assert window.maximumWidth() > 460
             assert not window.sidebar.isHidden()
@@ -287,6 +288,7 @@ def test_release_setup_confirmation_refuses_unowned_window(monkeypatch):
 
 def test_preview_geometry_matches_main_window_rule(app_dir):
     from ui_main import MainCalendarWindow, _calendar_corner_coordinates
+    db.save_setting(db.SETTING_SHOW_SIDEBAR, "1")  # 미리보기는 새 설치 기본값(사이드바 켜짐)을 그린다
 
     class Screen:
         def availableGeometry(self):
@@ -326,6 +328,20 @@ def test_preview_paints_selected_window_at_its_real_position(qtbot, scale):
         assert abs(outside.red() - 0xCB) <= 12
         assert abs(outside.green() - 0xD6) <= 12
         assert abs(outside.blue() - 0xE3) <= 12
+
+
+def test_compact_preview_shows_shortcut_sidebar(qtbot):
+    """새 설치 기본은 바로가기 켜짐이라 기본 크기 미리보기도 왼쪽에 바로가기 열을 그린다."""
+    dialog = _show_on_synthetic_area(qtbot, QRect(0, 0, 1000, 900))
+    dialog._select("compact")
+    target = QRectF(preview_window_rect("compact"))
+    qtbot.waitUntil(lambda: dialog.preview.window_rect() == target, timeout=2000)
+    image = dialog.preview.grab().toImage()
+    ratio = image.devicePixelRatio()
+    window = dialog.preview.window_rect_on_widget()
+    side = window.width() * 80 / 460
+    color = image.pixelColor(int((window.left() + side / 2) * ratio), int((window.bottom() - 3) * ratio))
+    assert color.name() == "#eef2f6"
 
 
 def test_reselecting_during_animation_ends_at_last_choice(qtbot):

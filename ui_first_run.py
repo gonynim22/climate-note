@@ -24,7 +24,7 @@ SUBTITLE = "고른 모습 그대로 시작해요."
 HINT = "설정에서 언제든 바꿀 수 있어요."
 
 # 미리보기 기준 화면: 1920×1080, 작업 표시줄 48px.
-# ui_main 기본값(사이드바 숨김, 오른쪽 아래, 여백 20px)의 크기 규칙을 스냅 전 좌표로 그린다.
+# 새 설치 기본값(바로가기 사이드바 켜짐, 오른쪽 아래, 여백 20px)의 ui_main 크기 규칙을 스냅 전 좌표로 그린다.
 PREVIEW_SCREEN_WIDTH = 1920
 PREVIEW_WORK_HEIGHT = 1032
 PREVIEW_MARGIN = 20
@@ -55,7 +55,7 @@ def preview_window_rect(scale: str) -> QRect:
     """ui_main._calendar_scale_geometry 기본 크기와 오른쪽 아래 배치(5mm 스냅 전)."""
     width, height = PREVIEW_SCREEN_WIDTH, PREVIEW_WORK_HEIGHT
     if scale == "compact":
-        w, h = min(380, width), min(660, height)
+        w, h = min(460, width), min(660, height)  # 바로가기 80 + 달력 380
     else:
         if scale == "medium":
             w, h = max(380, int(width * 0.60)), max(500, int(height * 0.60))
@@ -311,8 +311,19 @@ class _DeskPreview(QWidget):
             self._paint_expanded(p, win)
         p.restore()
 
+    def _paint_sidebar(self, p: QPainter, x: float, y: float, side: float, h: float) -> None:
+        p.setBrush(QColor("#EEF2F6"))
+        p.drawRect(QRectF(x, y, side, h))
+        for i in range(4):
+            p.setBrush(QColor(_BLUE if i == 0 else "#C5D0DD"))
+            p.drawRoundedRect(QRectF(x + side / 2 - 3, y + 4 + i * 9, 6, 6), 2, 2)
+
     def _paint_compact(self, p: QPainter, win: QRectF) -> None:
-        # 기본: 네이비 헤더 + 날짜 점 + 아래 일정 목록
+        # 기본: 바로가기 사이드바(새 설치 기본 켜짐) + 네이비 헤더 + 날짜 점 + 아래 일정 목록
+        side = 80 * self.S
+        if win.width() > side * 3:  # 애니메이션 초반의 아주 작은 창은 달력만 그린다
+            self._paint_sidebar(p, win.left(), win.top(), side, win.height())
+            win = win.adjusted(side, 0, 0, 0)
         x, y, w = win.left(), win.top(), win.width()
         p.setBrush(QColor(_NAVY))
         p.drawRect(QRectF(x, y, w, 9))
@@ -342,11 +353,7 @@ class _DeskPreview(QWidget):
         if w < side + col + 8:
             self._paint_compact(p, win)   # 애니메이션 초반의 작은 창
             return
-        p.setBrush(QColor("#EEF2F6"))
-        p.drawRect(QRectF(x, y, side, h))
-        for i in range(4):
-            p.setBrush(QColor(_BLUE if i == 0 else "#C5D0DD"))
-            p.drawRoundedRect(QRectF(x + side / 2 - 3, y + 4 + i * 9, 6, 6), 2, 2)
+        self._paint_sidebar(p, x, y, side, h)
         cal = QRectF(x + side, y, w - side - col, h)
         p.setBrush(QColor(_NAVY))
         p.drawRect(QRectF(cal.left(), y, cal.width(), 10))

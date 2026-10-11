@@ -599,9 +599,11 @@ def migrate(*, initial_calendar_scale: str | None = None) -> None:
                 INSERT OR IGNORE INTO app_settings (key, value) VALUES ('app_font', 'Malgun Gothic');
             """)
             if is_new_database and initial_calendar_scale is not None:
-                conn.execute(
+                # 새 설치(처음 실행 크기 선택)·초기화의 기본값. 바로가기 사이드바는 켜짐(2026-10-11)이며,
+                # 아래 v9의 INSERT OR IGNORE '0'은 이미 있는 이 행을 덮지 않는다. 기존 DB 값은 그대로 둔다.
+                conn.executemany(
                     "INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)",
-                    (SETTING_CALENDAR_SCALE, initial_calendar_scale),
+                    ((SETTING_CALENDAR_SCALE, initial_calendar_scale), (SETTING_SHOW_SIDEBAR, "1")),
                 )
             conn.execute("PRAGMA user_version = 8")
             conn.commit()
@@ -2257,7 +2259,7 @@ def optimize_database() -> None:
 
 # ─── Factory Reset ────────────────────────────────────────────
 def reset_database() -> None:
-    """DB 파일 삭제 후 재생성"""
+    """DB 파일 삭제 후 새 설치와 같은 기본값(기본 크기, 바로가기 켜짐)으로 재생성"""
     if DB_FILE.exists():
         DB_FILE.unlink()
-    migrate()
+    migrate(initial_calendar_scale=DEFAULT_CALENDAR_SCALE)
