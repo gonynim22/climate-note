@@ -192,3 +192,94 @@ def test_header_geometry_in_both_states(qtbot, scale):
     if appdata:
         target = Path(appdata).parent
         assert win.grab().save(str(target / f"calendar-move-edit-{scale}.png"))
+
+
+HEADER_DASH = (147, 197, 253)  # #93C5FD — 남색 머리줄 위
+BODY_DASH = (37, 99, 235)      # #2563EB — 흰 칸·회색 바로가기 열·안내 띠 위
+STRIP = (234, 242, 255)        # #EAF2FF
+
+
+def _close(color, rgb, tol):
+    return all(abs(a - b) <= tol for a, b in zip((color.red(), color.green(), color.blue()), rgb))
+
+
+def _row_has(win, y, rgb, x_from=20, x_to=None, tol=24):
+    """창의 논리 y 줄(x_from~x_to)에 rgb에 가까운 픽셀이 있는가. 점선은 틈이 있어 줄 전체를 훑는다."""
+    image = win.grab().toImage()
+    ratio = image.devicePixelRatio()
+    x_to = win.width() - 20 if x_to is None else x_to
+    row = int(y * ratio)
+    return any(_close(image.pixelColor(x, row), rgb, tol)
+               for x in range(int(x_from * ratio), int(x_to * ratio)))
+
+
+def _column_has(win, x, y_from, y_to, rgb, tol=24):
+    image = win.grab().toImage()
+    ratio = image.devicePixelRatio()
+    col = int(x * ratio)
+    return any(_close(image.pixelColor(col, y), rgb, tol)
+               for y in range(int(y_from * ratio), int(y_to * ratio)))
+
+
+def _strip_color(win):
+    header = win.findChild(QWidget, "headerSection")
+    image = win.grab().toImage()
+    ratio = image.devicePixelRatio()
+    at = header.mapTo(win, QPoint(8, header.height() + 4))
+    return image.pixelColor(int(at.x() * ratio), int(at.y() * ratio))
+
+
+@pytest.mark.parametrize("scale", db.CALENDAR_SCALES)
+def test_edit_mode_draws_dashed_outline_and_hint_strip(qtbot, scale):
+    win = window(qtbot, scale)
+    overlay = win._calendar_move_overlay
+    bottom = win.height() - 1.5
+    assert not overlay.isVisible()
+    assert not _row_has(win, 1, HEADER_DASH) and not _row_has(win, bottom, BODY_DASH)
+    win.calendar_move_button.click()
+    QApplication.processEvents()
+    assert overlay.isVisible()
+    assert overlay.geometry() == win.container.rect()
+    assert overlay.testAttribute(Qt.WA_TransparentForMouseEvents)
+    assert overlay.hint_text == "머리줄을 끌어 원하는 곳에 두고 '완료'를 누르세요"
+    assert _row_has(win, 1, HEADER_DASH)       # 위쪽 가장자리(남색 머리줄 위)
+    assert _row_has(win, bottom, BODY_DASH)    # 아래쪽 가장자리(흰 바탕 위)
+    assert _close(_strip_color(win), STRIP, 3)
+    drag_header(win)  # 덧그림이 있어도 머리줄 끌기는 그대로
+    assert db.get_setting(db.SETTING_CALENDAR_POSITION_MODE) == "free"
+    win.calendar_move_done_button.click()
+    QApplication.processEvents()
+    assert not overlay.isVisible()
+    assert not _row_has(win, 1, HEADER_DASH) and not _row_has(win, bottom, BODY_DASH)
+
+
+@pytest.mark.parametrize("scale", db.CALENDAR_SCALES)
+def test_outline_color_follows_background(qtbot, scale):
+    """남색 머리줄 위는 연한 파랑, 그 밖(흰 칸·회색 바로가기 열·크게 오른쪽 열)은 진한 파랑이다."""
+    win = window(qtbot, scale)
+    win.calendar_move_button.click()
+    QApplication.processEvents()
+    header = win.findChild(QWidget, "headerSection")
+    top = header.mapTo(win, QPoint(0, 0))
+    over_header = (top.x() + 20, top.x() + header.width() - 20)
+    assert _row_has(win, 1, HEADER_DASH, *over_header)
+    assert not _row_has(win, 1, BODY_DASH, *over_header)
+    below = top.y() + header.height() + 8
+    right = win.width() - 1.5
+    assert _column_has(win, right, below, win.height() - 20, BODY_DASH)
+    assert not _column_has(win, right, below, win.height() - 20, HEADER_DASH)
+    if win.sidebar.isVisible():  # 중간·크게: 왼쪽 회색 바로가기 열 위의 위쪽 가장자리
+        assert _row_has(win, 1, BODY_DASH, 14, top.x() - 4)
+
+
+def test_hint_strip_follows_header_height(qtbot):
+    db.save_setting(db.SETTING_SHOW_LAW_SEARCH, "1")
+    win = window(qtbot)
+    win.calendar_move_button.click()
+    QApplication.processEvents()
+    assert _close(_strip_color(win), STRIP, 3)
+    db.save_setting(db.SETTING_SHOW_LAW_SEARCH, "0")
+    win._on_law_search_changed()
+    QApplication.processEvents()
+    assert _close(_strip_color(win), STRIP, 3)
+    assert win._calendar_move_overlay.geometry() == win.container.rect()

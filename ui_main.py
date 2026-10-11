@@ -12,8 +12,8 @@ from PySide6.QtWidgets import (
     QSizePolicy, QLineEdit, QPushButton, QDialog, QFileDialog, QInputDialog,
     QScrollArea, QFrame,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QUrl, QPoint, QPointF, QRectF
-from PySide6.QtGui import QFont, QDesktopServices, QPainter, QBrush, QPen, QColor
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QUrl, QPoint, QPointF, QRect, QRectF
+from PySide6.QtGui import QFont, QFontMetrics, QDesktopServices, QPainter, QBrush, QPen, QColor, QRegion
 
 import ctypes
 from ctypes import wintypes
@@ -542,6 +542,71 @@ class CalendarMoveDoneButton(_EnterClickButton):
             QPushButton#headerMoveDoneButton:focus { border: 1px solid #FBBF24; }
         """)
         self.hide()
+
+
+class CalendarMoveEditOverlay(QWidget):
+    """위치 편집 중 캘린더 안쪽 가장자리에 점선, 머리줄 바로 아래에 안내 띠를 그린다(J안).
+
+    창 바깥은 바탕화면이라 점선을 안쪽에 그린다. 안내 띠는 달력 칸을 밀지 않도록 겹쳐 그리며
+    마우스 입력은 모두 아래 위젯으로 통과한다.
+    """
+
+    HINT_TEXT = "머리줄을 끌어 원하는 곳에 두고 '완료'를 누르세요"
+    HINT_HEIGHT = 28
+    # 점선은 바탕에 따라 두 톤(2026-10-11 색 비교). 노랑은 키보드 포커스 표시와 겹쳐 쓰지 않는다.
+    HEADER_DASH = "#93C5FD"  # 남색 머리줄 위: '완료' 테두리와 같은 연한 파랑, 대비 7.8:1
+    BODY_DASH = "#2563EB"    # 흰 칸·회색 바로가기 열·안내 띠 위: 앱 강조색, 대비 4.6:1 이상
+
+    def __init__(self, container: QWidget, header: QWidget):
+        super().__init__(container)
+        self.setObjectName("calendarMoveEditOverlay")
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._header = header
+        self.hint_text = self.HINT_TEXT
+        container.installEventFilter(self)
+        header.installEventFilter(self)
+        self.hide()
+
+    def show_over(self) -> None:
+        self.setGeometry(self.parentWidget().rect())
+        self.show()
+        self.raise_()
+
+    def eventFilter(self, obj, event):
+        if self.isVisible() and event.type() in (QEvent.Resize, QEvent.Move):
+            if obj is self.parentWidget():
+                self.setGeometry(obj.rect())
+            self.update()
+        return False
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        origin = self._header.mapTo(self.parentWidget(), QPoint(0, 0))
+        strip = QRect(origin.x(), origin.y() + self._header.height(),
+                      self._header.width(), self.HINT_HEIGHT)
+        painter.fillRect(strip, QColor("#EAF2FF"))
+        font = QFont(self.font())
+        font.setPixelSize(12)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#1D4ED8"))
+        text = QFontMetrics(font).elidedText(self.hint_text, Qt.ElideRight, max(0, strip.width() - 16))
+        painter.drawText(strip, Qt.AlignCenter, text)
+        # 같은 점선 경로를 머리줄 영역과 나머지로 잘라 두 번 그린다(색만 바뀌고 선·틈 위치는 이어진다).
+        border = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        header_rect = QRect(origin, self._header.size())
+        painter.setBrush(Qt.NoBrush)
+        for color, region in (
+            (self.HEADER_DASH, QRegion(header_rect)),
+            (self.BODY_DASH, QRegion(self.rect()).subtracted(QRegion(header_rect))),
+        ):
+            pen = QPen(QColor(color), 2)
+            pen.setDashPattern([3, 2])  # 펜 굵기 배수: 6px 선, 4px 틈
+            painter.setPen(pen)
+            painter.setClipRegion(region)
+            painter.drawRoundedRect(border, 11, 11)
+        painter.setClipping(False)
 
 
 class CalendarDayButton(QWidget):
@@ -1795,6 +1860,7 @@ class MainCalendarWindow(QWidget):
         self._calendar_drag_targets = {header_section, self.month_label}
         for target in self._calendar_drag_targets:
             target.installEventFilter(self)
+        self._calendar_move_overlay = CalendarMoveEditOverlay(self.container, header_section)
         self._update_calendar_move_control()
         self.installEventFilter(self)
 
@@ -4031,6 +4097,10 @@ class MainCalendarWindow(QWidget):
         for widget in (self._header_search_btn, self.calendar_move_button, self._more_btn):
             widget.setVisible(not editing)
         self.calendar_move_done_button.setVisible(editing)
+        if editing:
+            self._calendar_move_overlay.show_over()
+        else:
+            self._calendar_move_overlay.hide()
         allowed = self._calendar_drag_allowed()
         for target in self._calendar_drag_targets:
             target.setCursor(Qt.SizeAllCursor if allowed else Qt.ArrowCursor)
