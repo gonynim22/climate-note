@@ -640,9 +640,10 @@ class CalendarDayButton(QWidget):
             base_color = "#BDBDBD"  # 비현재월(빈 셀) — 기존 동작 보존
 
         if self._mode == "expanded":
-            # 중간·크게: 칸을 칠하지 않고 오늘은 숫자 뒤 남색 원, 고른 날은 남색 테두리(디자인 점검 15번).
+            # 중간·크게: 오늘은 숫자 뒤 남색 원, 고른 날은 칸 전체를 연한 회색으로 채운다
+            # (2026-10-11 사용자 요청으로 15번의 테두리를 예전 채움으로 되돌림).
             if selected:
-                bg_style += "border: 2px solid #01295F;"
+                bg_style += "background: rgba(1,41,95,20);"
             self.setStyleSheet(f"#calendarDayButton {{ {bg_style} }}")
             if self._is_today:
                 self.day_label.setStyleSheet(

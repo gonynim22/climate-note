@@ -1,4 +1,4 @@
-"""디자인 점검 15번: 중간·크게 모드 날짜 칸(숫자 왼쪽 위, 오늘은 숫자 원, 고른 날 테두리, 요일 글자)."""
+"""디자인 점검 15번: 중간·크게 모드 날짜 칸(숫자 왼쪽 위, 오늘은 숫자 원, 고른 날 연한 회색, 요일 글자)."""
 from datetime import date
 
 import pytest
@@ -47,17 +47,35 @@ def test_expanded_cell_number_top_left_and_today_circle(qtbot, scale):
     assert corner.name() != NAVY and corner.lightness() > 200
 
 
+LIGHT_FILL = (235, 238, 242)  # rgba(1,41,95,20)를 흰 칸 바탕에 얹은 색
+
+
+def _near(color, rgb, tol=3):
+    return all(abs(a - b) <= tol for a, b in zip((color.red(), color.green(), color.blue()), rgb))
+
+
 @pytest.mark.parametrize("scale", ["medium", "large"])
-def test_expanded_selected_day_uses_border_not_fill(qtbot, scale):
+def test_expanded_selected_day_uses_light_fill_not_border(qtbot, scale):
     win = _window(qtbot, scale)
     today = date.today()
     other = today.replace(day=1 if today.day != 1 else 2).isoformat()
     win._on_date_selected(other)
     QApplication.processEvents()
     cell = win._day_cells[other]
-    assert _pixel(win, cell, QPoint(cell.width() // 2, 1)).name() == NAVY  # 위 2px 테두리(배율 반올림 고려해 y=1)
-    inside = _pixel(win, cell, QPoint(cell.width() - 6, cell.height() // 2))
-    assert inside.lightness() > 230  # 바탕은 채우지 않는다
+    assert _pixel(win, cell, QPoint(cell.width() // 2, 1)).name() != NAVY  # 테두리 없음
+    assert _near(_pixel(win, cell, QPoint(cell.width() - 6, cell.height() // 2)), LIGHT_FILL)
+
+
+@pytest.mark.parametrize("scale", ["medium", "large"])
+def test_expanded_selected_today_keeps_circle_on_light_fill(qtbot, scale):
+    win = _window(qtbot, scale)
+    key = date.today().isoformat()
+    win._on_date_selected(key)
+    QApplication.processEvents()
+    cell = win._day_cells[key]
+    label = cell.day_label
+    assert _pixel(win, label, QPoint(3, label.height() // 2)).name() == NAVY  # 남색 숫자 원 유지
+    assert _near(_pixel(win, cell, QPoint(cell.width() - 4, cell.height() - 4)), LIGHT_FILL)
 
 
 @pytest.mark.parametrize("scale,size,align", [
