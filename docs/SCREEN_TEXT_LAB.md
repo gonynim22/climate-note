@@ -4,6 +4,8 @@
 
 도구는 `tools/screen_text_lab/`에 있다. **대규모 진단은 아래 명령을 명시적으로 실행할 때만 동작한다.** 앱 시작·일반 빌드·통상 pytest·`quick/data/full/release`·훅/CI에 연결하지 않는다. `tests/test_screen_text_lab.py`에는 모델 없이 작동하는 작은 자체 검사만 있으며 기존 제품의 소규모 OCR 회귀 검사는 유지한다.
 
+학습 환경을 준비하는 `training.bootstrap`의 다운로드는 고정된 CPython 버전과 PaddleOCR 리비전의 공식 HTTPS 주소 두 개만 허용한다. HTTPS 전용 처리기와 기본 인증서 검증을 사용하고 HTTPS 프록시는 유지하며, 파일/HTTP/FTP 주소·임의 주소·리디렉션을 거부한다. 기존 파일을 덮어쓰지 않는다. 이 수동 개발 도구는 EXE에 포함하지 않으며 실제 학습은 보류 상태다.
+
 ## 첫 사용
 
 프로젝트 루트 PowerShell에서 기존 Python 3.13 가상환경을 사용한다. 패키지를 자동 설치하거나 lock을 갱신하지 않는다.

@@ -84,6 +84,8 @@ CTC 출력 진단은 `tests/test_screen_text_lab_ctc.py`의 작은 분포 완전
 
 사전 확장·BN 진단·후보 등록·전체 경로 연결의 보조 검사는 `tests/test_screen_text_lab_training_state.py`, `tests/test_screen_text_lab_training_bn.py`, `tests/test_screen_text_lab_training_frozen_bn.py`, `tests/test_screen_text_lab_training_candidate.py`, `tests/test_screen_text_lab_full_candidate.py`를 같은 `quick --tests` 명령에 추가한다. 전체 tensor 일치와 제품이 사용하지 않는 패딩만 차이가 있는 경우를 구분하며, 실제 사용하는 CTC 구간의 차이를 패딩 차이로 통과시키지 않는다.
 
+개발용 다운로드의 주소/파일 경계는 `tests/test_screen_text_lab_bootstrap.py`와 `tests/test_security_scan_rules.py`를 함께 실행한다. 네트워크 없는 가짜 HTTPS 응답으로 고정 공식 주소만 허용, 파일/HTTP/FTP 차단, HTTPS 프록시 유지, 리디렉션 거부, 기존 파일 보존과 해시 기록을 검사한다. 추적 파일 대상 보안 회귀이므로 새 개발 도구를 Git에 등록한 뒤에도 실행한다. 제품 모델 다운로드나 실제 학습을 시작하지 않는다.
+
 ### 실행 격리와 증거
 
 라이선스 안내는 `quick --tests tests/test_ui_licenses.py tests/test_ui.py tests/test_packaging.py`로 검사한다. 구성요소 원문·저작권·기록 해시, OCR 폴더 유무에 따른 목록, 파일 누락 표시, 실제 버튼 열기·전체 복사·닫기, 부모 숨김/비활성/닫기·메인 PIN 잠금, 작은 작업 영역과 합성 DB dump/Export/salt 불변을 확인한다. 125/150% 별도 quick의 합성 PNG를 확인하고 `release` 후 실제 EXE의 고지·모델·Qt/네이티브 DLL 해시를 이전 검증본과 대조한다. 이 검사는 법적 적합성·전수 SBOM 또는 외부 심사자 소스 접근을 대신하지 않는다.
