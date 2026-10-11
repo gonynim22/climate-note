@@ -1,6 +1,6 @@
 # 작업 기록: 바로가기 사이드바 기본값 켜짐(A안)
 
-작성일: 2026-10-11 / 상태: 로컬 구현·검증, 브랜치 `fix/sidebar-default-on`(커밋·병합·빌드는 사용자 지시 대기). 버전 v3.9a 유지
+작성일: 2026-10-11 / 상태: 구현·검증 완료, main 병합(`c93dde3`, fast-forward), release `20261011-175917-ae4cf6864f` 통과·`dist/` 배치(SHA-256 `1143502A…`). 버전 v3.9a 유지, push 안 함
 
 ## 배경
 
@@ -35,9 +35,11 @@
 |---|---|---|---|
 | pytest 직접(설정·초기화·사이드바를 쓰는 18개 파일 + 처음 실행) | 통과 | 하네스 실행 ID 없음 | 700개 |
 | `verify.py full` | 통과 | `20261011-174716-e4bf00b1e6` | 1,921개(실패·오류·건너뜀 0). Codex가 같은 폴더를 고치는 중이라 main(`c07f4f7`)에 이번 6개 파일만 얹은 분리 작업 사본에서 실행(입력 변화 없음), 결과 폴더를 `output/harness/`로 복사 |
+| PowerShell `verify.py release` (main `c93dde3`) | 통과 | `20261011-175917-ae4cf6864f` | 1,921개 시험·빌드·격리 EXE 실행(새 설치·기존 사용자·차단 세 경우), main만 담은 임시 작업 사본(dirty false). build TOC에 mingw 없음, Qt는 프로젝트 `.venv`, libssl은 이전 release와 같은 Python 설치본, `tools/screen_text_lab` 미포함 |
 
 ## 미해결과 인계
 
 - 남은 수동 확인: 새 EXE로 처음 실행(합성 데이터)에서 기본 크기 바로가기 열, 기존 사용자 PC에서는 설정 → '기본 크기 바로가기'를 켜면 다시 보이는지.
 - 실사용 값이 꺼짐으로 바뀐 원인은 미확인(위 조사 참고).
-- 다음 행동: 사용자 지시 시 커밋 → main 병합 → release 빌드.
+- 다음 행동: 2026-10-11 사용자 지시("AGENTS.md 업데이트, 빌드, 커밋, main 병합만 해줘")로 브랜치 `fix/sidebar-default-on`에 커밋(`c93dde3`)하고 main을 fast-forward한 뒤 브랜치를 지웠다. Codex가 같은 폴더에서 작업 중이라 release는 main만 담은 임시 작업 사본에서 돌렸고, 결과 폴더를 `output/harness/`로 복사한 뒤 사본을 지웠다. push는 하지 않음.
+- 배포: `dist/기후노트_v3.9a.exe` 94,036,771 bytes, SHA-256 `1143502A8105F781049994BEFC9DC53194B3DD1E410237C64B7438B2D5AC4648`. 이전 EXE(`7955C43C…`, 위치 편집 J안까지)는 `output/harness/20261011-145221-ac93d1986b/dist/`에 있다.
