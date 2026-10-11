@@ -267,7 +267,8 @@ def test_outline_color_follows_background(qtbot, scale):
     below = top.y() + header.height() + 8
     right = win.width() - 1.5
     assert _column_has(win, right, below, win.height() - 20, BODY_DASH)
-    assert not _column_has(win, right, below, win.height() - 20, HEADER_DASH)
+    # 125/150%에서는 진한 파랑 가장자리가 흰 바탕과 반쯤 섞여 연한 파랑 근처 색이 되므로 좁은 허용치로 본다.
+    assert not _column_has(win, right, below, win.height() - 20, HEADER_DASH, tol=8)
     if win.sidebar.isVisible():  # 중간·크게: 왼쪽 회색 바로가기 열 위의 위쪽 가장자리
         assert _row_has(win, 1, BODY_DASH, 14, top.x() - 4)
 
