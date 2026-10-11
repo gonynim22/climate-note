@@ -291,9 +291,11 @@ def test_hint_strip_follows_header_height(qtbot):
 def test_edit_mode_ends_and_drag_cancels(qtbot, action):
     win = window(qtbot)
     win.calendar_move_button.click()
+    origin = win.pos()
     point = win.month_label.rect().center()
     QTest.mousePress(win.month_label, Qt.LeftButton, pos=point)
-    assert win._calendar_drag_offset is not None
+    QTest.mouseMove(win.month_label, point + QPoint(60, 40), delay=20)
+    assert win._calendar_drag_started and win.pos() != origin  # 끌던 중(창이 이미 움직임)
     if action == "done":
         win.calendar_move_done_button.click()
     elif action == "escape":
@@ -314,6 +316,8 @@ def test_edit_mode_ends_and_drag_cancels(qtbot, action):
     assert not win._calendar_move_editing
     assert not win._calendar_move_overlay.isVisible()
     assert win._calendar_drag_offset is None and not win._calendar_drag_started
+    if action != "scale":  # 크기 변경은 새 크기로 다시 배치한다
+        assert win.pos() == origin  # 저장하지 않은 끌기는 원래 자리로 되돌린다
     QTest.mouseRelease(win.month_label, Qt.LeftButton, pos=point)
     assert db.get_setting(db.SETTING_CALENDAR_POSITION_MODE) == "corner"
     if action == "lock":
@@ -340,8 +344,13 @@ def test_monitor_change_keeps_edit_mode(qtbot):
 
 def test_dragging_fixed_header_hints_move_button_once_per_run(qtbot, monkeypatch):
     shown = []
-    monkeypatch.setattr(ui_main.InfoBar, "info", lambda **kwargs: shown.append(kwargs))
     win = window(qtbot)
+
+    def fake_info(**kwargs):
+        shown.append(kwargs)
+        return QWidget(win)  # 자리 잡기(move)만 받는 빈 위젯
+
+    monkeypatch.setattr(ui_main.InfoBar, "info", fake_info)
     start = win.month_label.rect().center()
     QTest.mousePress(win.month_label, Qt.LeftButton, pos=start)
     QTest.mouseMove(win.month_label, start + QPoint(1, 1), delay=20)  # 손떨림은 안내하지 않는다
@@ -358,10 +367,17 @@ def test_dragging_fixed_header_hints_move_button_once_per_run(qtbot, monkeypatch
     assert len(shown) == 1  # 편집 중 끌기는 안내 없음
 
 
-def test_fixed_drag_hint_fits_inside_compact_window(qtbot):
-    win = window(qtbot)  # 기본 380px
+@pytest.mark.parametrize("scale", db.CALENDAR_SCALES)
+def test_fixed_drag_hint_sits_below_header_without_covering_button(qtbot, scale):
+    win = window(qtbot, scale)
     drag_header(win)
     qtbot.wait(50)
     bars = [bar for bar in win.findChildren(ui_main.InfoBar) if bar.isVisible()]
     assert len(bars) == 1
-    assert bars[0].width() <= win.width() - 16
+    bar = bars[0].geometry()
+    header = win.findChild(QWidget, "headerSection")
+    button = QRect(win.calendar_move_button.mapTo(win, QPoint()), win.calendar_move_button.size())
+    assert not bar.intersects(button)  # 알려 주는 단추를 가리지 않는다
+    assert bar.top() >= header.mapTo(win, QPoint(0, header.height())).y()
+    assert bar.left() >= 0 and bar.right() < win.width()
+    assert bar.width() <= win.width() - 16

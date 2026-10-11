@@ -1427,6 +1427,7 @@ class MainCalendarWindow(QWidget):
         self._calendar_drag_offset = None
         self._calendar_drag_press_global = None
         self._calendar_drag_started = False
+        self._calendar_drag_origin = None  # 누를 때 창 위치(놓기 전 취소되면 되돌릴 자리)
         self._calendar_drag_targets = set()
         # 위치 편집(J안)은 메모리 상태다. 평소 캘린더는 고정이며, 예전
         # calendar_move_enabled 값은 읽지 않고 행도 그대로 둔다(Export 포함).
@@ -1862,6 +1863,7 @@ class MainCalendarWindow(QWidget):
         self._calendar_drag_targets = {header_section, self.month_label}
         for target in self._calendar_drag_targets:
             target.installEventFilter(self)
+        self._header_section = header_section
         self._calendar_move_overlay = CalendarMoveEditOverlay(self.container, header_section)
         self._update_calendar_move_control()
         self.installEventFilter(self)
@@ -4177,6 +4179,7 @@ class MainCalendarWindow(QWidget):
                 )
                 self._calendar_drag_press_global = press_global
                 self._calendar_drag_started = False
+                self._calendar_drag_origin = self.pos()
                 event.accept()
                 return True
             if (event_type == QEvent.Type.MouseMove
@@ -4207,6 +4210,7 @@ class MainCalendarWindow(QWidget):
                     and self._calendar_drag_offset is not None):
                 release_global = event.globalPosition().toPoint()
                 did_drag = self._calendar_drag_started
+                self._calendar_drag_origin = None  # 끝까지 끌었으면 되돌리지 않고 저장한다
                 self._reset_calendar_drag()
                 if did_drag:
                     self._finish_calendar_drag(release_global)
@@ -4229,18 +4233,28 @@ class MainCalendarWindow(QWidget):
             if delta.manhattanLength() < QApplication.startDragDistance():
                 return
             self._calendar_fixed_hint_shown = True
-            # 380px 창에서 제목·본문을 가로로 두면 창보다 넓어지므로 세로로 쌓는다.
-            InfoBar.info(
+            # 380px 창에서 제목·본문을 가로로 두면 창보다 넓어지므로 세로로 쌓는다. 위쪽 자동 배치는
+            # 알려 주는 십자 화살표를 가리므로 머리줄 바로 아래 가운데에 직접 둔다.
+            bar = InfoBar.info(
                 title="캘린더 위치 고정",
                 content="옮기려면 머리줄의 십자 화살표 단추를 누르세요.",
-                orient=Qt.Vertical, parent=self, position=InfoBarPosition.TOP, duration=3000,
+                orient=Qt.Vertical, parent=self, position=InfoBarPosition.NONE, duration=3000,
             )
+            header = self._header_section
+            top_left = header.mapTo(self, QPoint(0, header.height() + 8))
+            x = top_left.x() + (header.width() - bar.width()) // 2
+            bar.move(max(8, x), top_left.y())
         self._calendar_fixed_press_global = None
 
     def _reset_calendar_drag(self) -> None:
+        """끌기 상태를 지운다. 놓기 전에 취소되면 저장하지 않으므로 창도 끌기 전 자리로 되돌린다."""
+        origin = self._calendar_drag_origin if self._calendar_drag_started else None
         self._calendar_drag_offset = None
         self._calendar_drag_press_global = None
         self._calendar_drag_started = False
+        self._calendar_drag_origin = None
+        if origin is not None and self.pos() != origin:
+            self.move(origin)
 
     def _finish_calendar_drag(self, release_global: QPoint | None = None) -> None:
         """목적지 화면 크기에 맞춰 보정한 드래그 위치를 설정에 저장한다."""
