@@ -46,6 +46,44 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 
 화면 글자 따기는 `tests/test_screen_text_layout.py`, `test_screen_text_engine.py`, `test_screen_text_capture.py`, `test_screen_text_ui.py`, `test_screen_text_guide.py`, `test_optional_mini_apps.py`를 함께 실행한다. 사용법 애니메이션은 단계별 프레임·단계 점·한 바퀴 처음과 끝의 흐려짐·좁은 크기와 125/150% 장치 배율·1초 동안 다시 그린 횟수(초당 약 24번 이하, 그림자 효과가 매 프레임 표면을 다시 흐리지 않게)를 `test_screen_text_guide.py`가, 사용법 화면 왕복(결과·탭·상태 유지)은 `test_screen_text_ui.py`가 검사한다. 포커스 검사는 OS 포그라운드와 무관하게 `focusWidget()`을 쓴다(`hasFocus()`는 사용자가 다른 앱을 쓰는 중이면 실패한다). 실제 화면을 찍지 않고 가짜 스크린샷과 Qt로 그린 합성 이미지만 쓴다. 125/150%는 `QT_SCALE_FACTOR` 합성 실행이며 실제 혼합 DPI/KVM·보안 프로그램 캡처 차단·한글 표 붙여넣기 확인을 대신하지 않는다.
 
+### 화면 글자 따기 정확도 진단 도구
+
+`test_screen_text_layout.py`의 순수 좌표 회귀는 병합 라벨에 의한 행 흡수, 여러 줄 셀의 읽기 순서/경고 위치, 인접 열의 작은 겹침, 한 셀의 겹친 판독 조각, 병합 머리글과 떨어진 문장 구별을 검사한다. 100/125/150/200% 좌표·평행 이동·입력 역순도 포함하며 OCR 재추론이나 실제 혼합 DPI 검사가 아니다. 실제 공개 문서 16영역과 기존 합성 dev 1,920개의 고정 상자 재구성 비교는 [표 구성 기록](work/2026-10-11-screen-text-table-layout.md)의 별도 수동 실행 증거다.
+
+개발용 진단은 [개발 계획](work/2026-10-10-screen-text-lab-plan.md)의 자료 검증·채점·실제 엔진 실행·HTML 비교와 조건별 합성 자료·영역/CTC/입력·모델 비교를 `tools/screen_text_lab/`에 제공한다. [사용법](SCREEN_TEXT_LAB.md)의 별도 명령으로 실행한다. 첫 100개 합성 자료는 도구 검증용이며, 현재 조건 자료는 200원문×12조건이다. 원본 약 1,000개와 실제 캡처·새 원문 독립 평가 확대는 후속 범위다. 자료는 `output/screen_text_lab/corpus/`, 실행 증거와 HTML 보고서는 `output/harness/<run-id>/`에 둔다.
+
+대규모 자료 생성·인식·후보 비교는 명시적으로 실행할 때만 동작한다. 통상 pytest·`quick/data/full/release`·일반 빌드·앱 시작·Git 훅/CI에 자동 연결하지 않는다. `tests/`에는 자료/정답 검증·채점·비교·보고서의 가벼운 자체 검사만 추가하며, 신규 자체 검사는 실제 모델 세션·대량 자료·화면 캡처를 실행하지 않는다. 기존 화면 글자 따기의 소규모 실제 모델 회귀 검사는 유지한다.
+
+제품 인식/줄·표 구성 함수를 직접 호출한 결과를 기준으로 비교하고 원본·변형·실제 캡처를 별도 집계한다. 개발용과 최종 평가용은 문서/원본 묶음 단위로 나누며, 실사용 AppData·DB·salt·기존 실행 중인 앱에는 접근하지 않는다. 제품의 캡처 메모리 전용·오프라인 계약을 유지하고 진단 도구와 자료는 EXE에 추가하지 않는다.
+
+`quick --tests tests/test_screen_text_lab.py`는 손계산 편집 거리·표 위치·분할 누출·이미지 해시·불완전 진행 기록·입력 변경·중단/시간 초과·HTML 이스케이프·비교 호환성을 검사한다. 실행기 경계 검사는 가짜 엔진/프로세스를 쓰고 별도 import 검사에서 제품·OCR·이미지 모듈의 조기 로드를 차단한다. 실제 모델/100개 자료 및 제품 경로 대조는 명시적인 진단 명령의 증거로 구분한다. [구현 기록](work/2026-10-10-screen-text-lab-implementation.md)을 따른다.
+
+등록·검토 창은 `review` 명령으로만 연다. `quick --tests tests/test_screen_text_lab.py tests/test_screen_text_lab_review.py`는 작은 합성 PNG의 등록·정답/표·검토 상태·새 버전 저장/재열기·원본 보존·실패 시 입력 보존·목록/확대·창 닫기 보류를 검사한다. 창 렌더 PNG는 하네스 실행 폴더에 남긴다. 이 자체 검사에서는 OCR/실제 화면 캡처/대량 자료를 실행하지 않는다. [등록·검토 기록](work/2026-10-10-screen-text-lab-review.md)을 따른다.
+
+`generate --profile conditions`는 200원문×12조건(2,400개)을 만드는 별도 수동 명령이다. `quick --tests tests/test_screen_text_lab.py tests/test_screen_text_lab_conditions.py`의 자체 검사는 원문 목록/분할 누출을 메타데이터로 확인하고 6개·12개의 작은 이미지만 그린다. 가짜 예측으로 같은 원문의 조건 쌍·누락/실패 분모·공백 제외 CER·보고서 링크를 검사하며 실제 OCR은 실행하지 않는다. 개발용 1,920개 실험과 최종 평가용 480개 보류는 [조건 진단 기록](work/2026-10-10-screen-text-lab-conditions.md)으로 분리한다.
+
+진단의 전처리 후보·문자 점수 관측은 `quick --tests tests/test_screen_text_lab.py tests/test_screen_text_lab_conditions.py tests/test_screen_text_lab_candidates.py`로 검사한다. 가짜 추론 세션의 실제 제품 경로 불변·CTC 반복/blank/공백 처리·후보 설정 전달과 예외 시 원복·신규 오류/복구·오경고/미채점 분모를 확인하며 실제 모델 세션이나 대규모 실험은 실행하지 않는다. 명시적인 1,920개 후보 실험과 baseline 대조는 [후보 기록](work/2026-10-10-screen-text-lab-candidates.md)에 별도 실행 ID로 남긴다.
+
+영역 분리 진단 자체 검사는 위 후보 검사에 `tests/test_screen_text_lab_regions.py`를 추가한다. 사각형 합집합의 중복 면적·겹침/누락 가능성, 픽셀 경계의 2px 확장, 주석 없음/불완전/미검토 분모, 좌표만 전달하는 가짜 인식기, 추가 진단 실패 시 제품 결과 보존·partial 상태, 기본 옵션 미실행과 주석 해시를 검사한다. 실제 1,920개 주석 직접 인식은 `run --diagnose-regions`로만 별도 수행하며 [영역 진단 기록](work/2026-10-10-screen-text-lab-regions.md)에 증거를 남긴다.
+
+픽셀 전처리/선택적 재인식 후보는 `tests/test_screen_text_lab_preprocessing.py`에서 가짜 세션으로 비율·패딩·CTC 끝부분·어두운/복잡한 배경·작은 문장부호·폭 폭증 제한·취소·점수 차이·공백 보존을 검사한다. 실제 후보 비교 및 480개 최종 평가는 별도 명령으로 수행했고 [개선·최종 평가 기록](work/2026-10-10-screen-text-accuracy-improvement.md)에 남긴다. 최종 후보는 표/완전 일치 퇴행으로 제품 적용을 보류했다. 이미 사용한 holdout을 후속 튜닝의 새로운 독립 평가 자료로 취급하지 않는다.
+
+짧은 구간 재인식은 `tests/test_screen_text_lab_short_regions.py`를 후보/진단 자체 검사와 함께 실행한다. 작은 픽셀 배열·가짜 판독으로 빈 열 분할/전체 픽셀 보존, 밝은/어두운 배경, 짧은 줄/복잡한 배경/구간 상한 fallback, 공백/빈 판독 보존, 실패·취소 때 메서드 복원을 검사한다. 실제 48개 dev의 기준/두 후보는 별도 수동 실행이며 통상 검사에 연결하지 않는다. [고정 실험과 중단 판단](work/2026-10-11-screen-text-short-regions.md)을 따른다.
+
+CTC 출력 진단은 `tests/test_screen_text_lab_ctc.py`의 작은 분포 완전 탐색으로 문자열 경로 질량·beam·반복/blank·공백 주변화를 대조하고, 가짜 세션으로 실제 제품 배치 순서·절삭·결과 보존·정답 비의존·관측 실패/모델 실패/취소 복원·제외 분모·HTML 이스케이프를 검사한다. 기존 진단 자체 검사와 함께 `quick --tests`로 실행한다. 실제 모델 출력 추적은 별도 `run --diagnose-ctc` 명령에만 있으며 일반 빌드/테스트에 연결하지 않는다. [2026-10-11 진단 기록](work/2026-10-11-screen-text-ctc-diagnosis.md)의 선택 표본 76개는 독립 정확도 평가가 아니다.
+
+입력/모델 비교는 `tests/test_screen_text_lab_recognizers.py`에서 가짜 세션으로 원 crop 보존·밝기/기하 분리·BGR/회색조·모델 고유 높이/패딩·softmax·제품 native 입력 동등성·취소·사전/shape 계약·누락/변조 파일 거부·수동 옵션/조합 제한·HTML 이스케이프·동일 검출 영역 비교를 검사한다. 외부 모델 파일을 읽거나 다운로드·실제 모델 추론을 하지 않는다. 기존 진단 자체 검사와 함께 `quick --tests`를 실행한다. 실제 모델/입력 조건 비교는 별도 명령이고 [실험 기록](work/2026-10-11-screen-text-model-input-comparison.md)에 실행 ID와 사용한 모델 해시를 남긴다.
+
+불일치 경고 진단은 `tests/test_screen_text_lab_disagreement.py`에서 작은 문자열의 모든 편집 경로를 독립 열거해 최적 정렬의 위치 합집합/교집합을 대조한다. UTF-16·이모지·삽입점·공백 제외·반복 문자 모호성·화면 경고와 위치 적중 분리·미채점 분모·HTML 원문 보존/이스케이프·가짜 인식기의 검출 1회/정답 비의존/실패·취소 복원·증거 해시 관측 유무의 입력 동등성을 검사한다. 관련 진단 자체 검사와 함께 `quick --tests`로 실행하며 실제 모델은 사용하지 않는다. 저장된 결과 분석 `disagreement`와 실제 반복 성능 측정 `benchmark-disagreement`는 별도 수동 명령이다. [경고 진단 기록](work/2026-10-11-screen-text-disagreement-warning.md)에 현재 결과를 남긴다.
+
+경고 조건 비교는 `tests/test_screen_text_lab_warning_rules.py`에서 CTC 반복/blank/공백 점수, 중복 텍스트가 있는 표의 문자 순서, UTF-16/삽입점의 직접·인접 점수, 규칙 임계값/결측값, 기존 경고 보존, 실제 오류 손실, 원문 그룹 분할/정답 비의존, 확인 채점 전 선택 파일 고정, 격리 worker/실패 상태·HTML 이스케이프를 검사한다. 가짜 세션·작은 이미지뿐이며 실제 문자 점수 수집은 별도 `warning-rules` 수동 명령으로 실행한다. 현재 결과는 [조건 비교 기록](work/2026-10-11-screen-text-warning-rules.md)에 남긴다.
+
+실제 CLI 자료 준비는 수동 `capture-kit`·`show-capture`·`import-captures` 명령으로 제공한다. `quick --tests tests/test_screen_text_lab.py tests/test_screen_text_lab_review.py tests/test_screen_text_lab_capture_kit.py`에서 문구/개발·보류 분할, 예문 출력만 수행, 수집 계획 변경 거부, 작은 합성 PNG의 미검토 등록·같은 문구 그룹·중복/잘못된 입력·명시 폴더 비재귀 읽기·원본 보존·기존 검토 후 채점을 확인한다. 자동 검사에 실제 화면 캡처나 OCR 세션은 추가하지 않는다. 수집 예정 수와 실제 확보량을 구분하며 [실제 캡처 준비 기록](work/2026-10-11-screen-text-real-capture-intake.md)을 따른다.
+
+추가 학습 개발 도구는 `quick --tests tests/test_screen_text_lab_training.py tests/test_screen_text_lab_datasets.py tests/test_screen_text_lab_evaluation.py tests/test_screen_text_lab_crop_evaluation.py tests/test_screen_text_lab_reproduction.py`로 검사한다. 작은 합성 배열·문자열·가짜 모델 출력으로 사전/CTC/NRTR 경계, 분할/누출/OOV 원문 보존, 사전 확장 때 공백 ID 이동, 저장 증거의 해시/누락, 원본 그룹 bootstrap, 표/숫자/경고 독립 판정, 제품 전처리 호출과 후보 확률 검증을 확인한다. 실제 Paddle 설치·GPU·대규모 합성 생성·원본 재수출·학습·CPU OCR은 별도 수동 실행이다. 협업 중 소스가 바뀐 하네스의 `inputs_changed`는 통과로 쓰지 않고 소스 동결 뒤 다시 실행한다. [계획](work/2026-10-11-screen-text-finetuning-plan.md)과 [실행 기록](work/2026-10-11-screen-text-finetuning-implementation.md)에 자료 버전·환경·실패·실제 결과를 구분한다.
+
+사전 확장·BN 진단·후보 등록·전체 경로 연결의 보조 검사는 `tests/test_screen_text_lab_training_state.py`, `tests/test_screen_text_lab_training_bn.py`, `tests/test_screen_text_lab_training_frozen_bn.py`, `tests/test_screen_text_lab_training_candidate.py`, `tests/test_screen_text_lab_full_candidate.py`를 같은 `quick --tests` 명령에 추가한다. 전체 tensor 일치와 제품이 사용하지 않는 패딩만 차이가 있는 경우를 구분하며, 실제 사용하는 CTC 구간의 차이를 패딩 차이로 통과시키지 않는다.
+
 ### 실행 격리와 증거
 
 라이선스 안내는 `quick --tests tests/test_ui_licenses.py tests/test_ui.py tests/test_packaging.py`로 검사한다. 구성요소 원문·저작권·기록 해시, OCR 폴더 유무에 따른 목록, 파일 누락 표시, 실제 버튼 열기·전체 복사·닫기, 부모 숨김/비활성/닫기·메인 PIN 잠금, 작은 작업 영역과 합성 DB dump/Export/salt 불변을 확인한다. 125/150% 별도 quick의 합성 PNG를 확인하고 `release` 후 실제 EXE의 고지·모델·Qt/네이티브 DLL 해시를 이전 검증본과 대조한다. 이 검사는 법적 적합성·전수 SBOM 또는 외부 심사자 소스 접근을 대신하지 않는다.

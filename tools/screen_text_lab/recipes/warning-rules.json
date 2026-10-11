@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "split_seed": "warning-rules-20261011-v1",
+  "tune_fraction": 0.75,
+  "gate": {"min_tp_retention": 0.95, "min_certain_hit_retention": 0.95, "max_fp_ratio": 0.8, "min_cli_certain_hit_retention": 0.9},
+  "rules": [
+    {"id":"all", "mode":"all"},
+    {"id":"native-080", "mode":"native", "threshold":0.8},
+    {"id":"native-090", "mode":"native", "threshold":0.9},
+    {"id":"native-095", "mode":"native", "threshold":0.95},
+    {"id":"native-098", "mode":"native", "threshold":0.98},
+    {"id":"native-0995", "mode":"native", "threshold":0.995},
+    {"id":"native-09995", "mode":"native", "threshold":0.9995},
+    {"id":"gain-minus002", "mode":"gain", "threshold":-0.02},
+    {"id":"gain-000", "mode":"gain", "threshold":0.0},
+    {"id":"gain-001", "mode":"gain", "threshold":0.01},
+    {"id":"gain-003", "mode":"gain", "threshold":0.03},
+    {"id":"native098-or-gain000", "mode":"either", "native":0.98, "gain":0.0},
+    {"id":"native0995-or-gain000", "mode":"either", "native":0.995, "gain":0.0},
+    {"id":"native09995-or-gain000", "mode":"either", "native":0.9995, "gain":0.0},
+    {"id":"native0995-and-gain-minus002", "mode":"both", "native":0.995, "gain":-0.02},
+    {"id":"distance-1", "mode":"distance", "threshold":1},
+    {"id":"distance-2", "mode":"distance", "threshold":2},
+    {"id":"no-gaps", "mode":"no-gaps"},
+    {"id":"gap-alt095", "mode":"gap-score", "threshold":0.95}
+  ]
+}

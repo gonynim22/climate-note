@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "description": "새 CLI 시험 문구 30개. 실제 PNG를 촬영하기 전에는 평가 자료가 아님.",
+  "categories": {
+    "batchim": [
+      "처리 기록: 묶음 저장 완료\n읽은 쪽수 18 / 남은 쪽수 7\n얇은 덮개와 두꺼운 받침을 구분합니다.",
+      "검토 의견: 값과 몫을 함께 확인했습니다.\n짧은 설명을 덧붙이고 잘못된 줄을 고쳤습니다.\n맑음, 흐림, 갬을 서로 다른 항목으로 기록합니다.",
+      "작업 이름: 파일 옮김 및 이름 바꿈\n기존 목록과 새 목록을 맞춰 봅니다.\n넓은 칸의 끝에 빠진 글자가 없는지 읽습니다.",
+      "알림: 변경 내용을 커밋했습니다.\n커밋 설명에 대상과 이유를 적었습니다.\n닫힌 창을 다시 열어 마지막 줄을 확인합니다.",
+      "점검 결과: 묶인 문서 8권을 찾았습니다.\n낡은 봉투 겉면에 접수 날짜를 썼습니다.\n놓친 항목 없이 끝까지 검토했습니다."
+    ],
+    "logs": [
+      "[10:42:03.125] INFO  job=collect-17 시작\n[10:42:03.280] WARN  retry=2/4 응답 지연\n[10:42:04.006] INFO  완료 elapsed=0.881s",
+      "python -m example_reader --input demo.png\n읽은 영역: 14 / 빈 영역: 2\n결과 저장: result_042.txt",
+      "검증 실행 #58\npassed=27  failed=1  skipped=3\n실패 항목: expected 'M8', actual 'MB'",
+      "Traceback (most recent call last):\n  File \"demo_reader.py\", line 42, in read_text\nValueError: sample width must be positive",
+      "[18:07:11] stage=prepare count=36\n[18:07:12] stage=read count=35\n[18:07:13] stage=finish missing=1"
+    ],
+    "paths": [
+      "입력: C:\\OCR Lab\\받은 자료\\sample_07.png\n출력: D:\\Trial\\완료\\result_07.txt\n상태: 읽기 전용 원본 유지",
+      "copy \"C:\\Demo\\draft A.txt\" \"C:\\Demo\\draft B.txt\"\nsource=\"draft A.txt\"\ntarget=\"draft B.txt\"",
+      "패턴: *.json; *.yaml; *.toml\n제외: .cache / __pycache__ / temp-file\n상대 경로: ..\\assets\\icons\\sample.svg",
+      "$label = '문구 안의 공백 두 칸'\nWrite-Output \"name=$label; count=12\"\n인용부호: '작은따옴표' / \"큰따옴표\"",
+      "원본 경로: C:\\Trial\\오전 작업\\input (2).png\n파일 이름: sample-v2_final.txt\n접미사: .txt / .tsv / .log"
+    ],
+    "numbers": [
+      "수량 024개 / 단가 3,450원 / 합계 82,800원\n비율 12.75% / 오차 ±0.015\n식별 번호 00048219",
+      "시작 2026-11-03 08:09:07\n종료 2026-11-03 09:10:08\n누적 시간 01:01:01.250",
+      "측정 A=0.0087 mg/L / B=18.40 ppm\n온도 23.6 ℃ / 압력 99.85 kPa\n검출 한계 <0.001",
+      "좌표 x=-1280, y=64 / 크기 768x432\nscale=1.50 / ratio=0.875\n범위 [0, 255] / 임계값 >=128",
+      "원금 7,654,320 / 증감 -12,500 / 잔액 7,641,820\n표본 n=128 / 평균 0.0625\n소수 1.234E-05 / 정수 90001007"
+    ],
+    "identifiers": [
+      "코드: O0O1 / lI10 / B8B3 / S5S2\n키: item_O01 / item_001 / item_l01\n대소문자: FileID / fileId / FILE_ID",
+      "문자열 검사: abcDEF0129\n기호 검사: {} [] () <> / \\ |\n구분자 검사: a_b-c.d:e;f,g",
+      "request_id=7ab09c31-42de-501f\nmode=ReadOnly; enabled=false\noperator: != == <= >= && ||",
+      "진행률 [####....] 50%\n반복 문자: 11111 lllll IIIII\n반복 기호: ----- _____ #####",
+      "항목 A: Q0G6 / Z2z7 / R8P9\n값 B: vVwW / cCeE / uUnN\n마침표와 쉼표: 3.141, 3,141, 31.41"
+    ],
+    "layout": [
+      "처리 요약\n  성공: 16\n  재확인: 3\n다음 작업은 원본 대조입니다.",
+      "NAME       COUNT   STATE\nalpha-03      12   ready\nbeta-17        0   empty\ngamma-28     105   done",
+      "입력 파일을 읽었습니다.\n\n첫 단락과 둘째 단락 사이에 빈 줄이 있습니다.\n마지막 줄에는 마침표가 있습니다.",
+      "[A] 첫 번째 항목 -> 확인 완료\n[B] 두 번째 항목 -> 검토 필요\n[C] 세 번째 항목 -> 보류\n합계: 3개 항목",
+      "열 1: 이름 | 열 2: 상태 | 열 3: 수량\n자료-가 | 완료 | 21\n자료-나 | 대기 | 4\n자료-다 | 재확인 | 13"
+    ]
+  }
+}

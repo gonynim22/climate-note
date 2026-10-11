@@ -1,4 +1,9 @@
 """화면 글자 따기 줄·표 재구성: 순수 Python 규칙만 검사한다."""
+from collections import Counter
+from dataclasses import replace
+
+import pytest
+
 from screen_text.layout import (
     Cell, Table, TextBox, TextLine, build_blocks, group_lines, has_table, plain_with_spans, rows_of,
     to_html, to_plain, to_tsv, unsure_count,
@@ -173,3 +178,94 @@ def test_spans_use_cleaned_tokens_and_skip_empty_and_sure_cells():
     assert text == to_plain(blocks)
     assert spans == [(0, 5, "a b c")]
     assert plain_with_spans([]) == ("", [])
+
+
+def transform_boxes(boxes, scale, reverse):
+    result = [replace(b, x=round(b.x * scale) - 83, y=round(b.y * scale) + 57,
+                      w=round(b.w * scale), h=round(b.h * scale)) for b in boxes]
+    return result[::-1] if reverse else result
+
+
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 2])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_merged_row_label_does_not_mix_values_from_two_rows(scale, reverse):
+    boxes = [box(0, 8, "묶음", w=40, h=24),
+             box(100, 0, "12", w=24, h=20), box(200, 0, "34", w=24, h=20),
+             box(100, 18, "56", w=24, h=20), box(200, 18, "78", w=24, h=20)]
+    actual = transform_boxes(boxes, scale, reverse)
+    blocks = build_blocks(actual)
+    assert len(blocks) == 1 and isinstance(blocks[0], Table)
+    assert texts(blocks[0].rows) == [["묶음", "12", "34"], ["", "56", "78"]]
+    assert Counter(b for line in group_lines(actual) for b in line) == Counter(actual)
+
+
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 2])
+def test_multiline_cell_keeps_top_to_bottom_order_and_warning(scale):
+    boxes = []
+    for y, name, number in [(0, "첫 항목", "20"), (60, "둘째 항목", "30")]:
+        boxes += [box(28, y, name, w=86, h=28),
+                  box(27, y + 25, "(단위)", w=86, h=27, score=0.6),
+                  box(150, y + 15, number, w=30, h=24),
+                  box(250, y + 15, "기준", w=40, h=24)]
+    blocks = build_blocks(transform_boxes(boxes, scale, True))
+    assert len(blocks) == 1 and isinstance(blocks[0], Table)
+    assert texts(blocks[0].rows) == [["첫 항목 (단위)", "20", "기준"], ["둘째 항목 (단위)", "30", "기준"]]
+    text, spans = plain_with_spans(blocks)
+    assert [utf16_slice(text, start, length) for start, length, _ in spans] == ["첫 항목 (단위)", "둘째 항목 (단위)"]
+    assert to_tsv(blocks).splitlines()[0] == "첫 항목 (단위)\t20\t기준"
+
+
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 2])
+def test_small_overlap_with_next_column_does_not_end_or_merge_table(scale):
+    boxes = [box(10, 0, "가", w=40), box(60, 0, "나", w=50), box(140, 0, "다", w=20),
+             box(10, 30, "라", w=51), box(61, 30, "마", w=49), box(140, 30, "바", w=20),
+             box(10, 60, "사", w=40), box(60, 60, "아", w=50), box(140, 60, "자", w=20)]
+    blocks = build_blocks(transform_boxes(boxes, scale, True))
+    assert len(blocks) == 1 and isinstance(blocks[0], Table)
+    assert texts(blocks[0].rows) == [["가", "나", "다"], ["라", "마", "바"], ["사", "아", "자"]]
+
+
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5, 2])
+def test_centered_spanning_headers_use_first_body_column_without_extra_columns(scale):
+    boxes = [box(55, 0, "상반기", w=40), box(255, 0, "하반기", w=40)]
+    for y, values in [(26, ("1월", "2월", "7월", "8월")), (52, ("10", "20", "30", "40"))]:
+        boxes.extend(box(10 + c * 100, y, value, w=30) for c, value in enumerate(values))
+    blocks = build_blocks(transform_boxes(boxes, scale, True))
+    assert len(blocks) == 1 and isinstance(blocks[0], Table)
+    assert texts(blocks[0].rows) == [["상반기", "", "하반기", ""], ["1월", "2월", "7월", "8월"], ["10", "20", "30", "40"]]
+
+
+def test_distant_heading_is_not_attached_to_table():
+    boxes = [box(55, -100, "상반기", w=40), box(255, -100, "하반기", w=40)]
+    boxes += [box(10 + c * 100, y, str(c), w=30) for y in (0, 26) for c in range(4)]
+    blocks = build_blocks(boxes)
+    assert isinstance(blocks[0], TextLine)
+    assert isinstance(blocks[1], Table) and len(blocks[1].rows) == 2
+
+
+def test_only_one_repeating_column_does_not_split_multiline_cell():
+    boxes = [box(0, 0, "위", w=30, h=28), box(80, 14, "수치", w=30, h=24),
+             box(0, 25, "아래", w=30, h=26)]
+    assert len(group_lines(boxes)) == 1
+
+
+def test_sparse_first_row_without_denser_body_is_not_reinterpreted_as_header():
+    boxes = [box(10, 0, "왼쪽", w=30), box(310, 0, "오른쪽", w=30),
+             box(110, 26, "중간1", w=30), box(210, 26, "중간2", w=30)]
+    assert texts(build_blocks(boxes)[0].rows) == [["왼쪽", "", "", "오른쪽"], ["", "중간1", "중간2", ""]]
+
+
+def test_overlapping_word_fragments_inside_one_column_stay_in_same_cell():
+    boxes = [box(0, 0, "항목", w=35), box(80, 0, "내용", w=75), box(190, 0, "값", w=35),
+             box(0, 30, "테마", w=35), box(81, 30, "화면", w=44),
+             box(114, 30, "색상", w=41), box(190, 30, "밝게", w=35)]
+    blocks = build_blocks(boxes)
+    assert len(blocks) == 1 and isinstance(blocks[0], Table)
+    assert texts(blocks[0].rows) == [["항목", "내용", "값"], ["테마", "화면 색상", "밝게"]]
+
+
+def test_touching_paragraph_fragments_do_not_create_a_new_table():
+    boxes = [box(10, y, "왼쪽 단어", w=70) for y in (0, 30)]
+    boxes += [box(75, y, "오른쪽 단어", w=80) for y in (0, 30)]
+    assert not has_table(build_blocks(boxes))
+    assert to_plain(build_blocks(boxes)) == "왼쪽 단어 오른쪽 단어\n왼쪽 단어 오른쪽 단어"

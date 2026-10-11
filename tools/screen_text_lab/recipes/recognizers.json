@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "models": {
+    "paddle-korean-v3": {
+      "duplicate_characters": [
+        " "
+      ],
+      "id": "paddle-korean-v3",
+      "revision": "v0.3.0",
+      "files": [
+        {
+          "role": "model",
+          "name": "rec.onnx",
+          "url": "https://github.com/GreatV/oar-ocr/releases/download/v0.3.0/korean_pp-ocrv3_mobile_rec.onnx",
+          "size": 9912841,
+          "sha256": "d30dbf20502044dc0e697f047564ac015e7083e4766fdc9d0fcd225aa2b0f20d"
+        },
+        {
+          "role": "dict",
+          "name": "dict.txt",
+          "url": "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf/ppocr/utils/dict/korean_dict.txt",
+          "size": 14480,
+          "sha256": "aa1fdc8ae8f7cd40a0ec4edb472eb0421e11427e6ccfee9915440742c18b0a20"
+        },
+        {
+          "role": "license",
+          "name": "LICENSE",
+          "url": "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/dab3fe35379033fdcb2d0e9572fac0b36c9a9ebf/LICENSE",
+          "size": 11376,
+          "sha256": "3840c5c0c61c294264d2dd77b8777be6ddd90121ef4e0e64abcd22edea581d6e"
+        }
+      ],
+      "license": "Apache-2.0",
+      "format": "paddle",
+      "height": 48,
+      "channels": 3,
+      "append_space": true,
+      "dictionary_size": 3688,
+      "source": "https://github.com/PaddlePaddle/PaddleOCR",
+      "conversion_source": "https://github.com/GreatV/oar-ocr/releases/tag/v0.3.0"
+    },
+    "easyocr-korean-g2": {
+      "id": "easyocr-korean-g2",
+      "revision": "dd1e6f2ef5e8d633245f648454e16f29df25fec5",
+      "dictionary_revision": "363afb184047ce452e436f4224f3098422df872e",
+      "files": [
+        {
+          "role": "model",
+          "name": "rec.onnx",
+          "size": 16074370,
+          "sha256": "fa1028e57feff4a95777b190c496ddf351223f107b1e075449705c0e94661cbd",
+          "url": "https://huggingface.co/itextresearch/itext-EasyOCR-korean_g2/resolve/dd1e6f2ef5e8d633245f648454e16f29df25fec5/itext-EasyOCR-korean_g2.onnx"
+        },
+        {
+          "role": "dict",
+          "name": "dict.txt",
+          "size": 3842,
+          "sha256": "3f0f4d736ef5f75b4371663272f933997bed80d1881a3770b2f5f40a1d6d8cc7",
+          "url": "https://raw.githubusercontent.com/JaidedAI/EasyOCR/363afb184047ce452e436f4224f3098422df872e/easyocr/config.py",
+          "transformation": "Read only AST literal recognition_models.gen2.korean_g2.characters; one character per LF line; no blank token and no extra space."
+        },
+        {
+          "role": "license",
+          "name": "LICENSE",
+          "size": 11357,
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "url": "https://raw.githubusercontent.com/JaidedAI/EasyOCR/363afb184047ce452e436f4224f3098422df872e/LICENSE"
+        },
+        {
+          "role": "dictionary_source",
+          "name": "upstream-config.py.txt",
+          "size": 91824,
+          "sha256": "9c36d6c674fe32b05bda27192211ff6b63bf22f00b8439d40d33b35e3e2c1f8d",
+          "url": "https://raw.githubusercontent.com/JaidedAI/EasyOCR/363afb184047ce452e436f4224f3098422df872e/easyocr/config.py"
+        }
+      ],
+      "license": "Apache-2.0",
+      "format": "easyocr",
+      "height": 64,
+      "channels": 1,
+      "append_space": false,
+      "dictionary_size": 1008,
+      "source": "https://github.com/JaidedAI/EasyOCR",
+      "conversion_source": "https://huggingface.co/itextresearch/itext-EasyOCR-korean_g2/tree/dd1e6f2ef5e8d633245f648454e16f29df25fec5"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "purpose": "Development exploration, fixed product detection, no independent accuracy claim",
+  "corpus": "output/screen_text_lab/corpus/20261010-222129-accec24a",
+  "split": "dev",
+  "pilot_groups": ["cond-batchim-002", "cond-batchim-014", "cond-cli-002", "cond-cli-013", "cond-numbers-010", "cond-numbers-015", "cond-symbols-004", "cond-symbols-013", "cond-table-012", "cond-table-015"],
+  "pilot_conditions": ["reference", "font10", "font12", "dark", "wide"],
+  "pilot_profiles": {
+    "product": ["native", "single", "pad-2", "pad-4", "light", "ink", "ink-light"],
+    "paddle-korean-v3": ["native", "light", "ink-light"],
+    "easyocr-korean-g2": ["native", "light", "ink-light"]
+  },
+  "full_dev": "For each model, run native and the single best pilot input profile; deduplicate native when already best.",
+  "profile_selection_order": ["no_space_errors ascending", "strict errors ascending", "table errors ascending", "profile lexical order"],
+  "holdout": "Already consumed; do not run or tune on it in this experiment",
+  "threads": 4,
+  "timing_scope": "one pass including input hash observation, no repeated latency benchmark",
+  "memory_scope": "whole owned worker peak working set, not model-only memory",
+  "ground_truth_used_in_inference": false
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "purpose": "Known errors plus normal controls; exploratory diagnosis, not independent accuracy evaluation",
+  "corpus": "output/screen_text_lab/corpus/20261010-222129-accec24a",
+  "conditions": ["reference", "font10", "font12", "dark", "wide"],
+  "groups": {
+    "dev": ["cond-batchim-002", "cond-batchim-014", "cond-cli-002", "cond-cli-013", "cond-numbers-010", "cond-numbers-015", "cond-symbols-004", "cond-symbols-013", "cond-table-012", "cond-table-015"],
+    "holdout": ["cond-cli-020", "cond-table-018", "cond-batchim-017", "cond-symbols-020", "cond-mixed-017"]
+  },
+  "extra_ids": {"dev": [], "holdout": ["cond-table-018--scale125"]},
+  "holdout_note": "Previously consumed holdout; reuse for diagnosis only",
+  "beam_width": 8,
+  "top_k": 5,
+  "language_model": false,
+  "ground_truth_used_in_decoding": false
+}
