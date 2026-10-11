@@ -283,3 +283,84 @@ def test_hint_strip_follows_header_height(qtbot):
     QApplication.processEvents()
     assert _close(_strip_color(win), STRIP, 3)
     assert win._calendar_move_overlay.geometry() == win.container.rect()
+
+
+@pytest.mark.parametrize("action", (
+    "done", "escape", "deactivate", "lock", "tray", "scale", "import", "discard"))
+def test_edit_mode_ends_and_drag_cancels(qtbot, action):
+    win = window(qtbot)
+    win.calendar_move_button.click()
+    point = win.month_label.rect().center()
+    QTest.mousePress(win.month_label, Qt.LeftButton, pos=point)
+    assert win._calendar_drag_offset is not None
+    if action == "done":
+        win.calendar_move_done_button.click()
+    elif action == "escape":
+        qtbot.keyClick(win, Qt.Key_Escape)
+    elif action == "deactivate":
+        win.eventFilter(win, QEvent(QEvent.Type.WindowDeactivate))
+    elif action == "lock":
+        win._lock()
+    elif action == "tray":
+        win._minimize_to_tray()
+    elif action == "scale":
+        db.save_setting(db.SETTING_CALENDAR_SCALE, "large")
+        win._apply_calendar_scale()
+    elif action == "import":
+        win._on_import_complete()
+    else:
+        win._discard_data_widgets()
+    assert not win._calendar_move_editing
+    assert not win._calendar_move_overlay.isVisible()
+    assert win._calendar_drag_offset is None and not win._calendar_drag_started
+    QTest.mouseRelease(win.month_label, Qt.LeftButton, pos=point)
+    assert db.get_setting(db.SETTING_CALENDAR_POSITION_MODE) == "corner"
+    if action == "lock":
+        assert not win.calendar_move_button.isEnabled()
+        win._start_calendar_move_edit()  # 잠금 중에는 시작하지 않는다
+        assert not win._calendar_move_editing
+        win._unlock()
+        assert win.calendar_move_button.isEnabled() and not win._calendar_move_editing
+    elif action == "tray":
+        win._start_calendar_move_edit()  # 숨김 중에도 시작하지 않는다
+        assert not win._calendar_move_editing
+        win.toggle_visibility()
+        assert not win._calendar_move_editing and win.calendar_move_button.isVisible()
+
+
+def test_monitor_change_keeps_edit_mode(qtbot):
+    win = window(qtbot)
+    win.calendar_move_button.click()
+    QTest.mousePress(win.month_label, Qt.LeftButton, pos=win.month_label.rect().center())
+    win._on_screen_changed()
+    assert win._calendar_move_editing  # 모니터 변경은 끌기만 취소
+    assert win._calendar_drag_offset is None
+
+
+def test_dragging_fixed_header_hints_move_button_once_per_run(qtbot, monkeypatch):
+    shown = []
+    monkeypatch.setattr(ui_main.InfoBar, "info", lambda **kwargs: shown.append(kwargs))
+    win = window(qtbot)
+    start = win.month_label.rect().center()
+    QTest.mousePress(win.month_label, Qt.LeftButton, pos=start)
+    QTest.mouseMove(win.month_label, start + QPoint(1, 1), delay=20)  # 손떨림은 안내하지 않는다
+    QTest.mouseRelease(win.month_label, Qt.LeftButton, pos=start + QPoint(1, 1))
+    assert shown == []
+    drag_header(win)
+    assert len(shown) == 1
+    assert shown[0]["title"] == "캘린더 위치 고정"
+    assert shown[0]["content"] == "옮기려면 머리줄의 십자 화살표 단추를 누르세요."
+    drag_header(win)
+    assert len(shown) == 1  # 실행마다 한 번
+    win.calendar_move_button.click()
+    drag_header(win)
+    assert len(shown) == 1  # 편집 중 끌기는 안내 없음
+
+
+def test_fixed_drag_hint_fits_inside_compact_window(qtbot):
+    win = window(qtbot)  # 기본 380px
+    drag_header(win)
+    qtbot.wait(50)
+    bars = [bar for bar in win.findChildren(ui_main.InfoBar) if bar.isVisible()]
+    assert len(bars) == 1
+    assert bars[0].width() <= win.width() - 16

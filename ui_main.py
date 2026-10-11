@@ -1431,6 +1431,8 @@ class MainCalendarWindow(QWidget):
         # 위치 편집(J안)은 메모리 상태다. 평소 캘린더는 고정이며, 예전
         # calendar_move_enabled 값은 읽지 않고 행도 그대로 둔다(Export 포함).
         self._calendar_move_editing = False
+        self._calendar_fixed_hint_shown = False
+        self._calendar_fixed_press_global = None
         self._watched_screen_ids = set()
         self._screen_preference_key = None
         self._screen_preference = None
@@ -1751,7 +1753,7 @@ class MainCalendarWindow(QWidget):
     def _apply_calendar_scale(self):
         """저장된 compact/medium/large 설정을 즉시 반영."""
         self._close_mini_apps()
-        self._reset_calendar_drag()
+        self._finish_calendar_move_edit()
         scale = self._current_calendar_scale()
         expanded = scale != "compact"
         screen = self._get_target_screen()
@@ -3532,7 +3534,7 @@ class MainCalendarWindow(QWidget):
         self._hide_money_notation()
         self._hide_document_converter()
         self._hide_optional_mini_apps()
-        self._reset_calendar_drag()
+        self._finish_calendar_move_edit()
         self._close_schedule_emoji_popups()
         self._cancel_sticky_file_links()
         if self._finish_current_edit:
@@ -3610,8 +3612,7 @@ class MainCalendarWindow(QWidget):
         self._hide_document_converter()
         self._hide_optional_mini_apps()
         self._hidden_to_tray = True
-        self._reset_calendar_drag()
-        self._update_calendar_move_control()
+        self._finish_calendar_move_edit()
         self._close_schedule_emoji_popups()
         self.hide()
         for win in self._sticky_windows.values():
@@ -4153,6 +4154,8 @@ class MainCalendarWindow(QWidget):
             QEvent.Type.UngrabMouse,
         ):
             self._reset_calendar_drag()
+            if obj is self and event_type == QEvent.Type.WindowDeactivate:
+                self._finish_calendar_move_edit()  # 다른 곳을 누르면 자동 완료
 
         if obj in self._calendar_drag_targets:
             if (
@@ -4164,6 +4167,7 @@ class MainCalendarWindow(QWidget):
                 )
             ):
                 self._reset_calendar_drag()
+                self._note_fixed_header_drag(event)
                 return False
             if (event_type == QEvent.Type.MouseButtonPress
                     and event.button() == Qt.LeftButton):
@@ -4209,6 +4213,29 @@ class MainCalendarWindow(QWidget):
                 event.accept()
                 return True
         return super().eventFilter(obj, event)
+
+    def _note_fixed_header_drag(self, event) -> None:
+        """고정 중 머리줄을 끌면 실행마다 한 번 이동 단추를 알려 준다(예전 '끌어서 이동' 습관 안내)."""
+        if self._calendar_fixed_hint_shown or self._is_locked or self._hidden_to_tray:
+            return
+        event_type = event.type()
+        if event_type == QEvent.Type.MouseButtonPress and event.button() == Qt.LeftButton:
+            self._calendar_fixed_press_global = event.globalPosition().toPoint()
+            return
+        if (event_type == QEvent.Type.MouseMove
+                and self._calendar_fixed_press_global is not None
+                and bool(event.buttons() & Qt.LeftButton)):
+            delta = event.globalPosition().toPoint() - self._calendar_fixed_press_global
+            if delta.manhattanLength() < QApplication.startDragDistance():
+                return
+            self._calendar_fixed_hint_shown = True
+            # 380px 창에서 제목·본문을 가로로 두면 창보다 넓어지므로 세로로 쌓는다.
+            InfoBar.info(
+                title="캘린더 위치 고정",
+                content="옮기려면 머리줄의 십자 화살표 단추를 누르세요.",
+                orient=Qt.Vertical, parent=self, position=InfoBarPosition.TOP, duration=3000,
+            )
+        self._calendar_fixed_press_global = None
 
     def _reset_calendar_drag(self) -> None:
         self._calendar_drag_offset = None
@@ -4285,8 +4312,7 @@ class MainCalendarWindow(QWidget):
             self._document_converter.setEnabled(False)
         self._disable_optional_mini_apps()
         self._is_locked = True
-        self._reset_calendar_drag()
-        self._update_calendar_move_control()
+        self._finish_calendar_move_edit()
         self._cancel_sticky_file_links()
         self._close_schedule_emoji_popups()
         # 잠금 당시 실행 중인 파일/확인 대화상자는 취소한다.
