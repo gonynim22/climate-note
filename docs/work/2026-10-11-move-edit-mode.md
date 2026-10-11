@@ -1,6 +1,6 @@
 # 작업 기록: 캘린더 위치 편집(J안)·고른 날 회색 채움
 
-작성일: 2026-10-11 / 상태: 로컬 구현·검증·최종 검토 완료(full `20261011-142237-339d3831a9`), 브랜치 `feat/move-edit-mode`(main 병합 전). 버전 v3.9a 유지, 빌드·push 안 함
+작성일: 2026-10-11 / 상태: 구현·검증·최종 검토 완료(full `20261011-142237-339d3831a9`), main 병합(`733ec40`, fast-forward), release `20261011-145221-ac93d1986b` 통과·`dist/` 배치(SHA-256 `7955C43C…`). 버전 v3.9a 유지, push 안 함
 
 ## 목표와 범위
 
@@ -53,10 +53,11 @@
 | `verify.py full`(검토 수정 전) | 통과 | `20261011-135224-98649525e6` | 2,124개(실패·오류·건너뜀 0, 다른 작업 시험 포함), 모든 코드 수정 뒤 실행. 캡처는 `output/design/move-button-20261011/real/`로 복사 |
 | `verify.py full`(검토 수정 후, 작업 폴더) | 실패(inputs_changed) | `20261011-141146-0340fbdfca` / `20261011-141713-d295b3d6c7` | 2,232개 / 2,282개 모두 통과, 실행 중 다른 작업이 `tools/screen_text_lab/training`·`evaluation`과 그 시험을 수정 |
 | `verify.py full`(검토 수정 후, 깨끗한 임시 사본) | 통과 | `20261011-142237-339d3831a9` | 1,913개(실패·오류·건너뜀 0). 브랜치 `13e2207`만 담은 분리 작업 사본에서 실행(다른 작업 파일 없음, dirty false), 결과 폴더를 `output/harness/`로 복사 |
+| PowerShell `verify.py release` (main `733ec40`) | 통과 | `20261011-145221-ac93d1986b` | 1,913개 시험·빌드·격리 EXE 실행(smoke), main만 담은 임시 작업 사본(dirty false). build TOC에 mingw 없음, Qt는 프로젝트 `.venv`, libssl은 이전 release와 같은 Python 설치본, `tools/screen_text_lab` 미포함 |
 
 ## 미해결과 인계
 
 - 남은 문제 / 수동 확인: 실제 EXE에서 편집 표시·Esc·다른 창 클릭 자동 완료, Windows 다크 설정·125/150%.
 - 변경한 정본 문서: [UI 계약](../UI_PATTERNS.md), [아키텍처](../ARCHITECTURE.md), [테스트](../TESTING.md), [자세한 설명](../../README_detail.md).
-- 다음 행동: 사용자 확인 뒤 main 병합·release 빌드(지시가 있을 때만).
-- 배포·커밋·push 여부: 브랜치 `feat/move-edit-mode` 커밋까지. main 병합·빌드·push는 하지 않음.
+- 다음 행동: 2026-10-11 사용자 지시("병합하고 빌드만 해줘. 커밋은 나중에 하자" → "커밋해줘")로 main을 `733ec40`으로 fast-forward하고 브랜치를 지웠다. Codex가 같은 폴더에서 미니앱을 검증하는 중이라 release는 main만 담은 임시 작업 사본에서 돌렸고, 결과 폴더를 `output/harness/`로 복사한 뒤 사본을 지웠다. 이 기록은 그 뒤 따로 커밋했다.
+- 배포·커밋·push 여부: main 병합·EXE 재빌드(`dist/기후노트_v3.9a.exe`, 94,034,691 bytes, SHA-256 `7955C43C8117B49C8747B5C104E28DFA78FB312C20396E01E5C028C5F07099BC`)까지. 이전 EXE(`C72606C1…`)는 `output/harness/20261010-223326-b5230277c5/dist/`에 있다. push는 하지 않음.
