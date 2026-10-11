@@ -464,21 +464,8 @@ class SmoothCircleButton(QPushButton):
         painter.drawEllipse(rect.adjusted(margin, margin, -margin, -margin))
 
 
-class CalendarMoveButton(QPushButton):
-    """이동 켜짐은 버튼 아래 작은 점, 꺼짐은 사선(디자인 점검 11번). 글리프 폰트에 의존하지 않는다.
-
-    다른 머리줄 아이콘처럼 바탕을 채우지 않아 켜짐 상태가 검색·더보기보다 튀지 않는다.
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("headerMoveButton")
-        self.setFixedSize(32, 32)
-        self.setCheckable(True)
-        # 마우스 클릭은 진행 중인 일정 입력의 포커스를 빼앗지 않는다.
-        self.setFocusPolicy(Qt.TabFocus)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setAccessibleName("캘린더 이동")
+class _EnterClickButton(QPushButton):
+    """Enter/Return도 Space처럼 한 번 click한다(머리줄 이동·완료 단추 공통)."""
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Return, Qt.Key_Enter):
@@ -488,10 +475,25 @@ class CalendarMoveButton(QPushButton):
         else:
             super().keyPressEvent(event)
 
+
+class CalendarMoveButton(_EnterClickButton):
+    """위치 편집을 시작하는 흰 십자 화살표(2026-10-11 J안). 켜짐/꺼짐 상태는 그리지 않는다.
+
+    평소 캘린더는 고정이고, 누르면 위치 편집이 되어 머리줄을 끌 수 있다. 글리프 폰트에 의존하지 않는다.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("headerMoveButton")
+        self.setFixedSize(32, 32)
+        # 마우스 클릭은 진행 중인 일정 입력의 포커스를 빼앗지 않는다.
+        self.setFocusPolicy(Qt.TabFocus)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setAccessibleName("캘린더 옮기기")
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        on = self.isChecked()
         if not self.isEnabled():
             painter.setOpacity(0.45)
         frame = QRectF(0.5, 0.5, 31, 31)
@@ -503,8 +505,7 @@ class CalendarMoveButton(QPushButton):
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(QColor("#FBBF24"), 1))
             painter.drawRoundedRect(frame, 8, 8)
-        ink = QColor("#FFFFFF" if on else "#B7C6DA")
-        painter.setPen(QPen(ink, 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setPen(QPen(QColor("#FFFFFF"), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         for x1, y1, x2, y2 in (
             (16, 6, 16, 26), (6, 16, 26, 16),
             (12.5, 9.5, 16, 6), (19.5, 9.5, 16, 6),
@@ -513,15 +514,35 @@ class CalendarMoveButton(QPushButton):
             (22.5, 12.5, 26, 16), (22.5, 19.5, 26, 16),
         ):
             painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
-        if on:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#93C5FD"))
-            painter.drawEllipse(QPointF(16, 29), 2, 2)
-        else:
-            painter.setPen(QPen(QColor("#082F61"), 4, Qt.SolidLine, Qt.RoundCap))
-            painter.drawLine(QPointF(8, 24), QPointF(24, 8))
-            painter.setPen(QPen(ink, 1.5, Qt.SolidLine, Qt.RoundCap))
-            painter.drawLine(QPointF(8, 24), QPointF(24, 8))
+
+
+class CalendarMoveDoneButton(_EnterClickButton):
+    """위치 편집을 끝내는 '완료' 알약. '오늘'과 같은 52×32에 연한 파랑 테두리로 '지금 편집 중'을 보인다."""
+
+    def __init__(self, parent=None):
+        super().__init__("완료", parent)
+        self.setObjectName("headerMoveDoneButton")
+        self.setFixedSize(52, 32)
+        self.setFocusPolicy(Qt.TabFocus)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("위치 편집 끝내기 (Esc)")
+        self.setAccessibleName("위치 편집 완료")
+        self.setStyleSheet("""
+            QPushButton#headerMoveDoneButton {
+                color: #FFFFFF;
+                background: rgba(147, 197, 253, 40);
+                border-radius: 9px;
+                border: 1px solid #93C5FD;
+                padding: 0px 8px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QPushButton#headerMoveDoneButton:hover { background: rgba(147, 197, 253, 70); }
+            QPushButton#headerMoveDoneButton:pressed { background: rgba(147, 197, 253, 100); }
+            QPushButton#headerMoveDoneButton:focus { border: 1px solid #FBBF24; }
+        """)
+        self.hide()
+
 
 class CalendarDayButton(QWidget):
     """달력 날짜 셀 위젯 (compact / expanded 2-모드)"""
@@ -1342,9 +1363,9 @@ class MainCalendarWindow(QWidget):
         self._calendar_drag_press_global = None
         self._calendar_drag_started = False
         self._calendar_drag_targets = set()
-        self._calendar_move_enabled = db.get_setting(
-            db.SETTING_CALENDAR_MOVE_ENABLED, db.DEFAULT_CALENDAR_MOVE_ENABLED,
-        ) != "0"
+        # 위치 편집(J안)은 메모리 상태다. 평소 캘린더는 고정이며, 예전
+        # calendar_move_enabled 값은 읽지 않고 행도 그대로 둔다(Export 포함).
+        self._calendar_move_editing = False
         self._watched_screen_ids = set()
         self._screen_preference_key = None
         self._screen_preference = None
@@ -1994,19 +2015,24 @@ class MainCalendarWindow(QWidget):
         right_widget.setLayout(right_group)
 
         # 검색
-        search_btn = TransparentToolButton(FIF.SEARCH, self)
-        search_btn.setObjectName("headerSearchButton")
-        search_btn.setFixedSize(32, 32)
-        search_btn.setIcon(fluent_icon("search", "#FFFFFF", 24))
-        search_btn.setIconSize(QSize(21, 21))
-        search_btn.setToolTip("일정 검색")
-        search_btn.setStyleSheet(header_flat_icon_style)
-        search_btn.clicked.connect(self._on_search)
-        right_group.addWidget(search_btn)
+        self._header_search_btn = TransparentToolButton(FIF.SEARCH, self)
+        self._header_search_btn.setObjectName("headerSearchButton")
+        self._header_search_btn.setFixedSize(32, 32)
+        self._header_search_btn.setIcon(fluent_icon("search", "#FFFFFF", 24))
+        self._header_search_btn.setIconSize(QSize(21, 21))
+        self._header_search_btn.setToolTip("일정 검색")
+        self._header_search_btn.setStyleSheet(header_flat_icon_style)
+        self._header_search_btn.clicked.connect(self._on_search)
+        right_group.addWidget(self._header_search_btn)
 
         self.calendar_move_button = CalendarMoveButton(self)
-        self.calendar_move_button.clicked.connect(self._on_calendar_move_clicked)
+        self.calendar_move_button.clicked.connect(self._start_calendar_move_edit)
         right_group.addWidget(self.calendar_move_button)
+
+        # 편집 중에는 검색·이동·⋮을 숨기고 이 알약만 오른쪽 끝에 남는다(104px 묶음 유지).
+        self.calendar_move_done_button = CalendarMoveDoneButton(self)
+        self.calendar_move_done_button.clicked.connect(self._finish_calendar_move_edit)
+        right_group.addWidget(self.calendar_move_done_button)
 
         self._more_btn = TransparentToolButton(FIF.MORE, self)
         self._more_btn.setObjectName("headerMoreButton")
@@ -3480,11 +3506,7 @@ class MainCalendarWindow(QWidget):
         self._screen_preference_key = None
         self._screen_preference = None
         self._preferred_screen = None
-        self._reset_calendar_drag()
-        self._calendar_move_enabled = db.get_setting(
-            db.SETTING_CALENDAR_MOVE_ENABLED, db.DEFAULT_CALENDAR_MOVE_ENABLED,
-        ) != "0"
-        self._update_calendar_move_control()
+        self._finish_calendar_move_edit()
         self._show_lunar = (
             db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1"
         )
@@ -3998,37 +4020,52 @@ class MainCalendarWindow(QWidget):
             popup.deleteLater()
 
     def _calendar_drag_allowed(self) -> bool:
-        return self._calendar_move_enabled and not self._is_locked and not self._hidden_to_tray
+        return self._calendar_move_editing and not self._is_locked and not self._hidden_to_tray
 
     def _update_calendar_move_control(self) -> None:
-        self.calendar_move_button.setChecked(self._calendar_move_enabled)
-        hint = (
-            "캘린더 이동 ON · 상단을 드래그해 이동 (클릭하여 고정)"
-            if self._calendar_move_enabled else
-            "캘린더 이동 OFF · 클릭하여 이동 허용"
-        )
+        editing = self._calendar_move_editing
+        hint = "캘린더 옮기기 · 누른 뒤 머리줄을 끌어 옮깁니다"
         self.calendar_move_button.setToolTip(hint)
         self.calendar_move_button.setAccessibleDescription(hint)
         self.calendar_move_button.setEnabled(not self._is_locked)
+        for widget in (self._header_search_btn, self.calendar_move_button, self._more_btn):
+            widget.setVisible(not editing)
+        self.calendar_move_done_button.setVisible(editing)
+        allowed = self._calendar_drag_allowed()
         for target in self._calendar_drag_targets:
-            target.setCursor(Qt.SizeAllCursor if self._calendar_drag_allowed() else Qt.ArrowCursor)
+            target.setCursor(Qt.SizeAllCursor if allowed else Qt.ArrowCursor)
         self.month_label.setToolTip(
-            "드래그하여 캘린더 이동" if self._calendar_drag_allowed() else "캘린더 위치 고정"
+            "드래그하여 캘린더 이동" if allowed
+            else "캘린더 위치 고정 · 옮기려면 십자 화살표 단추"
         )
 
-    def _on_calendar_move_clicked(self, enabled: bool) -> None:
+    def _start_calendar_move_edit(self) -> None:
+        """십자 화살표: 위치 편집을 시작한다. 키보드로 눌렀으면 포커스를 '완료'로 옮긴다."""
+        if self._calendar_move_editing or self._is_locked or self._hidden_to_tray:
+            return
+        keyboard = self.focusWidget() is self.calendar_move_button
         self._reset_calendar_drag()
-        if not self._is_locked and not self._hidden_to_tray:
-            try:
-                db.save_setting(db.SETTING_CALENDAR_MOVE_ENABLED, "1" if enabled else "0")
-                self._calendar_move_enabled = enabled
-            except (sqlite3.Error, OSError, ValueError) as exc:
-                _logger.error("캘린더 이동 설정 저장 실패: %s", exc)
-                InfoBar.error(
-                    title="설정 저장 실패", content="이동 설정을 저장하지 못했습니다. 다시 시도해 주세요.",
-                    parent=self, position=InfoBarPosition.TOP, duration=4000,
-                )
+        self._calendar_move_editing = True
         self._update_calendar_move_control()
+        if keyboard:
+            self.calendar_move_done_button.setFocus(Qt.TabFocusReason)
+
+    def _finish_calendar_move_edit(self) -> None:
+        """완료·Esc·자동 종료: 다시 고정한다. 위치는 끌기를 놓을 때 이미 저장했다. 언제 불러도 안전하다."""
+        keyboard = self._calendar_move_editing and self.focusWidget() is self.calendar_move_done_button
+        self._calendar_move_editing = False
+        self._reset_calendar_drag()
+        self._update_calendar_move_control()
+        if keyboard and self.calendar_move_button.isEnabled():
+            self.calendar_move_button.setFocus(Qt.TabFocusReason)
+
+    def keyPressEvent(self, event):
+        # 자식이 쓰지 않은 Esc만 올라온다(일정 편집 칸 등 Esc를 쓰는 곳은 그 동작이 우선).
+        if event.key() == Qt.Key_Escape and self._calendar_move_editing:
+            self._finish_calendar_move_edit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def eventFilter(self, obj, event) -> bool:
         """헤더 배경/연월 라벨 드래그로 프레임리스 캘린더를 이동한다."""

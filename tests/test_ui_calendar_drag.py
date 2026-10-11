@@ -96,6 +96,7 @@ def test_nearest_corner_uses_actual_calendar_position():
 def test_header_drag_moves_and_persists_free_position(app_dir, qtbot):
     win = MainCalendarWindow()
     qtbot.addWidget(win)
+    win._start_calendar_move_edit()  # J안: 평소 고정, 편집 중에만 머리줄 끌기
     win.show()
 
     start_x, start_y = win.x(), win.y()
@@ -138,6 +139,7 @@ def test_header_drag_moves_and_persists_free_position(app_dir, qtbot):
 def test_header_drag_moves_on_target_screen_5mm_grid(app_dir, qtbot):
     win = MainCalendarWindow()
     qtbot.addWidget(win)
+    win._start_calendar_move_edit()  # J안: 평소 고정, 편집 중에만 머리줄 끌기
     win.show()
 
     screen = win.screen() or QApplication.primaryScreen()
@@ -177,6 +179,7 @@ def test_header_drag_moves_on_target_screen_5mm_grid(app_dir, qtbot):
 def test_real_qt_mouse_drag_still_finishes_before_ungrab(app_dir, qtbot):
     win = MainCalendarWindow()
     qtbot.addWidget(win)
+    win._start_calendar_move_edit()  # J안: 평소 고정, 편집 중에만 머리줄 끌기
     win.show()
     qtbot.waitExposed(win)
     db.save_setting(db.SETTING_CALENDAR_POSITION_MODE, "corner")
@@ -198,6 +201,7 @@ def test_real_qt_mouse_drag_still_finishes_before_ungrab(app_dir, qtbot):
 def test_header_click_without_drag_keeps_corner_mode(app_dir, qtbot):
     win = MainCalendarWindow()
     qtbot.addWidget(win)
+    win._start_calendar_move_edit()  # J안: 평소 고정, 편집 중에만 머리줄 끌기
     db.save_setting(db.SETTING_CALENDAR_POSITION_MODE, "corner")
     point = QPointF(win.x() + 120, win.y() + 20)
 
@@ -221,6 +225,7 @@ def test_header_click_without_drag_keeps_corner_mode(app_dir, qtbot):
 def test_small_pointer_jitter_does_not_start_calendar_drag(app_dir, qtbot):
     win = MainCalendarWindow()
     qtbot.addWidget(win)
+    win._start_calendar_move_edit()  # J안: 평소 고정, 편집 중에만 머리줄 끌기
     db.save_setting(db.SETTING_CALENDAR_POSITION_MODE, "corner")
     start = QPointF(win.x() + 120, win.y() + 20)
 
@@ -254,9 +259,9 @@ def test_small_pointer_jitter_does_not_start_calendar_drag(app_dir, qtbot):
 
 
 @pytest.mark.parametrize("scale", ("compact", "medium", "large"))
-def test_header_drag_is_disabled_when_movement_is_off(app_dir, qtbot, scale):
+def test_header_drag_is_disabled_when_not_editing(app_dir, qtbot, scale):
     db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
-    db.save_setting(db.SETTING_CALENDAR_MOVE_ENABLED, "0")
+    db.save_setting(db.SETTING_CALENDAR_MOVE_ENABLED, "1")  # 예전 '이동 허용' 값은 읽지 않는다
     db.save_setting(db.SETTING_CALENDAR_POSITION_MODE, "corner")
     win = MainCalendarWindow()
     qtbot.addWidget(win)

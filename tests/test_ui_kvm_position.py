@@ -89,12 +89,11 @@ def _setup(scale, mode, qtbot, monkeypatch):
 
 
 @pytest.mark.parametrize("scale", ["compact", "medium", "large"])
-@pytest.mark.parametrize("movement_enabled", [True, False], ids=["move-on", "move-off"])
+@pytest.mark.parametrize("movement_enabled", [True, False], ids=["editing", "fixed"])
 def test_free_placement_survives_disconnect_and_reconnect(
         app_dir, qtbot, monkeypatch, scale, movement_enabled):
     win, topology = _setup(scale, "free", qtbot, monkeypatch)
-    win._calendar_move_enabled = movement_enabled
-    db.save_setting(db.SETTING_CALENDAR_MOVE_ENABLED, "1" if movement_enabled else "0")
+    win._calendar_move_editing = movement_enabled
     before = _placement(win)
     original_saved = win._saved_calendar_xy()
 
