@@ -111,6 +111,8 @@
 
 ## 기록 관리
 
+- 2026-10-15 **v4.0a**: 백업 검증 임시 DB의 `-wal`/`-shm`이 데이터 폴더·`backups\`에 무제한으로 쌓이던 v3.5 이후 결함을 수정했다(읽기 전용 검증 연결이 만든 짝 파일을 임시 DB와 함께 삭제). 시작 시 `db.cleanup_stale_backup_sidecars()`가 이전 버전의 `.backup-validate-*`/`.auto-snapshot-*` 짝 파일을 짝 `.db` 부재·빈 `-wal`일 때만 지우며 정상 `calendar.db-wal/-shm`·`.cnbak`·`.salt`는 건드리지 않는다. 사용자에게 수동 삭제를 안내하지 않는다. EXE `기후노트_v4.0a.exe`, Windows `4.0.1.0`. DB v17·Export v2·salt·백업 형식·설정 키·Qt/lock 유지. data `20261015-225855-ce489c3a94` 458개, PowerShell release `20261015-230046-b64efa2b55` 2,456개·새 빌드·격리 실행 3개 통과, 구 v4.0 EXE→새 EXE 업그레이드 실기(짝 파일 16→0) 확인, `dist/` 배치(SHA-256 `2750798C…`). [작업 기록](docs/work/2026-10-15-backup-sidecar-cleanup.md)
+
 - 2026-10-11 **v4.0**: `app_info.py`의 표시 버전/출시일은 `v4.0` / `2026. 10. 11.`, EXE는 `기후노트_v4.0.exe`, Windows 숫자 버전은 `4.0.0.0`이다. 화면 글자 따기는 최초 소형 OCR 모델·사전을 유지하고 표의 행·열 구성만 개선한다. 추가 학습은 보류하며 실험 도구·자료·후보 모델은 EXE에 넣지 않는다. DB v17·Export v2·salt·설정 키·Qt/lock은 유지한다. PowerShell release `20261011-215138-fbcbbb30e7`에서 2,437개 검사·새 빌드·격리 실행 3개 통과, EXE 모듈 50개·네이티브 64개·리소스 91개 대조 후 `dist/` 배치(SHA-256 `71179E64…`). 커밋·명시적 `main` push와 남은 수동 확인은 [v4.0 기록](docs/work/2026-10-11-v4.0-release.md)을 따른다.
 
 - 2026-10-11 바로가기 사이드바 기본값 켜짐(사용자 A안, 버전 v3.9a 유지, main 병합 `c93dde3`, EXE 재빌드): 새 설치(처음 실행 크기 선택)·초기화는 기본 크기에서도 바로가기 열을 켠 채(460px) 시작하고, 처음 실행 미리보기도 바로가기 열을 그린다. 설정 스위치 이름은 '기본 크기 바로가기'(중간·크게는 늘 표시라는 툴팁). 기존 DB의 저장값은 바꾸지 않는다. full `20261011-174716-e4bf00b1e6` 1,921개, PowerShell release `20261011-175917-ae4cf6864f` 통과·`dist/` 배치(SHA-256 `1143502A…`). [작업 기록](docs/work/2026-10-11-sidebar-default-on.md)
@@ -184,5 +186,5 @@
 - 입력창·선택 버튼의 컬러 글리프 잘림은 행 높이와 별개인 Qt Windows 캐시 문제다. Qt/PySide6 6.11.2 갱신과 재빌드 검증은 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)에 남기고 [UI 계약](docs/UI_PATTERNS.md)의 비트맵 경계 검사를 유지한다.
 - 2026-09-14에는 로컬 `dist/기후노트_v3.7a.exe`에 전역 Python의 Qt 6.10.2가 다시 포함된 것을 확인했다. 일반 빌드 경로를 위 명령처럼 고정하고 Qt 6.11.2로 재빌드했다. `release` 실행 `20260914-000953-2116a75e03`에서 669개 테스트와 3개 격리 EXE 시나리오를 통과했고, 기존 합성 데이터 8개 테이블의 raw/복호화 내용·ID·salt가 보존됐다. 실제 EXE의 100% large 화면에서 버튼·입력창 이모지의 우측·하단 픽셀 복원을 확인했다. 새 EXE의 해시·내부 Qt 대조·구형 EXE 보호 보관·dist 교체는 [재점검 작업 기록](docs/work/2026-09-14-schedule-emoji-rendering.md)에 남긴다. 앱 UI·저장 코드·DB v17·Export v2·버전·lock은 이번 수정에서 변경하지 않았으며 실제 한글 IME·혼합 DPI/KVM·GitLab 게시는 별도다.
 - 세로 화면 large 보기의 요일 열 축소는 일정 칩의 말줄임 결과가 레이아웃 최소 너비로 되먹임되는 문제다. 수정과 기존 데이터 보존·EXE 검증은 [요일 열 너비 수정 기록](docs/work/2026-09-11-calendar-column-width-fix.md)에 남긴다. 앱 v3.7·DB v17·Export v2·Qt 6.11.2를 유지하며 실제 회사 PC 혼합 DPI/KVM 확인과 GitLab Release 게시는 별도로 구분한다.
-- 설정/휴지통 특정 PC 멈춤, 임시 WAL/SHM 누적, 회사 PC 모니터 식별·혼합 DPI/KVM 실기 확인은 별도 후속 과제다.
+- 설정/휴지통 특정 PC 멈춤, 회사 PC 모니터 식별·혼합 DPI/KVM 실기 확인은 별도 후속 과제다. 임시 WAL/SHM 누적은 v4.0a에서 수정했다.
 - 라이선스·SBOM·PySide6/Qt 조건·서명 후속 과제는 증빙 없이 완료 처리하거나 삭제하지 않는다.

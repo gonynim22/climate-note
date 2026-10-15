@@ -149,6 +149,8 @@ def _initialize_database(choose_initial_scale: Callable[[], str | None] | None =
     db.backup_before_migration()
     db.migrate(initial_calendar_scale=initial_scale)
     db.backup_database()
+    # v4.0까지의 백업 검증이 데이터 폴더에 남긴 임시 짝 파일 정리 (실패해도 시작 계속)
+    db.cleanup_stale_backup_sidecars()
     return True
 
 

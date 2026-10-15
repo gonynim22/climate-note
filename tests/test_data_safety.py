@@ -406,3 +406,110 @@ def test_v35_repeated_start_preserves_all_v34_user_data_exactly(app_dir):
     with open(security.SALT_FILE, "rb") as salt_file:
         assert salt_file.read() == before_salt
     assert db.inspect_startup_data_health().ok is True
+
+
+def _write_file(path, payload=b""):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as target:
+        target.write(payload)
+
+
+def _temp_db_sidecars(app_dir):
+    """정상 DB의 짝 파일을 뺀 -wal/-shm 이름 목록."""
+    live = {"calendar.db-wal", "calendar.db-shm"}
+    return sorted(
+        path.relative_to(app_dir).as_posix()
+        for path in app_dir.rglob("*")
+        if path.is_file()
+        and path.name.endswith(("-wal", "-shm"))
+        and path.name not in live
+    )
+
+
+def test_backup_paths_leave_no_temp_db_sidecars(app_dir):
+    db.add_schedule("2026-10-15", "짝 파일을 남기지 않을 백업")
+
+    assert db.backup_before_v35() is True
+    assert db.backup_database() is True
+    assert db.backup_database() is True  # 같은 날 기존 묶음 검증 경로
+    assert db.backup_before_operation("import") is True
+    for bundle in sorted((app_dir / "backups").glob("*.cnbak")):
+        db.validate_backup_bundle(bundle)
+
+    assert _temp_db_sidecars(app_dir) == []
+
+
+def test_startup_cleanup_removes_stale_backup_sidecars(app_dir):
+    # 이전 버전의 읽기 전용 검증이 남긴 모양: -wal 0바이트, -shm 32KB
+    stale = (
+        app_dir / ".backup-validate-7j72tbg_.db-wal",
+        app_dir / ".backup-validate-7j72tbg_.db-shm",
+        app_dir / "backups" / ".auto-snapshot-056ua461.db-wal",
+        app_dir / "backups" / ".auto-snapshot-056ua461.db-shm",
+    )
+    for path in stale:
+        _write_file(path, b"" if path.name.endswith("-wal") else b"\0" * 32768)
+
+    db.cleanup_stale_backup_sidecars()
+
+    assert [path.name for path in stale if path.exists()] == []
+
+
+def test_startup_cleanup_keeps_live_and_unrelated_files(app_dir):
+    db.add_schedule("2026-10-15", "salt를 만들 일정")
+    with open(security.SALT_FILE, "rb") as salt_file:
+        salt = salt_file.read()
+    protected = {
+        app_dir / "calendar.db-wal": b"live wal frames",
+        app_dir / "calendar.db-shm": b"live shm index",
+        app_dir / "notes.db-wal": b"",
+        app_dir / "backups" / "calendar_auto_20260101_000000_keep.cnbak":
+            b"bundle",
+        # 짝 .db가 남아 있으면 비정상 종료 흔적이므로 묶음 전체를 건드리지 않는다.
+        app_dir / ".backup-validate-inuse.db": b"temp db body",
+        app_dir / ".backup-validate-inuse.db-wal": b"",
+        app_dir / ".backup-validate-inuse.db-shm": b"\0" * 32768,
+        # 내용이 있는 -wal은 읽기 전용 검증이 만든 것이 아니다.
+        app_dir / ".backup-validate-written.db-wal": b"wal frame",
+        app_dir / "backups" / ".auto-snapshot-written.db-wal": b"wal frame",
+    }
+    for path, payload in protected.items():
+        _write_file(path, payload)
+
+    db.cleanup_stale_backup_sidecars()
+
+    for path, payload in protected.items():
+        assert path.exists(), path.name
+        with open(path, "rb") as kept:
+            assert kept.read() == payload, path.name
+    with open(security.SALT_FILE, "rb") as salt_file:
+        assert salt_file.read() == salt
+
+
+def test_startup_continues_when_stale_sidecar_cleanup_fails(
+        app_dir, monkeypatch):
+    import main as app_main
+
+    db.add_schedule("2026-10-15", "정리 실패와 시작은 분리")
+    locked = app_dir / ".backup-validate-locked.db-shm"
+    removable = (
+        app_dir / ".backup-validate-locked.db-wal",
+        app_dir / ".backup-validate-other.db-wal",
+        app_dir / ".backup-validate-other.db-shm",
+    )
+    for path in (locked, *removable):
+        _write_file(path)
+
+    original_unlink = db.Path.unlink
+
+    def _fail_locked_only(path, *args, **kwargs):
+        if path.name == locked.name:
+            raise PermissionError("injected sidecar lock")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(db.Path, "unlink", _fail_locked_only)
+
+    assert app_main._initialize_database() is True
+    assert locked.exists()
+    assert [path.name for path in removable if path.exists()] == []
+    assert db.inspect_startup_data_health().ok is True

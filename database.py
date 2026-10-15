@@ -1875,6 +1875,67 @@ def _bytes_sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+_TEMP_DB_SIDECAR_SUFFIXES = ("-wal", "-shm")
+
+
+def _temp_db_sidecars(temp_db: Path) -> tuple[Path, ...]:
+    return tuple(
+        temp_db.with_name(f"{temp_db.name}{suffix}")
+        for suffix in _TEMP_DB_SIDECAR_SUFFIXES
+    )
+
+
+def _remove_temp_db(temp_db: Path, label: str) -> None:
+    """임시 DB와 -wal/-shm 짝 파일을 함께 지운다.
+
+    WAL 원본의 backup 사본은 WAL 표시를 물려받는다. 이 사본을 읽기 전용으로
+    열면 SQLite가 짝 파일을 만들고, 닫을 때 지우지 못한다.
+    """
+    for path in (temp_db, *_temp_db_sidecars(temp_db)):
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError as exc:
+            _logger.warning("%s 정리 실패: %s", label, exc)
+
+
+def cleanup_stale_backup_sidecars() -> None:
+    """v4.0까지의 백업 검증이 남긴 임시 DB 짝 파일만 골라 지운다.
+
+    짝 .db가 남은 묶음(비정상 종료 흔적)과 내용이 있는 -wal은 건드리지 않는다.
+    읽기 전용 검증이 만든 -wal은 항상 비어 있다. 실패는 시작을 막지 않는다.
+    """
+    for folder, prefix in (
+        (APP_DIR, ".backup-validate-"),
+        (APP_DIR / "backups", ".auto-snapshot-"),
+    ):
+        try:
+            temp_dbs = {
+                sidecar.with_name(sidecar.name[:-len(suffix)])
+                for suffix in _TEMP_DB_SIDECAR_SUFFIXES
+                for sidecar in folder.glob(f"{prefix}*.db{suffix}")
+            }
+        except OSError as exc:
+            _logger.warning("백업 임시 짝 파일 검색 실패: %s", exc)
+            continue
+        for temp_db in sorted(temp_dbs):
+            wal, shm = _temp_db_sidecars(temp_db)
+            try:
+                if temp_db.exists():
+                    continue
+                if wal.exists() and wal.stat().st_size != 0:
+                    continue
+            except OSError as exc:
+                _logger.warning("백업 임시 짝 파일 확인 실패: %s", exc)
+                continue
+            for sidecar in (wal, shm):
+                try:
+                    if sidecar.exists():
+                        sidecar.unlink()
+                except OSError as exc:
+                    _logger.warning("백업 임시 짝 파일 정리 실패: %s", exc)
+
+
 def validate_backup_bundle(path: Path) -> dict:
     """자동백업 묶음을 변경 없이 완전 검증하고 manifest를 반환한다."""
     bundle_path = validate_app_path(Path(path), "자동백업")
@@ -1961,11 +2022,7 @@ def validate_backup_bundle(path: Path) -> dict:
         raise ValueError("자동백업 검증에 실패했습니다.") from exc
     finally:
         if temp_db is not None:
-            try:
-                if temp_db.exists():
-                    temp_db.unlink()
-            except OSError as exc:
-                _logger.warning("자동백업 검증 임시파일 정리 실패: %s", exc)
+            _remove_temp_db(temp_db, "자동백업 검증 임시파일")
 
 
 def _create_auto_backup_bundle(target: Path, salt: bytes) -> None:
@@ -2046,12 +2103,12 @@ def _create_auto_backup_bundle(target: Path, salt: bytes) -> None:
         os.replace(archive_path, target)
         archive_path = None
     finally:
-        for temp_path in (snapshot_path, archive_path):
-            if temp_path is None:
-                continue
+        if snapshot_path is not None:
+            _remove_temp_db(snapshot_path, "자동백업 임시파일")
+        if archive_path is not None:
             try:
-                if temp_path.exists():
-                    temp_path.unlink()
+                if archive_path.exists():
+                    archive_path.unlink()
             except OSError as exc:
                 _logger.warning("자동백업 임시파일 정리 실패: %s", exc)
 
