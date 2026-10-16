@@ -873,39 +873,49 @@ _SCHEDULE_INSERT = (
 
 def _decrypt_schedule(ciphertext: str) -> tuple[str, bool]:
     """일정 본문 복호화(구 키 재시도). 실패하면 ('[복호화 오류]', True)."""
-    try:
-        return decrypt(ciphertext), False
-    except (InvalidToken, ValueError, TypeError):
-        try:
-            return legacy_decrypt(ciphertext), False
-        except (InvalidToken, ValueError, TypeError):
-            return "[복호화 오류]", True
+    return _safe_decrypt_with_status(ciphertext, "[복호화 오류]")
 
 
-def _candidate_rows(conn, first: str, last: str) -> list:
-    """[first, last]에 나타날 수 있는 행만 고른다(펼치기는 schedule_rules가 한다)."""
+_ALARM_ONLY = "alarm_before IS NOT NULL"
+
+
+def _candidate_rows(conn, first: str, last: str, extra: str = "") -> list:
+    """[first, last]에 나타날 수 있는 행만 고른다(펼치기는 schedule_rules가 한다).
+
+    extra는 코드에 적힌 고정 SQL 조건만 받는다(사용자 입력을 넣지 않는다).
+    """
+    where = "WHERE date <= ? AND (date >= ? OR end_date >= ? OR repeat_rule != '')"
+    if extra:
+        where += " AND " + extra
     return conn.execute(
-        _SCHEDULE_SELECT
-        + "WHERE date <= ? AND (date >= ? OR end_date >= ? OR repeat_rule != '') ORDER BY id ASC",
-        (last, first, first),
+        _SCHEDULE_SELECT + where + " ORDER BY id ASC", (last, first, first)
     ).fetchall()
 
 
-def _occurrence_days(row, first: str, last: str) -> list[str]:
+def _occurrence_days(row, first: str, last: str, window) -> tuple[ScheduleOptions, list[str]]:
+    """(이 행에 실제로 쓸 세부 설정, 나타나는 날 목록).
+
+    window는 (first, last)를 날짜로 파싱한 쌍이고, 조회 날짜 형식이 ISO가 아니면 None이다.
+    펼칠 수 없는 행은 자기 날짜 하루로만 보이며 기간·반복을 내세우지 않는다.
+    """
     options = ScheduleOptions.from_row(row)
+    # 저장된 문자열 그대로 비교한다(형식이 조금 다른 옛 날짜도 지금처럼 동작).
+    single = [row["date"]] if first <= row["date"] <= last else []
     if not options.end_date and not options.repeat_rule:
-        # 기존 하루 일정: 저장된 문자열 그대로 비교한다(형식이 조금 다른 옛 날짜도 지금처럼 동작).
-        return [row["date"]] if first <= row["date"] <= last else []
+        return options, single
+    if window is None:
+        # ISO가 아닌 조회(옛 형식 날짜 검색 등)에는 반복·기간을 펼칠 수 없으니 조용히 건너뛴다.
+        return options, []
     try:
-        found = occurrence_dates(row["date"], options, parse_date(first), parse_date(last))
+        found = occurrence_dates(row["date"], options, *window)
     except ValueError as exc:
         _logger.warning("일정 반복·기간 해석 실패 (id=%s): %s", row["id"], exc)
-        return [row["date"]] if first <= row["date"] <= last else []
-    return [day.isoformat() for day in found]
+        plain = replace(options, end_date="", repeat_rule="", repeat_until="", repeat_skip=())
+        return plain, single
+    return options, [day.isoformat() for day in found]
 
 
-def _schedule_entry(row, day: str, content: str, failed: bool) -> dict:
-    options = ScheduleOptions.from_row(row)
+def _schedule_entry(row, day: str, options: ScheduleOptions, content: str, failed: bool) -> dict:
     is_period = bool(options.end_date)
     return {
         "id": row["id"],
@@ -926,14 +936,18 @@ def _schedule_entry(row, day: str, content: str, failed: bool) -> dict:
 
 
 def _expand_rows(rows, first: str, last: str) -> dict[str, list[dict]]:
+    try:
+        window = (parse_date(first), parse_date(last))
+    except ValueError:
+        window = None
     result: dict[str, list[dict]] = {}
     for row in rows:
-        found = _occurrence_days(row, first, last)
+        options, found = _occurrence_days(row, first, last, window)
         if not found:
             continue
         content, failed = _decrypt_schedule(row["content"])
         for day in found:
-            result.setdefault(day, []).append(_schedule_entry(row, day, content, failed))
+            result.setdefault(day, []).append(_schedule_entry(row, day, options, content, failed))
     for entries in result.values():
         entries.sort(key=lambda e: occurrence_sort_key(e["shows_time"], e["start_time"], e["id"]))
     return result
@@ -1073,12 +1087,7 @@ def get_alarm_occurrences(after: datetime, until: datetime) -> list[AlarmItem]:
     first = (after.date() - timedelta(days=1)).isoformat()
     last = (until.date() + timedelta(days=2)).isoformat()
     with _connection() as conn:
-        rows = conn.execute(
-            _SCHEDULE_SELECT
-            + "WHERE alarm_before IS NOT NULL AND date <= ? "
-            "AND (date >= ? OR end_date >= ? OR repeat_rule != '') ORDER BY id ASC",
-            (last, first, first),
-        ).fetchall()
+        rows = _candidate_rows(conn, first, last, _ALARM_ONLY)
     items = []
     for row in rows:
         options = ScheduleOptions.from_row(row)
@@ -1134,19 +1143,20 @@ def search_all(keyword: str, limit: int = 500) -> list[dict]:
     results = []
     with _connection() as conn:
         # 일정 검색 (cursor iteration)
-        for row in conn.execute(
-                "SELECT id, date, content, created_at, color, end_date, repeat_rule FROM schedules"):
+        for row in conn.execute(_SCHEDULE_SELECT):
             content = _safe_decrypt(row["content"])
             if not content:
                 continue
             if not keyword_lower or keyword_lower in content.lower():
+                # 규칙에 어긋난 저장값은 읽기와 같은 기준으로 기본값 취급(엉뚱한 기간 표시 방지).
+                options = ScheduleOptions.from_row(row)
                 results.append({
                     "type": "일정",
                     "date": row["date"],
                     "content": content,
                     "color": row["color"] or DEFAULT_SCHEDULE_COLOR,
-                    "end_date": row["end_date"] or "",
-                    "repeat_rule": row["repeat_rule"] or "",
+                    "end_date": options.end_date,
+                    "repeat_rule": options.repeat_rule,
                 })
                 if len(results) >= limit:
                     break

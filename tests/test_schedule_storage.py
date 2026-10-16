@@ -1,5 +1,8 @@
 """v4.1 일정 저장(DB v18 마이그레이션·API·Export v3) 회귀. 합성 데이터만 쓴다."""
+import logging
 import sqlite3
+import time
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -182,10 +185,6 @@ def test_v17_upgrade_with_legacy_key_rows_keeps_plaintext(app_dir):
     assert rows[0]["options"] == ScheduleOptions()
 
 
-import time
-from datetime import datetime
-
-
 def test_add_with_options_and_read_back(app_dir):
     sid = db.add_schedule("2026-10-15", "부서 회의", "#4CC9F0",
                           options=ScheduleOptions(start_time="15:00", repeat_rule="weekly", alarm_before=10))
@@ -252,9 +251,13 @@ def test_update_options_replaces_all_fields_and_validates_against_start(app_dir)
     sid = db.add_schedule("2026-10-15", "회의", options=ScheduleOptions(start_time="09:00", alarm_before=10))
     db.update_schedule(sid, options=ScheduleOptions(repeat_rule="daily"))
     assert db.get_schedules("2026-10-16")[0]["options"] == ScheduleOptions(repeat_rule="daily")
-    with pytest.raises(ValueError):
-        db.update_schedule(sid, content="바뀌면 안 됨", options=ScheduleOptions(repeat_until="2026-10-01"))
-    assert db.get_schedules("2026-10-15")[0]["content"] == "회의"
+    # 둘 다 "반복 없는 일정에 반복 끝 날짜" 규칙이 아니라 저장된 시작일(10-15)과의 비교에서 걸린다.
+    for before_start in (ScheduleOptions(end_date="2026-10-14"),
+                         ScheduleOptions(repeat_rule="daily", repeat_until="2026-10-01")):
+        with pytest.raises(ValueError):
+            db.update_schedule(sid, content="바뀌면 안 됨", options=before_start)
+        assert db.get_schedules("2026-10-15")[0]["content"] == "회의"
+        assert db.get_schedules("2026-10-16")[0]["options"] == ScheduleOptions(repeat_rule="daily")
     db.update_schedule(sid, options=ScheduleOptions())
     assert db.get_schedules("2026-10-16") == []
     with pytest.raises(ValueError, match="없습니다"):
@@ -299,3 +302,108 @@ def test_month_expansion_stays_fast_with_many_repeats(app_dir):
     month = db.get_occurrences("2026-10-01", "2026-10-31")
     assert len(month["2026-10-15"]) == 1000
     assert time.perf_counter() - started < 5.0
+
+
+_OPTION_COLUMNS = "start_time, end_date, repeat_rule, repeat_until, repeat_skip, alarm_before"
+
+
+def _option_columns(schedule_id):
+    with db._connection() as conn:
+        return tuple(conn.execute(
+            f"SELECT {_OPTION_COLUMNS} FROM schedules WHERE id = ?", (schedule_id,)).fetchone())
+
+
+def test_content_or_color_update_keeps_all_option_columns(app_dir):
+    sid = db.add_schedule("2026-10-05", "주간 회의", "#4CC9F0", options=ScheduleOptions(
+        start_time="15:00", repeat_rule="weekly", repeat_until="2026-12-31",
+        repeat_skip=("2026-10-12",), alarm_before=10))
+    before = _option_columns(sid)
+    assert before == ("15:00", "", "weekly", "2026-12-31", "2026-10-12", 10)
+
+    db.update_schedule(sid, content="바뀐 본문")
+    assert _option_columns(sid) == before
+    db.update_schedule(sid, color="#FF6B6B")
+    assert _option_columns(sid) == before
+    db.update_schedule(sid, content="또 바뀐 본문", color="#06D6A0")
+    assert _option_columns(sid) == before
+
+    entry = db.get_schedules("2026-10-19")[0]
+    assert (entry["content"], entry["color"]) == ("또 바뀐 본문", "#06D6A0")
+    assert entry["options"] == ScheduleOptions(
+        start_time="15:00", repeat_rule="weekly", repeat_until="2026-12-31",
+        repeat_skip=("2026-10-12",), alarm_before=10)
+
+
+def test_skip_occurrence_changes_only_repeat_skip(app_dir):
+    sid = db.add_schedule("2026-10-05", "주간 회의", "#4CC9F0", options=ScheduleOptions(
+        start_time="15:00", repeat_rule="weekly", repeat_until="2026-12-31", alarm_before=10))
+    with db._connection() as conn:
+        before = tuple(conn.execute(
+            "SELECT date, content, created_at, color, start_time, end_date, repeat_rule, "
+            "repeat_until, alarm_before FROM schedules WHERE id = ?", (sid,)).fetchone())
+    db.skip_schedule_occurrence(sid, "2026-10-12")
+    db.skip_schedule_occurrence(sid, "2026-10-26")
+    with db._connection() as conn:
+        after = tuple(conn.execute(
+            "SELECT date, content, created_at, color, start_time, end_date, repeat_rule, "
+            "repeat_until, alarm_before FROM schedules WHERE id = ?", (sid,)).fetchone())
+    assert after == before
+    assert _option_columns(sid)[4] == "2026-10-12,2026-10-26"
+    assert db.get_schedules("2026-10-05")[0]["content"] == "주간 회의"
+
+
+def _insert_raw_schedule(date, content, **columns):
+    names = ["date", "content", "created_at", "color", *columns]
+    with db._connection() as conn:
+        cur = conn.execute(
+            f"INSERT INTO schedules ({', '.join(names)}) VALUES ({', '.join('?' * len(names))})",
+            [date, security.encrypt(content), "2026-01-01 00:00:00", "#FFD166", *columns.values()])
+        conn.commit()
+        return cur.lastrowid
+
+
+def test_malformed_start_date_on_repeat_or_period_row_does_not_break_reads(app_dir, caplog):
+    healthy = db.add_schedule("2026-02-02", "정상 반복", options=ScheduleOptions(repeat_rule="weekly"))
+    bad_repeat = _insert_raw_schedule("2026-02-30", "깨진 반복", repeat_rule="weekly", alarm_before=0)
+    bad_period = _insert_raw_schedule("2026-02-30", "깨진 기간", end_date="2026-03-05")
+    with caplog.at_level(logging.WARNING, logger="app_error"):
+        month = db.get_occurrences("2026-02-01", "2026-03-31")
+        assert db.get_alarm_occurrences(datetime(2026, 2, 1), datetime(2026, 3, 31)) == []
+    assert sorted(day for day, entries in month.items() if any(e["id"] == healthy for e in entries)) == [
+        "2026-02-02", "2026-02-09", "2026-02-16", "2026-02-23", "2026-03-02", "2026-03-09",
+        "2026-03-16", "2026-03-23", "2026-03-30"]
+    fallback = {e["id"]: e for e in month["2026-02-30"]}
+    assert set(fallback) == {bad_repeat, bad_period}
+    for entry in fallback.values():
+        assert (entry["options"].end_date, entry["options"].repeat_rule) == ("", "")
+        assert (entry["span_start"], entry["span_end"], entry["occurrence_date"]) == ("2026-02-30",) * 3
+        assert entry["content"] in ("깨진 반복", "깨진 기간")
+    warned = " ".join(r.getMessage() for r in caplog.records if r.name == "app_error")
+    assert f"id={bad_repeat}" in warned and f"id={bad_period}" in warned
+    assert f"id={healthy}" not in warned
+
+
+def test_non_iso_query_date_matches_legacy_row_without_warning(app_dir, caplog):
+    _insert_raw_schedule("2026-10-7", "옛 형식")
+    db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(repeat_rule="weekly"))
+    db.add_schedule("2026-10-05", "출장", options=ScheduleOptions(end_date="2026-10-09"))
+    db.add_schedule("2026-10-05", "하루")
+    with caplog.at_level(logging.DEBUG, logger="app_error"):
+        entries = db.get_schedules("2026-10-7")
+    assert [e["content"] for e in entries] == ["옛 형식"]
+    assert (entries[0]["occurrence_date"], entries[0]["span_start"], entries[0]["span_end"]) == ("2026-10-7",) * 3
+    assert [r for r in caplog.records if r.name == "app_error"] == []
+
+
+def test_alarm_lower_bound_is_exclusive_and_upper_bound_inclusive(app_dir):
+    sid = db.add_schedule("2026-10-15", "회의", options=ScheduleOptions(start_time="15:00", alarm_before=10))
+    due = datetime(2026, 10, 15, 14, 50)
+    assert db.get_alarm_occurrences(due, datetime(2026, 10, 15, 16, 0)) == []
+    assert [i.due for i in db.get_alarm_occurrences(datetime(2026, 10, 15, 14, 49), due)] == [due]
+    assert [i.schedule_id for i in db.get_alarm_occurrences(datetime(2026, 10, 15, 14, 49, 59), due)] == [sid]
+
+
+def test_search_results_ignore_corrupt_end_date(app_dir):
+    _insert_raw_schedule("2026-10-05", "깨진 기간", end_date="2026-10-01", repeat_rule="monthly")
+    result = db.search_all("깨진")[0]
+    assert (result["date"], result["end_date"], result["repeat_rule"]) == ("2026-10-05", "", "monthly")
