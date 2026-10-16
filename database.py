@@ -1551,14 +1551,44 @@ def get_focus_sessions() -> list[dict]:
 
 
 # ─── Export / Import ──────────────────────────────────────────
+def _export_options(row) -> ScheduleOptions:
+    """내보낼 일정 세부 설정. 저장값이 서로 어긋나 가져오기 검증을 넘지 못하면 덜 해치는 쪽으로 낮춘다.
+
+    from_row는 필드마다 따로 정리하므로 여러 필드에 걸친 규칙(기간+반복, 반복 없는 끝 날짜 등)은
+    검사하지 못한다. 그런 행 하나가 백업 파일 전체를 가져올 수 없게 만들지 않도록, 가져오기와
+    같은 validate_options를 통과하는 첫 후보를 쓴다. DB는 바꾸지 않는다.
+    """
+    options = ScheduleOptions.from_row(row)
+    candidates = (
+        options,
+        replace(options, repeat_skip=()),
+        replace(options, repeat_until="", repeat_skip=()),
+        replace(options, repeat_rule="", repeat_until="", repeat_skip=()),
+        replace(options, end_date="", repeat_rule="", repeat_until="", repeat_skip=()),
+        ScheduleOptions(),
+    )
+    for index, candidate in enumerate(candidates):
+        if candidate.is_default:
+            chosen = candidate  # 가져오기도 기본값은 검증하지 않는다(옛 형식 날짜 보존)
+        else:
+            try:
+                chosen = validate_options(row["date"], candidate)
+            except ValueError:
+                continue
+        if index:
+            _logger.warning("Export 일정 세부 설정 조정: schedules id=%s", row["id"])
+        return chosen
+    return ScheduleOptions()  # 마지막 후보가 기본값이라 여기에는 닿지 않는다
+
+
 def export_all_data() -> str:
     """모든 데이터를 평문 JSON으로 직렬화 (Export 전 단계)"""
     with _connection() as conn:
         # 여러 테이블을 하나의 시점으로 읽어 Export 중 변경이 섞이지 않게 한다.
         conn.execute("BEGIN")
         schedules = []
-        for row in conn.execute("SELECT * FROM schedules"):
-            options = ScheduleOptions.from_row(row)
+        for row in conn.execute("SELECT * FROM schedules ORDER BY id ASC"):
+            options = _export_options(row)
             schedules.append({
                 "date": row["date"],
                 "content": _decrypt_for_export(row["content"], "schedules", row["id"]),

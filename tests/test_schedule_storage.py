@@ -421,6 +421,8 @@ def test_export_v3_writes_all_schedule_fields_and_hides_alarm_seen_at(app_dir):
     db.skip_schedule_occurrence(sid, "2026-10-12")
     db.add_schedule("2026-10-15", "옛 일정")
     db.save_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT, "2026-10-15T09:00:00")
+    db.save_setting(db.SETTING_PRIVACY_PIN, "1234")
+    db.save_setting(db.SETTING_SHOW_LUNAR, "1")
 
     payload = json.loads(db.export_all_data())
 
@@ -433,6 +435,7 @@ def test_export_v3_writes_all_schedule_fields_and_hides_alarm_seen_at(app_dir):
     assert {k: legacy[k] for k in OPTION_KEYS} == {
         "start_time": "", "end_date": "", "repeat_rule": "", "repeat_until": "",
         "repeat_skip": [], "alarm_before": None}
+    assert payload["settings"][db.SETTING_SHOW_LUNAR] == "1"  # 다른 설정은 그대로 나간다
     assert db.SETTING_SCHEDULE_ALARM_SEEN_AT not in payload["settings"]
     assert db.SETTING_PRIVACY_PIN not in payload["settings"]
 
@@ -440,13 +443,16 @@ def test_export_v3_writes_all_schedule_fields_and_hides_alarm_seen_at(app_dir):
 def test_v3_roundtrip_restores_options(app_dir):
     db.add_schedule("2026-10-05", "주간 회의",
                     options=ScheduleOptions(start_time="10:00", repeat_rule="weekly",
-                                            repeat_until="2026-12-28", alarm_before=10))
+                                            repeat_until="2026-12-28", repeat_skip=("2026-10-12",),
+                                            alarm_before=10))
     db.add_schedule("2026-10-21", "출장", options=ScheduleOptions(end_date="2026-10-23"))
     text = db.export_all_data()
     db.reset_database()
     db.import_all_data(text)
     assert db.get_schedules("2026-10-19")[0]["options"] == ScheduleOptions(
-        start_time="10:00", repeat_rule="weekly", repeat_until="2026-12-28", alarm_before=10)
+        start_time="10:00", repeat_rule="weekly", repeat_until="2026-12-28",
+        repeat_skip=("2026-10-12",), alarm_before=10)
+    assert db.get_schedules("2026-10-12") == []  # 건너뛴 날은 가져온 뒤에도 보이지 않는다
     assert db.get_schedules("2026-10-22")[0]["span_end"] == "2026-10-23"
 
 
@@ -473,7 +479,7 @@ def test_v3_invalid_schedule_options_reject_whole_file(app_dir, field, value):
         "schedules": [{"date": "2026-10-15", "content": "정상"}, {**base, field: value}],
         "memos": [{"date": "2026-10-15", "content": "메모"}],
     }
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"schedules\[1\]"):  # 정상인 0번이 아니라 나쁜 1번 항목 때문
         db.import_all_data(json.dumps(payload))
     with db._connection() as conn:
         assert conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 0
@@ -488,6 +494,15 @@ def test_import_ignores_alarm_seen_at_setting(app_dir):
     assert db.get_setting("show_lunar") == "1"
 
 
+def test_import_keeps_local_alarm_seen_at(app_dir):
+    db.save_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT, "2026-10-15T09:00:00")
+    payload = {"format_version": 3, "settings": {
+        db.SETTING_SCHEDULE_ALARM_SEEN_AT: "2030-01-01T00:00:00", "show_lunar": "1"}}
+    db.import_all_data(json.dumps(payload))
+    assert db.get_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT, "") == "2026-10-15T09:00:00"
+    assert db.get_setting("show_lunar") == "1"
+
+
 def test_legacy_date_string_survives_export_import(app_dir):
     """Review Focus 1: 형식이 다른 옛 날짜도 v3 내보내기·가져오기를 그대로 지난다."""
     with db._connection() as conn:
@@ -498,3 +513,59 @@ def test_legacy_date_string_survives_export_import(app_dir):
     db.reset_database()
     db.import_all_data(text)
     assert [e["content"] for e in db.get_schedules("2026-7-1")] == ["옛 형식"]
+
+
+def _all_schedule_rows():
+    with db._connection() as conn:
+        return [tuple(row) for row in conn.execute("SELECT * FROM schedules ORDER BY id")]
+
+
+def test_corrupt_option_rows_degrade_on_export_and_whole_file_still_imports(app_dir, caplog):
+    """저장값이 서로 어긋난 행(손으로 고친 DB 등) 하나가 백업 전체를 못 쓰게 만들면 안 된다."""
+    valid = ScheduleOptions(start_time="10:00", repeat_rule="weekly", repeat_until="2026-12-28",
+                            repeat_skip=("2026-10-12",), alarm_before=10)
+    db.add_schedule("2026-10-05", "정상", options=valid)
+    both = _insert_raw_schedule("2026-10-05", "기간+반복", end_date="2026-10-08", repeat_rule="weekly")
+    orphan_until = _insert_raw_schedule("2026-10-05", "끝 날짜만", repeat_until="2026-12-01")
+    early_until = _insert_raw_schedule("2026-10-05", "앞선 끝", repeat_rule="weekly",
+                                       repeat_until="2026-10-01")
+    early_skip = _insert_raw_schedule("2026-10-05", "앞선 건너뜀", repeat_rule="weekly",
+                                      repeat_skip="2026-10-01,2026-10-12")
+    too_long = _insert_raw_schedule("2026-10-05", "너무 긴 기간", end_date="2028-10-05",
+                                    start_time="09:00", alarm_before=10)
+    legacy = _insert_raw_schedule("2026-7-1", "옛 형식 시각", start_time="10:00", alarm_before=0)
+    corrupt_ids = [both, orphan_until, early_until, early_skip, too_long, legacy]
+    rows_before = _all_schedule_rows()
+
+    with caplog.at_level(logging.WARNING, logger="app_error"):
+        text = db.export_all_data()
+    payload = json.loads(text)
+
+    assert _all_schedule_rows() == rows_before  # 내보내기는 DB를 바꾸지 않는다
+    by_content = {item["content"]: {k: item[k] for k in OPTION_KEYS} for item in payload["schedules"]}
+    assert list(by_content) == ["정상", "기간+반복", "끝 날짜만", "앞선 끝", "앞선 건너뜀",
+                                "너무 긴 기간", "옛 형식 시각"]  # id 순서
+    base = {"start_time": "", "end_date": "", "repeat_rule": "", "repeat_until": "",
+            "repeat_skip": [], "alarm_before": None}
+    assert by_content["정상"] == {**base, "start_time": "10:00", "repeat_rule": "weekly",
+                                "repeat_until": "2026-12-28", "repeat_skip": ["2026-10-12"],
+                                "alarm_before": 10}
+    assert by_content["기간+반복"] == {**base, "end_date": "2026-10-08"}  # 기간은 두고 반복을 버린다
+    assert by_content["끝 날짜만"] == base
+    assert by_content["앞선 끝"] == {**base, "repeat_rule": "weekly"}  # 반복은 두고 끝 날짜를 버린다
+    assert by_content["앞선 건너뜀"] == {**base, "repeat_rule": "weekly"}  # 반복은 두고 건너뜀만 버린다
+    assert by_content["너무 긴 기간"] == {**base, "start_time": "09:00", "alarm_before": 10}
+    assert by_content["옛 형식 시각"] == base  # 옛 형식 날짜는 기본 설정으로 내보낸다
+
+    warned = [r.getMessage() for r in caplog.records if r.name == "app_error"]
+    assert len(warned) == len(corrupt_ids)
+    for schedule_id in corrupt_ids:
+        assert sum(f"id={schedule_id}" in message for message in warned) == 1
+    assert not any(word in " ".join(warned) for word in by_content)  # 본문은 로그에 남기지 않는다
+
+    db.reset_database()
+    db.import_all_data(text)  # 어긋난 행이 있어도 파일 전체가 들어온다
+    with db._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 7
+    assert [e["options"] for e in db.get_schedules("2026-10-05") if e["content"] == "정상"] == [valid]
+    assert [e["content"] for e in db.get_schedules("2026-7-1")] == ["옛 형식 시각"]
