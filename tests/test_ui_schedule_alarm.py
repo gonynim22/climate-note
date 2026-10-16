@@ -1,0 +1,227 @@
+"""v4.1 일정 알림 엔진·카드 회귀. 가짜 시계와 합성 데이터만 쓴다."""
+from datetime import datetime, timedelta
+
+import pytest
+from PySide6.QtCore import QObject, QPoint, Qt
+from PySide6.QtWidgets import QApplication
+from shiboken6 import isValid
+
+import database as db
+import ui_main
+from schedule_rules import AlarmItem, ScheduleOptions
+from show_desktop_guard import ShowDesktopKeeper
+from ui_main import MainCalendarWindow
+from ui_schedule_alarm import ScheduleAlarmCard, ScheduleAlarmScheduler
+
+KEY = db.SETTING_SCHEDULE_ALARM_SEEN_AT
+
+
+class Clock:
+    def __init__(self, value: datetime):
+        self.value = value
+
+    def __call__(self) -> datetime:
+        return self.value
+
+
+@pytest.fixture(autouse=True)
+def isolated_ui(app_dir, monkeypatch):
+    monkeypatch.setattr(ShowDesktopKeeper, "_install_foreground_hook", lambda self: None)
+    monkeypatch.setattr(ShowDesktopKeeper, "_apply_topmost", lambda *a, **kw: None)
+    monkeypatch.setattr(ShowDesktopKeeper, "_pin_to_desktop_layer", lambda self: False)
+    db.save_setting(db.SETTING_KEEP_ON_SHOW_DESKTOP, "0")
+    beeps = []
+    monkeypatch.setattr(QApplication, "beep", staticmethod(lambda: beeps.append(1)))
+    return beeps
+
+
+def scheduler_with(qtbot, clock):
+    host = QObject()  # 창 없이 엔진만 시험한다
+    scheduler = ScheduleAlarmScheduler(host, now=clock)
+    emitted = []
+    scheduler.alarms_ready.connect(lambda items, missed: emitted.append((items, missed)))
+    return scheduler, emitted, host
+
+
+def test_due_alarm_shows_once_and_saves_seen_at(qtbot):
+    db.add_schedule("2026-10-15", "부서 회의", options=ScheduleOptions(start_time="15:00", alarm_before=10))
+    clock = Clock(datetime(2026, 10, 15, 14, 49, 59))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    assert emitted == []
+    assert db.get_setting(KEY, "") == ""  # 시작만으로는 쓰지 않는다.
+    assert 0 < scheduler._timer.remainingTime() <= 1100
+    clock.value = datetime(2026, 10, 15, 14, 50, 0, 500000)
+    scheduler.check()
+    assert [(item.content, missed) for item, missed in
+            [(items[0], missed) for items, missed in emitted]] == [("부서 회의", False)]
+    assert db.get_setting(KEY, "") == "2026-10-15T14:50:00"
+    clock.value += timedelta(seconds=30)
+    scheduler.check()
+    assert len(emitted) == 1
+
+
+def test_start_without_key_skips_past_alarms(qtbot):
+    db.add_schedule("2026-10-15", "아침 회의", options=ScheduleOptions(start_time="09:00", alarm_before=0))
+    scheduler, emitted, _host = scheduler_with(qtbot, Clock(datetime(2026, 10, 15, 14, 0)))
+    scheduler.start()
+    assert emitted == []
+    assert db.get_setting(KEY, "") == ""
+
+
+def test_missed_alarms_only_from_last_12_hours(qtbot):
+    db.add_schedule("2026-10-14", "어젯밤", options=ScheduleOptions(start_time="21:00", alarm_before=0))
+    db.add_schedule("2026-10-15", "새벽", options=ScheduleOptions(start_time="06:00", alarm_before=0))
+    db.save_setting(KEY, "2026-10-14T20:00:00")
+    scheduler, emitted, _host = scheduler_with(qtbot, Clock(datetime(2026, 10, 15, 10, 0)))
+    scheduler.start()
+    assert [[item.content for item in items] for items, _missed in emitted] == [["새벽"]]
+    assert emitted[0][1] is True
+
+
+def test_clock_jumps_do_not_flood_or_repeat(qtbot):
+    """Review Focus 3: 시계가 뒤로 가거나 크게 앞으로 뛰어도 중복·아주 오래된 알림이 없다."""
+    for hour in range(8, 18):
+        db.add_schedule("2026-10-15", f"{hour}시", options=ScheduleOptions(start_time=f"{hour:02d}:00", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 15, 8, 30))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 9, 0, 1)
+    scheduler.check()
+    clock.value = datetime(2026, 10, 15, 7, 0)  # 뒤로
+    scheduler.check()
+    clock.value = datetime(2026, 10, 15, 9, 30)  # 다시 앞으로: 9시는 이미 띄웠다
+    scheduler.check()
+    clock.value = datetime(2026, 10, 18, 9, 0)  # 3일 뒤로 점프: 12시간 밖이라 알리지 않는다
+    scheduler.check()
+    assert [[item.content for item in items] for items, _missed in emitted] == [["9시"]]
+
+
+def test_snooze_returns_after_five_minutes_unless_deleted(qtbot):
+    keep = db.add_schedule("2026-10-15", "유지", options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    gone = db.add_schedule("2026-10-15", "삭제", options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 15, 14, 59))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 15, 0, 1)
+    scheduler.check()
+    scheduler.snooze(emitted[0][0])
+    db.delete_schedule(gone)
+    clock.value = datetime(2026, 10, 15, 15, 4)
+    scheduler.check()
+    assert len(emitted) == 1
+    clock.value = datetime(2026, 10, 15, 15, 5, 2)
+    scheduler.check()
+    assert [item.schedule_id for item in emitted[1][0]] == [keep]
+
+
+def test_stop_persists_last_check_only_when_alarms_exist(qtbot):
+    clock = Clock(datetime(2026, 10, 15, 9, 0))
+    scheduler, _emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    scheduler.stop(persist=True)
+    assert db.get_setting(KEY, "") == ""
+    db.add_schedule("2026-10-20", "알림", options=ScheduleOptions(alarm_before=0))
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 9, 0, 40)
+    scheduler.check()
+    clock.value = datetime(2026, 10, 15, 9, 1, 10)
+    scheduler.stop(persist=True)
+    assert db.get_setting(KEY, "") == "2026-10-15T09:00:40"
+    assert not scheduler.is_running()
+
+
+def item(sid, content, *, start_time="15:00", day="2026-10-15", color="#4CC9F0", failed=False):
+    return AlarmItem(sid, day, datetime(2026, 10, 15, 14, 50) + timedelta(seconds=sid),
+                     content, color, start_time, failed)
+
+
+def visible_titles(card):
+    return [label.text() for label in card.findChildren(ui_main.QLabel, "scheduleAlarmItemTitle")
+            if label.isVisibleTo(card)]
+
+
+def card_window(qtbot):
+    win = MainCalendarWindow()
+    qtbot.addWidget(win)
+    win.show()
+    win._current_year, win._current_month = 2026, 10
+    win._refresh_calendar()
+    QApplication.processEvents()
+    return win
+
+
+def test_card_rows_plain_text_lock_and_beep(qtbot, isolated_ui):
+    win = card_window(qtbot)
+    items = [item(1, "<b>부서 회의</b>"), item(2, "보고서"), item(3, "", failed=True),
+             item(4, "종일", start_time="")]
+    win._on_schedule_alarms(items, False)
+    card = win._alarm_card
+    assert card.isVisible() and isinstance(card, ScheduleAlarmCard)
+    assert card.title_label.text() == "일정 알림 4건"
+    assert visible_titles(card) == ["15:00 <b>부서 회의</b>", "15:00 보고서", "15:00 내용을 읽을 수 없는 일정"]
+    assert card.more_label.text() == "외 1건"
+    assert card.snooze_button.isVisible()
+    assert isolated_ui == [1]
+    win._lock()
+    QApplication.processEvents()
+    assert card.is_locked_view()
+    assert visible_titles(card) == []
+    assert card.findChild(ui_main.QLabel, "scheduleAlarmLocked").text() == "PIN 잠금 중이라 내용을 숨겼습니다."
+    assert not card.snooze_button.isVisible()
+    win._unlock()
+    QApplication.processEvents()
+    assert len(visible_titles(card)) == 3
+
+
+def test_missed_card_has_only_ok_and_sits_bottom_right(qtbot):
+    win = card_window(qtbot)
+    win._on_schedule_alarms([item(1, "놓친 회의")], True)
+    card = win._alarm_card
+    assert not card.snooze_button.isVisible() and card.ok_button.isVisible()
+    available = card.screen().availableGeometry()
+    frame = card.frame.geometry().translated(card.pos())
+    assert abs(frame.right() + 1 - (available.right() + 1 - 12)) <= 1
+    assert abs(frame.bottom() + 1 - (available.bottom() + 1 - 12)) <= 1
+
+
+def test_card_click_opens_date_and_closes(qtbot):
+    db.add_schedule("2026-10-20", "회의", options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    win = card_window(qtbot)
+    win._minimize_to_tray()
+    win._on_schedule_alarms([item(1, "회의", day="2026-10-20")], False)
+    card = win._alarm_card
+    qtbot.mouseClick(card, Qt.LeftButton, pos=card.frame.geometry().center())
+    qtbot.waitUntil(lambda: win._alarm_card is None or not isValid(card))
+    assert win.isVisible()
+    assert win._selected_date == "2026-10-20"
+
+
+def test_reset_quit_close_card_and_restart_engine(qtbot):
+    db.add_schedule("2026-10-20", "알림", options=ScheduleOptions(alarm_before=0))
+    win = card_window(qtbot)
+    qtbot.waitUntil(lambda: win._schedule_alarm_scheduler.is_running())
+    win._on_schedule_alarms([item(1, "회의")], False)
+    card = win._alarm_card
+    win._discard_data_widgets()
+    assert not win._schedule_alarm_scheduler.is_running()
+    qtbot.waitUntil(lambda: not isValid(card) or not card.isVisible())
+    win._on_import_complete()
+    assert win._schedule_alarm_scheduler.is_running()
+    win._on_schedule_alarms([item(2, "다시")], False)
+    card = win._alarm_card
+    assert win.prepare_for_quit()
+    assert not win._schedule_alarm_scheduler.is_running()
+    qtbot.waitUntil(lambda: not isValid(card) or not card.isVisible())
+    assert db.get_setting(KEY, "") != ""
+
+
+def test_window_without_alarms_leaves_settings_unchanged(qtbot):
+    db.add_schedule("2026-10-15", "알림 없는 일정")
+    with db._connection() as conn:
+        before = [tuple(row) for row in conn.execute("SELECT * FROM app_settings ORDER BY key")]
+    win = card_window(qtbot)
+    qtbot.waitUntil(lambda: win._schedule_alarm_scheduler.is_running())
+    assert win.prepare_for_quit()
+    with db._connection() as conn:
+        assert [tuple(row) for row in conn.execute("SELECT * FROM app_settings ORDER BY key")] == before

@@ -418,6 +418,7 @@ from ui_schedule_options import (
     ElidePaintMixin, ScheduleOptionsButton, ScheduleOptionsPills, icon_pixmap,
 )
 from ui_calendar_spans import CalendarSpanOverlay, SpanBar
+from ui_schedule_alarm import ScheduleAlarmCard, ScheduleAlarmScheduler
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
 import optional_mini_apps
@@ -1517,6 +1518,9 @@ class MainCalendarWindow(QWidget):
         self._show_desktop_keeper.guard(self)
 
         self._list_reload_pending = False  # 다른 줄을 편집 중이라 미룬 목록 다시 만들기
+        self._alarm_card = None
+        self._schedule_alarm_scheduler = ScheduleAlarmScheduler(self)
+        self._schedule_alarm_scheduler.alarms_ready.connect(self._on_schedule_alarms)
         self._build_ui()
         self._apply_sidebar_visibility()
         self._apply_calendar_scale()
@@ -1539,6 +1543,9 @@ class MainCalendarWindow(QWidget):
         # 업그레이드 정리 안내(정리된 위젯이 있을 때만, 창 표시 후 모달)
         if self._widget_trim_result.get("focus") or self._widget_trim_result.get("dday"):
             QTimer.singleShot(1500, self._warn_widget_trim)
+
+        # 일정 알림은 창이 뜬 뒤 시작한다(놓친 알림은 지난 12시간 것만).
+        QTimer.singleShot(0, self, self._schedule_alarm_scheduler.start)
 
         # ── 화면 변경 감지 (듀얼 모니터/GPU 전환) ──
         self._screen_change_timer = QTimer(self)
@@ -2842,6 +2849,7 @@ class MainCalendarWindow(QWidget):
         self._remove_schedule_item(item)
         self._refresh_month_data()
         self._update_count()
+        self._schedule_alarm_scheduler.refresh()
 
     def _on_delete_schedule(self, item: QListWidgetItem, schedule_id: int):
         if self._is_locked:
@@ -2853,6 +2861,7 @@ class MainCalendarWindow(QWidget):
             self._remove_schedule_item(item)
             self._refresh_cell_for_date(self._selected_date)
             self._update_count()
+            self._schedule_alarm_scheduler.refresh()
         except (sqlite3.Error, OSError, ValueError):
             InfoBar.error(
                 title="삭제 오류",
@@ -3048,6 +3057,7 @@ class MainCalendarWindow(QWidget):
             self._list_reload_pending = True  # 다른 줄을 편집 중이면 끝난 뒤에 다시 만든다.
         elif self._load_schedules() and highlight_id is not None:
             self._highlight_schedule(highlight_id)
+        self._schedule_alarm_scheduler.refresh()
 
     def _highlight_schedule(self, schedule_id: int) -> None:
         """추가 직후 새 줄을 1.2초 동안 연한 파랑으로 보인다."""
@@ -3063,6 +3073,44 @@ class MainCalendarWindow(QWidget):
                 row.setStyleSheet("#scheduleRowNew { background: #EFF6FF; border-radius: 6px; }")
                 QTimer.singleShot(1200, row, lambda r=row: r.setStyleSheet(""))
             return
+
+    # ─── 일정 알림 ─────────────────────────────────────────────
+    def _alarm_screen(self):
+        if self.isVisible() and self.screen() is not None:
+            return self.screen()
+        return self._get_target_screen() or QApplication.primaryScreen()
+
+    def _on_schedule_alarms(self, items: list, missed: bool) -> None:
+        card = self._alarm_card
+        if card is None or not isValid(card):
+            card = ScheduleAlarmCard()
+            card.snooze_requested.connect(self._schedule_alarm_scheduler.snooze)
+            card.open_date_requested.connect(self._open_alarm_date)
+            card.destroyed.connect(lambda *_args, c=card: self._forget_alarm_card(c))
+            self.destroyed.connect(card.close)
+            self._alarm_card = card
+        card.add_items(items, missed=missed, locked=self._is_locked,
+                       now=self._schedule_alarm_scheduler.last_check())
+        card.show_at(self._alarm_screen())
+        QApplication.beep()  # Windows 기본 알림음(사운드 설정을 따른다)
+
+    def _open_alarm_date(self, date_str: str) -> None:
+        if self._is_locked:
+            return
+        if not self.isVisible():
+            self.toggle_visibility()
+        self.raise_()
+        self.activateWindow()
+        self._navigate_to_date(date_str)
+
+    def _forget_alarm_card(self, card) -> None:
+        if self._alarm_card is card:  # 늦게 지워진 예전 카드가 새 카드 참조를 지우지 않게 한다.
+            self._alarm_card = None
+
+    def _close_alarm_card(self) -> None:
+        if self._alarm_card is not None and isValid(self._alarm_card):
+            self._alarm_card.close()
+        self._alarm_card = None
 
     def _update_count(self):
         n = self.schedule_list.count()
@@ -3861,6 +3909,8 @@ class MainCalendarWindow(QWidget):
         self._hide_optional_mini_apps()
         self._finish_calendar_move_edit()
         self._close_schedule_emoji_popups()
+        self._schedule_alarm_scheduler.stop()
+        self._close_alarm_card()
         self._set_pending_options(ScheduleOptions())
         self._cancel_sticky_file_links()
         if self._finish_current_edit:
@@ -3918,6 +3968,8 @@ class MainCalendarWindow(QWidget):
         if self._sticky_in_panel_mode and self._sticky_side_panel is not None:
             if not self._sticky_side_panel.reload():
                 self._show_sticky_handoff_error()
+        # 가져오기는 다시 계산만 하고(이미 지난 알림은 울리지 않는다), 멈춰 있으면(초기화 뒤) 다시 시작한다.
+        self._schedule_alarm_scheduler.start()
 
     def _on_law_search_changed(self):
         """설정에서 법령검색 토글 변경 시 검색바 표시/숨김"""
@@ -4000,6 +4052,9 @@ class MainCalendarWindow(QWidget):
             self._discard_money_notation()
             self._discard_document_converter()
             self._discard_optional_mini_apps()
+            self._close_schedule_emoji_popups()
+            self._schedule_alarm_scheduler.stop(persist=True)
+            self._close_alarm_card()
             return True
         _logger.error("스티키 노트 저장 실패로 앱 종료를 보류합니다")
         if not self.isVisible():
@@ -4184,6 +4239,8 @@ class MainCalendarWindow(QWidget):
             if event_type == b"windows_generic_MSG":
                 msg = wintypes.MSG.from_address(int(message))
 
+                if msg.message == WM_POWERBROADCAST and msg.wParam == PBT_APMRESUMESUSPEND:
+                    self._schedule_alarm_scheduler.resume()
                 should_lock = (
                     (msg.message == WM_POWERBROADCAST and msg.wParam == PBT_APMRESUMESUSPEND) or
                     (msg.message == WM_WTSSESSION_CHANGE and msg.wParam == WTS_SESSION_UNLOCK)
@@ -4653,6 +4710,8 @@ class MainCalendarWindow(QWidget):
         self._finish_calendar_move_edit()
         self._cancel_sticky_file_links()
         self._close_schedule_emoji_popups()
+        if self._alarm_card is not None and isValid(self._alarm_card):
+            self._alarm_card.set_locked(True)
         # 잠금 당시 실행 중인 파일/확인 대화상자는 취소한다.
         modal = QApplication.activeModalWidget()
         if isinstance(modal, QDialog):
@@ -4685,6 +4744,8 @@ class MainCalendarWindow(QWidget):
     def _unlock(self):
         self._is_locked = False
         self._update_calendar_move_control()
+        if self._alarm_card is not None and isValid(self._alarm_card):
+            self._alarm_card.set_locked(False)
         if hasattr(self, "lock_overlay"):
             self.lock_overlay.hide()
 
