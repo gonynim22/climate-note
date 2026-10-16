@@ -180,3 +180,122 @@ def test_v17_upgrade_with_legacy_key_rows_keeps_plaintext(app_dir):
     rows = db.get_schedules("2026-10-20")
     assert [row["content"] for row in rows] == ["구 키 일정"]
     assert rows[0]["options"] == ScheduleOptions()
+
+
+import time
+from datetime import datetime
+
+
+def test_add_with_options_and_read_back(app_dir):
+    sid = db.add_schedule("2026-10-15", "부서 회의", "#4CC9F0",
+                          options=ScheduleOptions(start_time="15:00", repeat_rule="weekly", alarm_before=10))
+    entry = db.get_schedules("2026-10-22")[0]
+    assert (entry["id"], entry["date"], entry["occurrence_date"], entry["content"]) == (
+        sid, "2026-10-15", "2026-10-22", "부서 회의")
+    assert entry["options"] == ScheduleOptions(start_time="15:00", repeat_rule="weekly", alarm_before=10)
+    assert (entry["shows_time"], entry["start_time"], entry["span_start"], entry["span_end"]) == (
+        True, "15:00", "2026-10-22", "2026-10-22")
+    assert db.get_schedules("2026-10-21") == []
+
+
+def test_invalid_options_write_nothing(app_dir):
+    with pytest.raises(ValueError):
+        db.add_schedule("2026-10-15", "x", options=ScheduleOptions(repeat_rule="daily", end_date="2026-10-16"))
+    with db._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 0
+
+
+def test_day_order_all_day_first_then_time(app_dir):
+    late = db.add_schedule("2026-10-15", "16시", options=ScheduleOptions(start_time="16:00"))
+    allday = db.add_schedule("2026-10-15", "종일")
+    early = db.add_schedule("2026-10-15", "9시", options=ScheduleOptions(start_time="09:00"))
+    period = db.add_schedule("2026-10-14", "기간", options=ScheduleOptions(start_time="08:00", end_date="2026-10-16"))
+    assert [e["id"] for e in db.get_schedules("2026-10-15")] == [allday, period, early, late]
+    first_day = db.get_schedules("2026-10-14")
+    assert [e["id"] for e in first_day] == [period]
+    assert first_day[0]["shows_time"] is True
+    assert db.get_schedules("2026-10-15")[1]["shows_time"] is False
+    assert (db.get_schedules("2026-10-15")[1]["span_start"],
+            db.get_schedules("2026-10-15")[1]["span_end"]) == ("2026-10-14", "2026-10-16")
+
+
+def test_get_occurrences_expands_repeat_and_period_and_keeps_legacy_strings(app_dir):
+    """Review Focus 1: 형식이 다른 옛 날짜는 지금처럼 문자열 그대로만 맞춘다(멈추지 않음)."""
+    weekly = db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(start_time="10:00", repeat_rule="weekly"))
+    db.add_schedule("2026-10-30", "출장", options=ScheduleOptions(end_date="2026-11-02"))
+    with db._connection() as conn:
+        conn.execute("INSERT INTO schedules (date, content, created_at, color) VALUES (?, ?, ?, ?)",
+                     ("2026-10-7", security.encrypt("옛 형식"), "2026-01-01 00:00:00", "#FFD166"))
+        conn.commit()
+    month = db.get_occurrences("2026-10-01", "2026-10-31")
+    assert sorted(day for day, entries in month.items() if any(e["id"] == weekly for e in entries)) == [
+        "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"]
+    assert [e["span_end"] for e in month["2026-10-31"]] == ["2026-11-02"]
+    assert "2026-10-7" not in month
+    assert [e["content"] for e in db.get_schedules("2026-10-7")] == ["옛 형식"]
+
+
+def test_skip_occurrence_only_hides_that_day(app_dir):
+    sid = db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(repeat_rule="weekly"))
+    db.skip_schedule_occurrence(sid, "2026-10-12")
+    assert db.get_schedules("2026-10-12") == []
+    assert [e["id"] for e in db.get_schedules("2026-10-19")] == [sid]
+    assert db.get_schedules("2026-10-19")[0]["options"].repeat_skip == ("2026-10-12",)
+    with pytest.raises(ValueError, match="그 날"):
+        db.skip_schedule_occurrence(sid, "2026-10-13")
+    single = db.add_schedule("2026-10-05", "하루")
+    with pytest.raises(ValueError, match="반복"):
+        db.skip_schedule_occurrence(single, "2026-10-05")
+
+
+def test_update_options_replaces_all_fields_and_validates_against_start(app_dir):
+    sid = db.add_schedule("2026-10-15", "회의", options=ScheduleOptions(start_time="09:00", alarm_before=10))
+    db.update_schedule(sid, options=ScheduleOptions(repeat_rule="daily"))
+    assert db.get_schedules("2026-10-16")[0]["options"] == ScheduleOptions(repeat_rule="daily")
+    with pytest.raises(ValueError):
+        db.update_schedule(sid, content="바뀌면 안 됨", options=ScheduleOptions(repeat_until="2026-10-01"))
+    assert db.get_schedules("2026-10-15")[0]["content"] == "회의"
+    db.update_schedule(sid, options=ScheduleOptions())
+    assert db.get_schedules("2026-10-16") == []
+    with pytest.raises(ValueError, match="없습니다"):
+        db.update_schedule(9999, options=ScheduleOptions(start_time="09:00"))
+
+
+def test_get_alarm_occurrences_window_and_order(app_dir):
+    a = db.add_schedule("2026-10-15", "부서 회의", "#4CC9F0",
+                        options=ScheduleOptions(start_time="15:00", alarm_before=10))
+    b = db.add_schedule("2026-10-16", "보고 마감", options=ScheduleOptions(alarm_before=1440))
+    db.add_schedule("2026-10-15", "알림 없음", options=ScheduleOptions(start_time="15:00"))
+    items = db.get_alarm_occurrences(datetime(2026, 10, 15, 8, 0), datetime(2026, 10, 15, 15, 0))
+    assert [(i.schedule_id, i.occurrence_date, i.due) for i in items] == [
+        (b, "2026-10-16", datetime(2026, 10, 15, 9, 0)),
+        (a, "2026-10-15", datetime(2026, 10, 15, 14, 50))]
+    assert (items[1].content, items[1].start_time, items[1].color) == ("부서 회의", "15:00", "#4CC9F0")
+    assert db.get_alarm_occurrences(datetime(2026, 10, 15, 15, 0), datetime(2026, 10, 15, 15, 0)) == []
+
+
+def test_has_schedule_alarms(app_dir):
+    assert db.has_schedule_alarms() is False
+    sid = db.add_schedule("2026-10-15", "알림", options=ScheduleOptions(alarm_before=0))
+    assert db.has_schedule_alarms() is True
+    db.update_schedule(sid, options=ScheduleOptions())
+    assert db.has_schedule_alarms() is False
+
+
+def test_search_results_carry_period_and_repeat(app_dir):
+    db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(repeat_rule="weekly"))
+    result = db.search_all("주간")[0]
+    assert (result["date"], result["repeat_rule"], result["end_date"]) == ("2026-10-05", "weekly", "")
+
+
+def test_month_expansion_stays_fast_with_many_repeats(app_dir):
+    with db._connection() as conn:
+        conn.executemany(
+            "INSERT INTO schedules (date, content, created_at, color, repeat_rule) VALUES (?, ?, ?, ?, ?)",
+            [("2025-01-01", security.encrypt(f"반복 {i}"), "2025-01-01 00:00:00", "#FFD166", "daily")
+             for i in range(1000)])
+        conn.commit()
+    started = time.perf_counter()
+    month = db.get_occurrences("2026-10-01", "2026-10-31")
+    assert len(month["2026-10-15"]) == 1000
+    assert time.perf_counter() - started < 5.0

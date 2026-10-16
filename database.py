@@ -7,14 +7,18 @@ import hashlib
 import shutil
 import uuid
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet, InvalidToken
 import security
 from app_info import APP_VERSION
+from schedule_rules import (
+    AlarmItem, ScheduleOptions, alarm_times, occurrence_dates, occurrence_sort_key,
+    parse_date, validate_options,
+)
 from security import APP_DIR, encrypt, decrypt, legacy_decrypt, audit, validate_app_path
 
 _logger = logging.getLogger("app_error")
@@ -857,46 +861,107 @@ def migrate(*, initial_calendar_scale: str | None = None) -> None:
 
 
 # ─── schedules CRUD ───────────────────────────────────────────
+_SCHEDULE_SELECT = (
+    "SELECT id, date, content, created_at, color, start_time, end_date, "
+    "repeat_rule, repeat_until, repeat_skip, alarm_before FROM schedules "
+)
+_SCHEDULE_INSERT = (
+    "INSERT INTO schedules (date, content, created_at, color, start_time, end_date, "
+    "repeat_rule, repeat_until, repeat_skip, alarm_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+
+
+def _decrypt_schedule(ciphertext: str) -> tuple[str, bool]:
+    """일정 본문 복호화(구 키 재시도). 실패하면 ('[복호화 오류]', True)."""
+    try:
+        return decrypt(ciphertext), False
+    except (InvalidToken, ValueError, TypeError):
+        try:
+            return legacy_decrypt(ciphertext), False
+        except (InvalidToken, ValueError, TypeError):
+            return "[복호화 오류]", True
+
+
+def _candidate_rows(conn, first: str, last: str) -> list:
+    """[first, last]에 나타날 수 있는 행만 고른다(펼치기는 schedule_rules가 한다)."""
+    return conn.execute(
+        _SCHEDULE_SELECT
+        + "WHERE date <= ? AND (date >= ? OR end_date >= ? OR repeat_rule != '') ORDER BY id ASC",
+        (last, first, first),
+    ).fetchall()
+
+
+def _occurrence_days(row, first: str, last: str) -> list[str]:
+    options = ScheduleOptions.from_row(row)
+    if not options.end_date and not options.repeat_rule:
+        # 기존 하루 일정: 저장된 문자열 그대로 비교한다(형식이 조금 다른 옛 날짜도 지금처럼 동작).
+        return [row["date"]] if first <= row["date"] <= last else []
+    try:
+        found = occurrence_dates(row["date"], options, parse_date(first), parse_date(last))
+    except ValueError as exc:
+        _logger.warning("일정 반복·기간 해석 실패 (id=%s): %s", row["id"], exc)
+        return [row["date"]] if first <= row["date"] <= last else []
+    return [day.isoformat() for day in found]
+
+
+def _schedule_entry(row, day: str, content: str, failed: bool) -> dict:
+    options = ScheduleOptions.from_row(row)
+    is_period = bool(options.end_date)
+    return {
+        "id": row["id"],
+        "date": row["date"],
+        "content": content,
+        "created_at": row["created_at"],
+        "color": row["color"] or DEFAULT_SCHEDULE_COLOR,
+        "_decryption_failed": failed,
+        "options": options,
+        "occurrence_date": day,
+        # 기간은 전체 범위, 하루·반복은 그 날 하루가 이 항목의 범위다.
+        "span_start": row["date"] if is_period else day,
+        "span_end": options.end_date if is_period else day,
+        "start_time": options.start_time,
+        # 기간은 첫날에만 시각을 보이고, 반복은 나타나는 날마다 보인다.
+        "shows_time": bool(options.start_time) and (not is_period or day == row["date"]),
+    }
+
+
+def _expand_rows(rows, first: str, last: str) -> dict[str, list[dict]]:
+    result: dict[str, list[dict]] = {}
+    for row in rows:
+        found = _occurrence_days(row, first, last)
+        if not found:
+            continue
+        content, failed = _decrypt_schedule(row["content"])
+        for day in found:
+            result.setdefault(day, []).append(_schedule_entry(row, day, content, failed))
+    for entries in result.values():
+        entries.sort(key=lambda e: occurrence_sort_key(e["shows_time"], e["start_time"], e["id"]))
+    return result
+
+
 def get_schedules(date: str) -> list[dict]:
-    """특정 날짜의 일정 조회 (복호화 후 반환)"""
+    """그 날 나타나는 일정(하루·기간·반복)을 순서대로 반환한다(복호화)."""
     with _connection() as conn:
-        rows = conn.execute(
-            "SELECT id, date, content, created_at, color FROM schedules "
-            "WHERE date = ? ORDER BY id ASC",
-            (date,)
-        ).fetchall()
-        result = []
-        for row in rows:
-            failed = False
-            try:
-                content = decrypt(row["content"])
-            except (InvalidToken, ValueError, TypeError):
-                # 구 키(MAC 기반)로 복호화 시도
-                try:
-                    content = legacy_decrypt(row["content"])
-                except (InvalidToken, ValueError, TypeError):
-                    content = "[복호화 오류]"
-                    failed = True
-            result.append({
-                "id": row["id"],
-                "date": row["date"],
-                "content": content,
-                "created_at": row["created_at"],
-                "color": row["color"] or DEFAULT_SCHEDULE_COLOR,
-                "_decryption_failed": failed,
-            })
-        return result
+        rows = _candidate_rows(conn, date, date)
+    return _expand_rows(rows, date, date).get(date, [])
+
+
+def get_occurrences(start: str, end: str) -> dict[str, list[dict]]:
+    """[start, end] 날짜마다 나타나는 일정(달력 한 화면용, 정렬·복호화)."""
+    with _connection() as conn:
+        rows = _candidate_rows(conn, start, end)
+    return _expand_rows(rows, start, end)
 
 
 def get_all_schedule_dates() -> set[str]:
-    """일정이 있는 날짜 목록 (달력 dot 표시용)"""
+    """원본 시작일 기준 날짜 목록(반복·기간 미전개). 화면은 get_occurrences를 쓴다."""
     with _connection() as conn:
         rows = conn.execute("SELECT DISTINCT date FROM schedules").fetchall()
         return {row["date"] for row in rows}
 
 
 def get_all_schedule_date_colors() -> dict[str, list[str]]:
-    """일정이 있는 날짜별 고유 색상 목록 (달력 색상 사각형 표시용)"""
+    """원본 시작일 기준 날짜별 고유 색(반복·기간 미전개). 화면은 get_occurrences를 쓴다."""
     with _connection() as conn:
         rows = conn.execute("SELECT date, color FROM schedules").fetchall()
         result: dict[str, set[str]] = {}
@@ -911,7 +976,7 @@ def get_all_schedule_date_colors() -> dict[str, list[str]]:
 
 
 def get_all_schedule_date_counts() -> dict[str, int]:
-    """일정이 있는 날짜별 총 일정 수 (달력 개수 표시용)"""
+    """원본 시작일 기준 날짜별 일정 수(반복·기간 미전개). 화면은 get_occurrences를 쓴다."""
     with _connection() as conn:
         rows = conn.execute(
             "SELECT date, COUNT(*) AS n FROM schedules GROUP BY date"
@@ -920,7 +985,7 @@ def get_all_schedule_date_counts() -> dict[str, int]:
 
 
 def get_schedules_for_month(year: int, month: int) -> dict[str, list[dict]]:
-    """해당 연/월 일정을 날짜별로 묶어 rowid 순으로 반환."""
+    """원본 시작일 기준 그 달 일정(반복·기간 미전개). 화면은 get_occurrences를 쓴다."""
     month_prefix = f"{year:04d}-{month:02d}-"
     with _connection() as conn:
         rows = conn.execute(
@@ -937,20 +1002,31 @@ def get_schedules_for_month(year: int, month: int) -> dict[str, list[dict]]:
         return result
 
 
-def add_schedule(date: str, content: str, color: str = DEFAULT_SCHEDULE_COLOR) -> int:
-    """일정 추가 (암호화 저장), 생성된 id 반환"""
+def add_schedule(date: str, content: str, color: str = DEFAULT_SCHEDULE_COLOR, *,
+                 options: ScheduleOptions | None = None) -> int:
+    """일정 추가(본문 암호화). 세부 설정이 있으면 먼저 검증하고 실패하면 아무것도 쓰지 않는다."""
+    options = options or ScheduleOptions()
+    if not options.is_default:
+        options = validate_options(date, options)
     with _connection() as conn:
         cur = conn.execute(
-            "INSERT INTO schedules (date, content, created_at, color) VALUES (?, ?, ?, ?)",
-            (date, encrypt(content), _now_str(), color)
+            _SCHEDULE_INSERT,
+            (date, encrypt(content), _now_str(), color, *options.to_db_values()),
         )
         conn.commit()
         return cur.lastrowid
 
 
-def update_schedule(schedule_id: int, content: str = None, color: str = None) -> None:
-    """일정 수정 (내용 또는 색상, 암호화 저장)"""
+def update_schedule(schedule_id: int, content: str = None, color: str = None, *,
+                    options: ScheduleOptions | None = None) -> None:
+    """일정 수정. options를 주면 세부 설정 여섯 칸을 한 번에 바꾼다(검증 실패 시 아무것도 안 씀)."""
     with _connection() as conn:
+        if options is not None:
+            row = conn.execute("SELECT date FROM schedules WHERE id = ?", (schedule_id,)).fetchone()
+            if row is None:
+                raise ValueError("수정할 일정이 없습니다.")
+            if not options.is_default:
+                options = validate_options(row["date"], options)
         if content is not None:
             conn.execute(
                 "UPDATE schedules SET content = ? WHERE id = ?",
@@ -961,7 +1037,76 @@ def update_schedule(schedule_id: int, content: str = None, color: str = None) ->
                 "UPDATE schedules SET color = ? WHERE id = ?",
                 (color, schedule_id),
             )
+        if options is not None:
+            conn.execute(
+                "UPDATE schedules SET start_time = ?, end_date = ?, repeat_rule = ?, "
+                "repeat_until = ?, repeat_skip = ?, alarm_before = ? WHERE id = ?",
+                (*options.to_db_values(), schedule_id),
+            )
         conn.commit()
+
+
+def skip_schedule_occurrence(schedule_id: int, day: str) -> None:
+    """반복 일정의 그 날 하나만 지운다(건너뛴 날에 더함)."""
+    with _connection() as conn:
+        row = conn.execute(_SCHEDULE_SELECT + "WHERE id = ?", (schedule_id,)).fetchone()
+        if row is None:
+            raise ValueError("일정이 없습니다.")
+        options = ScheduleOptions.from_row(row)
+        if not options.repeat_rule:
+            raise ValueError("반복 일정이 아닙니다.")
+        target = parse_date(day)
+        if not occurrence_dates(row["date"], options, target, target):
+            raise ValueError("그 날에는 이 일정이 없습니다.")
+        updated = validate_options(row["date"], replace(options, repeat_skip=options.repeat_skip + (day,)))
+        conn.execute(
+            "UPDATE schedules SET repeat_skip = ? WHERE id = ?",
+            (",".join(updated.repeat_skip), schedule_id),
+        )
+        conn.commit()
+
+
+def get_alarm_occurrences(after: datetime, until: datetime) -> list[AlarmItem]:
+    """after < 알림 ≤ until 인 알림을 알림 시각·ID 순으로 반환한다."""
+    if until <= after:
+        return []
+    first = (after.date() - timedelta(days=1)).isoformat()
+    last = (until.date() + timedelta(days=2)).isoformat()
+    with _connection() as conn:
+        rows = conn.execute(
+            _SCHEDULE_SELECT
+            + "WHERE alarm_before IS NOT NULL AND date <= ? "
+            "AND (date >= ? OR end_date >= ? OR repeat_rule != '') ORDER BY id ASC",
+            (last, first, first),
+        ).fetchall()
+    items = []
+    for row in rows:
+        options = ScheduleOptions.from_row(row)
+        if options.alarm_before is None:
+            continue
+        try:
+            dues = alarm_times(row["date"], options, after, until)
+        except ValueError as exc:
+            _logger.warning("일정 알림 시각 계산 실패 (id=%s): %s", row["id"], exc)
+            continue
+        if not dues:
+            continue
+        content, failed = _decrypt_schedule(row["content"])
+        for day, due in dues:
+            items.append(AlarmItem(
+                row["id"], day.isoformat(), due, content,
+                row["color"] or DEFAULT_SCHEDULE_COLOR, options.start_time, failed,
+            ))
+    items.sort(key=lambda item: (item.due, item.schedule_id))
+    return items
+
+
+def has_schedule_alarms() -> bool:
+    """알림이 켜진 일정이 하나라도 있는지(정상 종료 때 알림 처리 시각을 남길지 판단)."""
+    with _connection() as conn:
+        return conn.execute(
+            "SELECT 1 FROM schedules WHERE alarm_before IS NOT NULL LIMIT 1"
+        ).fetchone() is not None
 
 
 def delete_schedule(schedule_id: int) -> None:
@@ -989,7 +1134,8 @@ def search_all(keyword: str, limit: int = 500) -> list[dict]:
     results = []
     with _connection() as conn:
         # 일정 검색 (cursor iteration)
-        for row in conn.execute("SELECT id, date, content, created_at, color FROM schedules"):
+        for row in conn.execute(
+                "SELECT id, date, content, created_at, color, end_date, repeat_rule FROM schedules"):
             content = _safe_decrypt(row["content"])
             if not content:
                 continue
@@ -998,7 +1144,9 @@ def search_all(keyword: str, limit: int = 500) -> list[dict]:
                     "type": "일정",
                     "date": row["date"],
                     "content": content,
-                    "color": row["color"] or DEFAULT_SCHEDULE_COLOR
+                    "color": row["color"] or DEFAULT_SCHEDULE_COLOR,
+                    "end_date": row["end_date"] or "",
+                    "repeat_rule": row["repeat_rule"] or "",
                 })
                 if len(results) >= limit:
                     break
