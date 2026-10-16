@@ -25,6 +25,10 @@ else:
     from verify import ROOT, file_hash, inside, read_json, write_json
 
 
+# 앱의 ui_main.UPGRADE_NOTICE_TITLE과 같아야 한다(tests/test_upgrade_notice.py가 대조한다).
+UPGRADE_NOTICE_TITLE = "기후노트 업데이트 안내"
+
+
 class _BasicLimits(ctypes.Structure):
     _fields_ = [("PerProcessUserTimeLimit", ctypes.c_longlong),
                 ("PerJobUserTimeLimit", ctypes.c_longlong), ("LimitFlags", W.DWORD),
@@ -441,9 +445,12 @@ def scenario(exe, run_dir, name):
                     accept_first_run_setup(job, setup[0])
                     setup_seen = True
             errors = [w for w in observed if w["title"] == expected_error and w["responding"]]
+            notices = [w for w in observed if w["title"] == UPGRADE_NOTICE_TITLE and w["responding"]]
+            if notices and name != "upgrade":
+                raise RuntimeError(f"{name}: 업그레이드가 아닌데 업데이트 안내창이 표시됐습니다.")
             app_windows = [w for w in observed if w["width"] >= 350 and w["height"] >= 450
                            and w["responding"] and w["title"] not in
-                           (expected_error, "기후노트 — 처음 설정")]
+                           (expected_error, "기후노트 — 처음 설정", UPGRADE_NOTICE_TITLE)]
             if name == "blocked":
                 ready = bool(errors) and not app_windows
             else:
@@ -451,7 +458,7 @@ def scenario(exe, run_dir, name):
                     raise RuntimeError(f"{name}: 정상 데이터로 시작이 차단됐습니다.")
                 ready = bool(app_windows) and any(
                     (data_root / "MyDesktopCalendar" / "backups").glob("calendar_auto_*.cnbak")
-                )
+                ) and (name != "upgrade" or bool(notices))
             if ready:
                 break
             time.sleep(0.2)

@@ -428,6 +428,7 @@ from ui_date_time_calculator import DateTimeCalculatorWindow
 from ui_money_notation import MoneyNotationWindow
 from ui_document_converter import DocumentConverterWindow
 
+from app_info import APP_VERSION
 import database as db
 from show_desktop_guard import ShowDesktopKeeper
 import holidays
@@ -1394,6 +1395,20 @@ class ShortcutSidebarWidget(QWidget):
             visible = bool(slot.path) or not shown_empty
             shown_empty = shown_empty or not slot.path
             slot.setVisible(visible)
+
+
+UPGRADE_NOTICE_TITLE = "기후노트 업데이트 안내"
+
+
+def upgrade_notice_text() -> str:
+    """예전 형식 데이터를 새 형식으로 올린 실행에서 한 번 보이는 안내 본문."""
+    return (
+        f"기후노트 {APP_VERSION}로 업데이트했습니다. 기존 일정·메모·설정은 그대로 옮겼습니다.\n\n"
+        "데이터 형식이 바뀌어 이전 버전 기후노트로는 열 수 없습니다. 이전 버전을 실행하면 "
+        "'데이터 보호를 위해 실행을 중단했습니다' 창이 뜨지만 데이터는 바뀌지 않습니다.\n\n"
+        "이전 버전 EXE 파일과 바탕화면 바로가기는 지워 주세요. "
+        "업데이트 직전 데이터 사본은 데이터 폴더의 backups에 있습니다."
+    )
 
 
 class ScheduleTextLabel(ElidePaintMixin, BodyLabel):
@@ -3700,6 +3715,31 @@ class MainCalendarWindow(QWidget):
         win = self._focus_windows.pop(widget_id, None)
         if win:
             win.deleteLater()
+
+    def show_upgrade_notice(self, previous_version: int) -> None:
+        """예전 형식(DB previous_version) 데이터를 이번 실행에서 올렸을 때 한 번 알린다.
+
+        아무것도 저장하지 않는다. 바탕화면 레이어에 있는 메인 창 뒤로 숨지 않도록 부모 없는
+        맨 위 창으로 띄운다(스티키 닫기 확인과 같은 방식).
+        """
+        from qfluentwidgets import Dialog
+        dlg = Dialog(UPGRADE_NOTICE_TITLE, upgrade_notice_text(), None)
+        dlg.setWindowTitle(UPGRADE_NOTICE_TITLE)  # 제목 줄은 숨겨져 있어도 창 이름은 남긴다
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        # 기본 Dialog는 100자마다 줄을 끊어 넣으므로 원문으로 되돌리고 폭에 맞춰 줄바꿈한다.
+        dlg.contentLabel.setText(upgrade_notice_text())
+        dlg.contentLabel.setWordWrap(True)
+        dlg.setFixedWidth(440)
+        dlg.adjustSize()
+        dlg.cancelButton.hide()
+        dlg.yesButton.setText("확인")
+        screen = ((self.screen() if self.isVisible() else None)
+                  or self._get_target_screen() or QApplication.primaryScreen())
+        available = screen.availableGeometry()
+        dlg.move(available.center() - dlg.rect().center())
+        dlg.exec()
+        dlg.deleteLater()
 
     def _warn_widget_trim(self):
         """업그레이드 시 상한 초과 위젯을 정리했음을 모달로 안내."""

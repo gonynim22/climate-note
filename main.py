@@ -127,8 +127,12 @@ def _make_tray_icon(app: QApplication) -> QSystemTrayIcon:
     return tray
 
 
-def _initialize_database(choose_initial_scale: Callable[[], str | None] | None = None) -> bool:
-    """마이그레이션 전 스냅샷 실패 시 스키마 변경을 시작하지 않는다."""
+def _initialize_database(choose_initial_scale: Callable[[], str | None] | None = None,
+                         on_upgrade: Callable[[int], None] | None = None) -> bool:
+    """마이그레이션 전 스냅샷 실패 시 스키마 변경을 시작하지 않는다.
+
+    on_upgrade: 예전 형식 DB를 이번 실행에서 올렸으면 원래 DB 버전으로 한 번 부른다(업데이트 안내창용).
+    """
     health = db.inspect_startup_data_health()
     if not health.ok:
         raise db.DataHealthError(health)
@@ -151,6 +155,8 @@ def _initialize_database(choose_initial_scale: Callable[[], str | None] | None =
     db.backup_database()
     # v4.0까지의 백업 검증이 데이터 폴더에 남긴 임시 짝 파일 정리 (실패해도 시작 계속)
     db.cleanup_stale_backup_sidecars()
+    if on_upgrade is not None and 0 < health.version < db.CURRENT_SCHEMA_VERSION:
+        on_upgrade(health.version)
     return True
 
 
@@ -241,8 +247,9 @@ def main():
     _popup_border_filter = install_popup_border_fix(app)  # noqa: F841 (참조 유지)
 
     # ── DB 초기화 및 백업
+    upgraded_from = []  # 예전 형식 DB를 이번 실행에서 올렸으면 원래 DB 버전이 들어간다
     try:
-        if not _initialize_database(_choose_initial_calendar_scale):
+        if not _initialize_database(_choose_initial_calendar_scale, on_upgrade=upgraded_from.append):
             return
         apply_app_font(db.get_setting(db.SETTING_APP_FONT, db.DEFAULT_APP_FONT), app)
     except db.DataHealthError as e:
@@ -262,6 +269,9 @@ def main():
     from ui_main import MainCalendarWindow
     main_window = MainCalendarWindow()
     main_window.show()
+    if upgraded_from:
+        # 창이 뜬 뒤 한 번만 알린다. 아무것도 저장하지 않으며, 다음 실행에는 올릴 것이 없어 뜨지 않는다.
+        QTimer.singleShot(800, lambda: main_window.show_upgrade_notice(upgraded_from[0]))
 
     # ── 감사 로그: 앱 실행
     audit("앱 실행", "성공")
