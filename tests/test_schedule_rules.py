@@ -234,3 +234,95 @@ def test_rebase_options_keeps_period_length_and_drops_stale_until():
     assert rules.rebase_options(repeat, START, "2026-10-16") == ScheduleOptions(
         repeat_rule="weekly", repeat_until="2026-10-18")
     assert rules.rebase_options(repeat, START, START) is repeat
+
+
+OCT_WEEKS = [
+    ["", "", "", "", "2026-10-01", "2026-10-02", "2026-10-03"],
+    ["2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10"],
+    ["2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"],
+]
+
+
+def test_week_segments_split_at_week_and_month_edges_and_assign_lanes():
+    spans = {
+        7: ("2026-09-29", "2026-10-02"),   # 지난달에서 이어짐 → 왼쪽 끝이 각짐
+        8: ("2026-10-08", "2026-10-12"),   # 주를 넘김 → 두 조각
+        9: ("2026-10-09", "2026-10-10"),   # 8과 겹침 → 둘째 차선
+    }
+    assert rules.week_segments(OCT_WEEKS, spans) == [
+        rules.SpanSegment(7, 0, 4, 5, False, True, 0),
+        rules.SpanSegment(8, 1, 4, 6, True, False, 0),
+        rules.SpanSegment(9, 1, 5, 6, True, True, 1),
+        rules.SpanSegment(8, 2, 0, 1, False, True, 0),
+    ]
+
+
+def test_lanes_put_longer_span_first_when_starting_together():
+    spans = {1: ("2026-10-11", "2026-10-13"), 2: ("2026-10-11", "2026-10-16")}
+    segments = rules.week_segments(OCT_WEEKS, spans)
+    assert [(s.key, s.lane) for s in segments] == [(2, 0), (1, 1)]
+
+
+def test_korean_captions_and_pills():
+    assert rules.repeat_caption("2026-10-15", "weekly") == "매주 목요일"
+    assert rules.repeat_caption("2026-10-31", "monthly") == "매월 31일 (없는 달은 마지막 날)"
+    assert rules.repeat_caption("2026-10-31", "monthly", note=False) == "매월 31일"
+    assert rules.repeat_caption("2026-10-15", "monthly") == "매월 15일"
+    assert rules.repeat_caption("2028-02-29", "yearly") == "매년 2월 29일 (평년은 2월 28일)"
+    assert rules.repeat_caption("2026-10-15", "weekdays") == "평일(월~금)"
+    assert rules.repeat_caption("2026-10-15", "daily") == "매일"
+    assert rules.repeat_pill("2026-10-15", ScheduleOptions(repeat_rule="weekly", repeat_until="2026-12-31")) == (
+        "매주 목 · ~12.31")
+    assert rules.repeat_pill("2026-10-15", ScheduleOptions(repeat_rule="yearly")) == "매년 10.15"
+    assert rules.time_pill(ScheduleOptions(start_time="15:00", alarm_before=10)) == "15:00 · 10분 전"
+    assert rules.time_pill(ScheduleOptions(start_time="15:00")) == "15:00"
+    assert rules.alarm_label(ScheduleOptions(alarm_before=0), short=True) == "당일 9시"
+    assert rules.alarm_label(ScheduleOptions(alarm_before=1440)) == "하루 전 오전 9시"
+    assert rules.alarm_label(ScheduleOptions(start_time="10:00", alarm_before=60)) == "1시간 전"
+    assert rules.alarm_label(ScheduleOptions()) == ""
+    assert rules.span_pill("2026-10-21", ScheduleOptions(end_date="2026-10-23")) == "~10.23 · 3일"
+    assert rules.range_text("2026-10-21", "2026-10-23") == "10.21~10.23"
+    assert rules.range_text("2026-12-30", "2027-01-02") == "26.12.30~27.01.02"
+    assert rules.korean_date(D("2026-10-15")) == "10월 15일 (목)"
+    assert rules.period_caption("2026-10-21", "2026-10-23") == "10월 21일(수) ~ 23일(금) · 3일"
+    assert rules.period_caption("2026-10-30", "2026-11-02") == "10월 30일(금) ~ 11월 2일(월) · 4일"
+
+
+def test_options_summary_and_search_suffix():
+    weekly = ScheduleOptions(start_time="10:00", repeat_rule="weekly", alarm_before=10)
+    assert rules.options_summary("2026-10-05", weekly) == "10:00 · 10분 전 · 매주 월요일"
+    period = ScheduleOptions(end_date="2026-10-23", alarm_before=0)
+    assert rules.options_summary("2026-10-21", period) == "알림 당일 오전 9시 · 10.21~10.23"
+    until = ScheduleOptions(repeat_rule="daily", repeat_until="2026-12-31")
+    assert rules.options_summary("2026-10-15", until) == "매일 · 12월 31일까지"
+    assert rules.options_summary("2026-10-15", ScheduleOptions()) == ""
+    assert rules.search_suffix("2026-10-05", ScheduleOptions(repeat_rule="weekly")) == " (매주 월요일 반복)"
+    assert rules.search_suffix("2026-10-31", ScheduleOptions(repeat_rule="monthly")) == " (매월 31일 반복)"
+    assert rules.search_suffix("2026-10-21", ScheduleOptions(end_date="2026-10-23")) == " (~10.23)"
+    assert rules.search_suffix("2026-10-21", ScheduleOptions()) == ""
+    assert rules.search_suffix("2026-7-1", ScheduleOptions(repeat_rule="weekly")) == ""
+
+
+def test_alarm_subtitle():
+    now = datetime(2026, 10, 15, 14, 50)
+    assert rules.alarm_subtitle("15:00", D("2026-10-15"), now) == "10분 뒤 시작 · 10월 15일 (목)"
+    assert rules.alarm_subtitle("15:00", D("2026-10-15"), datetime(2026, 10, 15, 15, 0)) == "지금 시작 · 10월 15일 (목)"
+    assert rules.alarm_subtitle("15:00", D("2026-10-15"), datetime(2026, 10, 15, 15, 3)) == (
+        "15:00에 시작함 · 10월 15일 (목)")
+    assert rules.alarm_subtitle("15:00", D("2026-10-15"), datetime(2026, 10, 15, 13, 0)) == "15:00 시작 · 10월 15일 (목)"
+    assert rules.alarm_subtitle("09:00", D("2026-10-16"), now) == "내일 09:00 시작 · 10월 16일 (금)"
+    assert rules.alarm_subtitle("", D("2026-10-15"), now) == "오늘 하루 종일 · 10월 15일 (목)"
+    assert rules.alarm_subtitle("", D("2026-10-16"), now) == "내일 하루 종일 · 10월 16일 (금)"
+    assert rules.alarm_subtitle("", D("2026-10-14"), now) == "하루 종일 · 10월 14일 (수)"
+
+
+def test_until_caption_detail_lines_and_unknown_rule_suffix():
+    assert rules.until_caption("2026-12-31") == "12월 31일(목)까지"
+    weekly = ScheduleOptions(start_time="10:00", repeat_rule="weekly", repeat_until="2026-12-28", alarm_before=10)
+    assert rules.detail_lines("2026-10-05", weekly) == [
+        "시작: 10:00", "매주 월요일 반복 · 끝: 12월 28일(월)까지", "알림: 10분 전"]
+    period = ScheduleOptions(end_date="2026-10-23", alarm_before=0)
+    assert rules.detail_lines("2026-10-21", period) == ["기간: 10.21~10.23 · 3일", "알림: 당일 오전 9시"]
+    assert rules.detail_lines("2026-10-21", ScheduleOptions(repeat_rule="daily")) == ["매일 반복 · 끝: 계속"]
+    assert rules.detail_lines("2026-10-21", ScheduleOptions()) == []
+    assert rules.search_suffix("2026-10-05", ScheduleOptions(repeat_rule="biweekly")) == ""

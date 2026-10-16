@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 import calendar
+import math
 from datetime import date, datetime, time, timedelta
 
 REPEAT_RULES = ("", "daily", "weekdays", "weekly", "monthly", "yearly")
@@ -280,3 +281,210 @@ def rebase_options(options: ScheduleOptions, old_start: str, new_start: str) -> 
     if until and parse_date(until) < parse_date(new_start):
         until = ""
     return replace(options, end_date=end_date, repeat_until=until, repeat_skip=())
+
+
+@dataclass(frozen=True)
+class SpanSegment:
+    """한 주 줄 안의 기간 막대 조각."""
+
+    key: int          # 일정 ID
+    row: int          # 달력의 주 번호(0부터)
+    first_col: int    # 0=일요일
+    last_col: int
+    starts: bool      # 이 조각에서 일정이 시작하는가(왼쪽 둥근 끝)
+    ends: bool        # 이 조각에서 일정이 끝나는가(오른쪽 둥근 끝)
+    lane: int = 0
+
+
+def week_segments(weeks: list[list[str]], spans: dict[int, tuple[str, str]]) -> list[SpanSegment]:
+    """weeks: 주마다 7칸의 'YYYY-MM-DD' 또는 ''(빈칸). spans: 일정 ID → (시작, 끝)."""
+    segments = []
+    for row, days_in_week in enumerate(weeks):
+        for key, (span_start, span_end) in spans.items():
+            cols = [col for col, day in enumerate(days_in_week) if day and span_start <= day <= span_end]
+            if not cols:
+                continue
+            first_col, last_col = cols[0], cols[-1]
+            segments.append(SpanSegment(
+                key, row, first_col, last_col,
+                days_in_week[first_col] == span_start, days_in_week[last_col] == span_end,
+            ))
+    return assign_lanes(segments)
+
+
+def assign_lanes(segments: list[SpanSegment]) -> list[SpanSegment]:
+    """같은 주에서 시작 열·긴 순·ID 순으로 겹치지 않는 가장 위 차선을 준다."""
+    placed = []
+    taken: dict[int, list[list[tuple[int, int]]]] = {}
+    ordered = sorted(segments, key=lambda s: (s.row, s.first_col, -(s.last_col - s.first_col), s.key))
+    for segment in ordered:
+        lanes = taken.setdefault(segment.row, [])
+        lane = 0
+        while lane < len(lanes) and any(
+                not (segment.last_col < a or segment.first_col > b) for a, b in lanes[lane]):
+            lane += 1
+        if lane == len(lanes):
+            lanes.append([])
+        lanes[lane].append((segment.first_col, segment.last_col))
+        placed.append(replace(segment, lane=lane))
+    return placed
+
+
+def korean_date(day: date) -> str:
+    return f"{day.month}월 {day.day}일 ({KOREAN_WEEKDAYS[day.weekday()]})"
+
+
+def repeat_caption(start: str, rule: str, *, note: bool = True) -> str:
+    day = parse_date(start)
+    if rule == "daily":
+        return "매일"
+    if rule == "weekdays":
+        return "평일(월~금)"
+    if rule == "weekly":
+        return f"매주 {KOREAN_WEEKDAYS[day.weekday()]}요일"
+    if rule == "monthly":
+        extra = " (없는 달은 마지막 날)" if note and day.day >= 29 else ""
+        return f"매월 {day.day}일{extra}"
+    if rule == "yearly":
+        extra = " (평년은 2월 28일)" if note and (day.month, day.day) == (2, 29) else ""
+        return f"매년 {day.month}월 {day.day}일{extra}"
+    return ""
+
+
+def repeat_pill(start: str, options: ScheduleOptions) -> str:
+    day = parse_date(start)
+    short = {
+        "daily": "매일", "weekdays": "평일",
+        "weekly": f"매주 {KOREAN_WEEKDAYS[day.weekday()]}",
+        "monthly": f"매월 {day.day}일", "yearly": f"매년 {day.month}.{day.day}",
+    }.get(options.repeat_rule, "")
+    if short and options.repeat_until:
+        until = parse_date(options.repeat_until)
+        short += f" · ~{until.month:02d}.{until.day:02d}"
+    return short
+
+
+def alarm_label(options: ScheduleOptions, *, short: bool = False) -> str:
+    if options.alarm_before is None:
+        return ""
+    if options.start_time:
+        return {0: "정시", 10: "10분 전", 30: "30분 전", 60: "1시간 전", 1440: "하루 전"}[options.alarm_before]
+    if short:
+        return {0: "당일 9시", 1440: "하루 전 9시"}[options.alarm_before]
+    return {0: "당일 오전 9시", 1440: "하루 전 오전 9시"}[options.alarm_before]
+
+
+def time_pill(options: ScheduleOptions) -> str:
+    if not options.start_time:
+        return ""
+    alarm = alarm_label(options)
+    return f"{options.start_time} · {alarm}" if alarm else options.start_time
+
+
+def span_days(start: str, options: ScheduleOptions) -> int:
+    if not options.end_date:
+        return 1
+    return (parse_date(options.end_date) - parse_date(start)).days + 1
+
+
+def span_pill(start: str, options: ScheduleOptions) -> str:
+    if not options.end_date:
+        return ""
+    end = parse_date(options.end_date)
+    return f"~{end.month:02d}.{end.day:02d} · {span_days(start, options)}일"
+
+
+def range_text(start: str, end: str) -> str:
+    a, b = parse_date(start), parse_date(end)
+    if a.year == b.year:
+        return f"{a.month:02d}.{a.day:02d}~{b.month:02d}.{b.day:02d}"
+    return f"{a.year % 100:02d}.{a.month:02d}.{a.day:02d}~{b.year % 100:02d}.{b.month:02d}.{b.day:02d}"
+
+
+def period_caption(start: str, end: str) -> str:
+    a, b = parse_date(start), parse_date(end)
+    left = f"{a.month}월 {a.day}일({KOREAN_WEEKDAYS[a.weekday()]})"
+    if (a.year, a.month) == (b.year, b.month):
+        right = f"{b.day}일({KOREAN_WEEKDAYS[b.weekday()]})"
+    else:
+        right = f"{b.month}월 {b.day}일({KOREAN_WEEKDAYS[b.weekday()]})"
+    return f"{left} ~ {right} · {(b - a).days + 1}일"
+
+
+def options_summary(start: str, options: ScheduleOptions) -> str:
+    """편집 요약·툴팁용 한 줄. 예: '10:00 · 10분 전 · 매주 월요일'."""
+    parts = []
+    if options.start_time:
+        parts.append(options.start_time)
+    alarm = alarm_label(options)
+    if alarm:
+        parts.append(alarm if options.start_time else f"알림 {alarm}")
+    if options.end_date:
+        parts.append(range_text(start, options.end_date))
+    if options.repeat_rule:
+        parts.append(repeat_caption(start, options.repeat_rule))
+        if options.repeat_until:
+            until = parse_date(options.repeat_until)
+            parts.append(f"{until.month}월 {until.day}일까지")
+    return " · ".join(parts)
+
+
+def search_suffix(start: str, options: ScheduleOptions) -> str:
+    """검색 결과 본문 칸 끝의 표시용 꼬리(저장값은 바꾸지 않는다)."""
+    try:
+        if options.repeat_rule:
+            caption = repeat_caption(start, options.repeat_rule, note=False)
+            return f" ({caption} 반복)" if caption else ""
+        if options.end_date:
+            end = parse_date(options.end_date)
+            return f" (~{end.month:02d}.{end.day:02d})"
+    except ValueError:
+        return ""
+    return ""
+
+
+def alarm_subtitle(start_time: str, day: date, now: datetime) -> str:
+    """알림 카드 설명 줄. 예: '10분 뒤 시작 · 10월 15일 (목)'."""
+    if start_time:
+        hour, minute = (int(part) for part in start_time.split(":"))
+        base = datetime.combine(day, time(hour, minute))
+        minutes = math.ceil((base - now).total_seconds() / 60)
+        if minutes < 0:
+            head = f"{start_time}에 시작함"
+        elif minutes == 0:
+            head = "지금 시작"
+        elif minutes < 60:
+            head = f"{minutes}분 뒤 시작"
+        elif day == now.date() + timedelta(days=1):
+            head = f"내일 {start_time} 시작"
+        else:
+            head = f"{start_time} 시작"
+    elif day == now.date():
+        head = "오늘 하루 종일"
+    elif day == now.date() + timedelta(days=1):
+        head = "내일 하루 종일"
+    else:
+        head = "하루 종일"
+    return f"{head} · {korean_date(day)}"
+
+
+def until_caption(until: str) -> str:
+    """반복 끝 설명. 예: '12월 31일(목)까지'."""
+    day = parse_date(until)
+    return f"{day.month}월 {day.day}일({KOREAN_WEEKDAYS[day.weekday()]})까지"
+
+
+def detail_lines(start: str, options: ScheduleOptions) -> list[str]:
+    """목록 툴팁에서 본문 다음 줄로 붙일 설명. 기본값이면 빈 목록."""
+    lines = []
+    if options.start_time:
+        lines.append(f"시작: {options.start_time}")
+    if options.end_date:
+        lines.append(f"기간: {range_text(start, options.end_date)} · {span_days(start, options)}일")
+    if options.repeat_rule:
+        end = until_caption(options.repeat_until) if options.repeat_until else "계속"
+        lines.append(f"{repeat_caption(start, options.repeat_rule)} 반복 · 끝: {end}")
+    alarm = alarm_label(options)
+    if alarm:
+        lines.append(f"알림: {alarm}")
+    return lines
