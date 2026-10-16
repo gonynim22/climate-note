@@ -1,6 +1,7 @@
 """EXE를 빌드하지 않고 경로 제한·프로세스 소유권·합성 데이터 도구 검증."""
 
 from ctypes import wintypes as W
+import copy
 import os
 import sqlite3
 import subprocess
@@ -139,9 +140,13 @@ def test_upgrade_tooling_detects_kept_values_and_snapshot():
     try:
         assert [r[1] for r in conn.execute("PRAGMA table_info(schedules)")] == [
             "id", "date", "content", "created_at", "color"]
+        # 위젯·집중 표에도 합성 행이 있어야 해시가 손상을 잡는다.
+        for table in ("dday_widgets", "focus_widgets", "focus_sessions"):
+            assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1
     finally:
         conn.close()
-    with pytest.raises(RuntimeError, match="inspect_upgrade"):
+    # 마이그레이션 전에는 DB 버전이 최신이 아니라서 거절된다.
+    with pytest.raises(RuntimeError, match="DB 버전이 최신이 아닙니다"):
         smoke.data_step("inspect_upgrade", data_root, directory / "too-early.json")
 
     smoke.data_step("upgrade_source", data_root, directory / "upgrade.json")
@@ -151,3 +156,39 @@ def test_upgrade_tooling_detects_kept_values_and_snapshot():
     assert after["pre_snapshot"]["tables"] == before["tables"]
     assert after["pre_snapshot"]["version"] == 17
     assert after["salt_sha256"] == before["salt_sha256"]
+    assert after["integrity"] == ["ok"]
+    assert after["error_log_bytes"] == 0
+    smoke._check_upgrade(before, after)
+
+
+def test_upgrade_check_rejects_changed_values_snapshot_salt_and_health():
+    seeded = {"tables": {"schedules": "a" * 64, "memos": "b" * 64}, "version": 17,
+              "salt_sha256": "c" * 64}
+    good = {"tables": dict(seeded["tables"]), "version": 18,
+            "pre_snapshot": {"tables": dict(seeded["tables"]), "version": 17},
+            "salt_sha256": seeded["salt_sha256"], "integrity": ["ok"], "error_log_bytes": 0}
+    smoke._check_upgrade(seeded, good)
+
+    def tampered(change):
+        after = copy.deepcopy(good)
+        change(after)
+        return after
+
+    cases = (
+        (lambda a: a["tables"].update(memos="0" * 64), "기존 값을 바꿨습니다"),
+        (lambda a: a["pre_snapshot"]["tables"].update(schedules="0" * 64), "스냅샷이 원본과 다릅니다"),
+        (lambda a: a["pre_snapshot"].update(version=16), "스냅샷이 원본과 다릅니다"),
+        (lambda a: a.update(salt_sha256="0" * 64), "salt를 바꿨습니다"),
+        (lambda a: a.update(integrity=["row 1 missing from index"]), "무결성"),
+        (lambda a: a.update(error_log_bytes=12), "오류 로그"),
+    )
+    for change, reason in cases:
+        with pytest.raises(ValueError, match=reason):
+            smoke._check_upgrade(seeded, tampered(change))
+
+
+def test_original_columns_snapshot_refuses_paths_outside_harness(tmp_path):
+    outside = tmp_path / "calendar.db"
+    outside.write_bytes(b"")
+    with pytest.raises(ValueError):
+        smoke._original_columns_snapshot(outside)

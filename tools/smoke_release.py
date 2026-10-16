@@ -278,24 +278,33 @@ def _data_worker(action, data_root, result_path):
             raise ValueError("새 합성 데이터 폴더만 초기화할 수 있습니다.")
         db.DB_FILE.parent.mkdir(parents=True, exist_ok=True)
         day = date.today().isoformat()
-        conn = sqlite3.connect(db.DB_FILE)
-        try:
+        stamp = day + " 09:00:00"
+        # _connection은 마이그레이션하지 않는다. v17 틀 그대로 user_version 17을 만든다.
+        with db._connection(enable_wal=False) as conn:
             with open(V17_FIXTURE, encoding="utf-8") as fixture:
                 conn.executescript(fixture.read())
             for color, _ in db.SCHEDULE_COLORS:
                 conn.execute(
                     "INSERT INTO schedules (date, content, created_at, color) VALUES (?, ?, ?, ?)",
-                    (day, security.encrypt("v17 합성 일정 " + color), day + " 09:00:00", color))
+                    (day, security.encrypt("v17 합성 일정 " + color), stamp, color))
             conn.execute("INSERT INTO memos (date, content, updated_at) VALUES (?, ?, ?)",
-                         (day, security.encrypt("v17 합성 메모"), day + " 09:00:00"))
+                         (day, security.encrypt("v17 합성 메모"), stamp))
             # 닫힌 스티키로 둔다. 열린 스티키는 앱이 창 크기를 5mm 격자에 맞춰(300×400→306×396 등)
             # 저장하는 기존 동작이 있어, 실행 시간에 따라 값 비교가 흔들린다(v4.0부터 같은 동작).
             conn.execute("INSERT INTO sticky_notes (content, is_open) VALUES (?, 0)",
                          (security.encrypt("v17 스티키"),))
+            # 나머지 세 표도 값이 있어야 해시가 손상을 잡는다. 같은 이유로 위젯은 닫힌 채로 둔다.
+            conn.execute("INSERT INTO dday_widgets (name, target_date, is_open) VALUES (?, ?, 0)",
+                         (security.encrypt("v17 D-Day"), "2027-01-01"))
+            conn.execute(
+                "INSERT INTO focus_widgets (goal, is_open, created_at) VALUES (?, 0, ?)",
+                (security.encrypt("v17 집중 목표"), stamp))
+            conn.execute(
+                "INSERT INTO focus_sessions (widget_id, goal, started_at, ended_at, "
+                "elapsed_seconds, completed, created_at) VALUES (1, ?, ?, ?, 1500, 1, ?)",
+                (security.encrypt("v17 집중 기록"), stamp, day + " 09:25:00", stamp))
             conn.execute("PRAGMA user_version = 17")
             conn.commit()
-        finally:
-            conn.close()
         result = _original_columns_snapshot(db.DB_FILE)
         result["salt_sha256"] = file_hash(security.SALT_FILE)
     elif action == "upgrade_source":
@@ -311,6 +320,7 @@ def _data_worker(action, data_root, result_path):
         if result["version"] != db.CURRENT_SCHEMA_VERSION:
             raise ValueError("업그레이드 뒤 DB 버전이 최신이 아닙니다.")
         with db._connection(read_only=True, enable_wal=False) as conn:
+            result["integrity"] = [row[0] for row in conn.execute("PRAGMA integrity_check")]
             changed = conn.execute(
                 "SELECT COUNT(*) FROM schedules WHERE start_time != '' OR end_date != '' "
                 "OR repeat_rule != '' OR repeat_until != '' OR repeat_skip != '' "
@@ -322,6 +332,8 @@ def _data_worker(action, data_root, result_path):
             raise ValueError("마이그레이션 전 스냅샷이 없습니다.")
         result["pre_snapshot"] = _original_columns_snapshot(snapshot)
         result["salt_sha256"] = file_hash(security.SALT_FILE)
+        log = db.APP_DIR / "error.log"
+        result["error_log_bytes"] = log.stat().st_size if log.exists() else 0
     elif action == "inspect":
         health = db.inspect_startup_data_health()
         if not health.ok:
@@ -352,7 +364,10 @@ V17_FIXTURE = ROOT / "tests" / "fixtures" / "schema_v17.sql"
 
 def _original_columns_snapshot(path):
     """모든 표의 v17 열 값 해시(v18 새 열 제외)와 user_version."""
-    conn = sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True)
+    boundary = inside(ROOT / "output" / "harness", ROOT)
+    resolved = inside(path, boundary)
+    # 상위 프로세스(리허설)도 부르므로 database를 import하지 않고 직접 읽기 전용으로 연다.
+    conn = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
     try:
         tables = [row[0] for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")]
@@ -367,6 +382,20 @@ def _original_columns_snapshot(path):
     finally:
         conn.close()
     return {"tables": hashes, "version": version}
+
+
+def _check_upgrade(seeded, after):
+    """업그레이드 뒤 값·스냅샷·salt·무결성·오류 로그가 시작 전과 같은지 검사한다."""
+    if after["tables"] != seeded["tables"]:
+        raise ValueError("업그레이드가 기존 값을 바꿨습니다.")
+    if after["pre_snapshot"] != {"tables": seeded["tables"], "version": 17}:
+        raise ValueError("마이그레이션 전 스냅샷이 원본과 다릅니다.")
+    if after["salt_sha256"] != seeded["salt_sha256"]:
+        raise ValueError("업그레이드가 salt를 바꿨습니다.")
+    if after["integrity"] != ["ok"]:
+        raise ValueError("업그레이드 뒤 DB 무결성 검사가 통과하지 못했습니다.")
+    if after["error_log_bytes"]:
+        raise ValueError("업그레이드 뒤 오류 로그가 비어 있지 않습니다.")
 
 
 def protected_hashes(data_root):
@@ -438,12 +467,7 @@ def scenario(exe, run_dir, name):
     else:
         if name == "upgrade":
             after = data_step("inspect_upgrade", data_root, folder / "after.json")
-            if after["tables"] != before["tables"]:
-                raise ValueError("업그레이드가 기존 값을 바꿨습니다.")
-            if after["pre_snapshot"] != {"tables": before["tables"], "version": 17}:
-                raise ValueError("마이그레이션 전 스냅샷이 원본과 다릅니다.")
-            if after["salt_sha256"] != before["salt_sha256"]:
-                raise ValueError("업그레이드가 salt를 바꿨습니다.")
+            _check_upgrade(before, after)
             result["data"] = after
             return result
         after = data_step("inspect", data_root, folder / "after.json")
