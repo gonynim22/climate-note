@@ -412,7 +412,9 @@ from ui_schedule_emoji import (
 )
 import schedule_rules as rules
 from schedule_rules import ScheduleOptions
-from ui_schedule_options import ElidePaintMixin, icon_pixmap
+from ui_schedule_options import (
+    ElidePaintMixin, ScheduleOptionsButton, ScheduleOptionsPills, icon_pixmap,
+)
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
 import optional_mini_apps
@@ -1763,6 +1765,7 @@ class MainCalendarWindow(QWidget):
     def _apply_calendar_scale(self):
         """저장된 compact/medium/large 설정을 즉시 반영."""
         self._close_mini_apps()
+        self._close_schedule_emoji_popups()
         self._finish_calendar_move_edit()
         scale = self._current_calendar_scale()
         expanded = scale != "compact"
@@ -2307,15 +2310,17 @@ class MainCalendarWindow(QWidget):
         date_row.addWidget(self.count_label)
         panel_layout.addLayout(date_row)
 
-        # 일정 입력
-        schedule_input_row = QHBoxLayout()
+        # 일정 입력: [색 원][스마일][시계][입력칸][추가], 아래 줄 알약은 입력칸 왼쪽에 맞춘다.
+        # 격자로 두어 알약이 입력칸과 같은 열에 놓이고, 알약이 없으면 줄도 생기지 않는다.
+        schedule_input_row = QGridLayout()
+        schedule_input_row.setVerticalSpacing(4)
 
         self.schedule_color_btn = SmoothCircleButton(self)
         self.schedule_color_btn.setFixedSize(SCHEDULE_CONTROL_DIAMETER, SCHEDULE_CONTROL_DIAMETER)
         self.schedule_color_btn.setToolTip("일정 색상 선택 (클릭하여 순환)")
         self.schedule_color_btn.clicked.connect(self._on_cycle_schedule_color)
         self._update_schedule_color_btn()
-        schedule_input_row.addWidget(self.schedule_color_btn)
+        schedule_input_row.addWidget(self.schedule_color_btn, 0, 0)
 
         self.schedule_input = LineEdit(self)
         self.schedule_input.setPlaceholderText("일정 추가...")
@@ -2324,11 +2329,22 @@ class MainCalendarWindow(QWidget):
         self.schedule_emoji_button = ScheduleEmojiButton(
             self.schedule_input, self._schedule_emoji_allowed, self
         )
-        schedule_input_row.addWidget(self.schedule_emoji_button)
-        schedule_input_row.addWidget(self.schedule_input, 1)
+        schedule_input_row.addWidget(self.schedule_emoji_button, 0, 1)
+        self.schedule_options_button = ScheduleOptionsButton(
+            self.schedule_input, self._schedule_emoji_allowed, self
+        )
+        self.schedule_options_button.set_context(self._selected_date)
+        self.schedule_options_button.options_changed.connect(self._on_pending_options_changed)
+        schedule_input_row.addWidget(self.schedule_options_button, 0, 2)
+        schedule_input_row.addWidget(self.schedule_input, 0, 3)
+        schedule_input_row.setColumnStretch(3, 1)
         add_btn = TransparentToolButton(FIF.ADD, self)
         add_btn.clicked.connect(self._on_add_schedule)
-        schedule_input_row.addWidget(add_btn)
+        schedule_input_row.addWidget(add_btn, 0, 4)
+        self.schedule_options_pills = ScheduleOptionsPills(self)
+        self.schedule_options_pills.open_requested.connect(self.schedule_options_button.open_popup)
+        self.schedule_options_pills.clear_requested.connect(self._on_pending_option_cleared)
+        schedule_input_row.addWidget(self.schedule_options_pills, 1, 3, 1, 2)
         panel_layout.addLayout(schedule_input_row)
 
         # 일정 리스트
@@ -2464,6 +2480,8 @@ class MainCalendarWindow(QWidget):
                 old_cell.set_selected(False)
             except RuntimeError:
                 pass  # C++ 객체가 이미 삭제된 경우 안전 무시
+        if date_str != self._selected_date:
+            self._rebase_pending_options(self._selected_date, date_str)
         self._selected_date = date_str
         if date_str in self._day_cells:
             self._day_cells[date_str].set_selected(True)
@@ -2715,8 +2733,13 @@ class MainCalendarWindow(QWidget):
         if not text or not self._selected_date:
             return
         try:
-            new_id = db.add_schedule(self._selected_date, text, self._schedule_color)
+            new_id = db.add_schedule(
+                self._selected_date, text, self._schedule_color,
+                options=self.schedule_options_button.options(),
+            )
+            # 성공했을 때만 비운다(실패하면 본문·세부 설정을 그대로 둔다).
             self.schedule_input.clear()
+            self._set_pending_options(ScheduleOptions())
             self._after_schedule_change(highlight_id=new_id)
         except (sqlite3.Error, OSError, ValueError):
             InfoBar.error(
@@ -2817,9 +2840,40 @@ class MainCalendarWindow(QWidget):
         return not self._finish_current_edit or self._finish_current_edit(True) is not False
 
     def _close_schedule_emoji_popups(self) -> None:
+        """이모지·세부 설정 카드를 모두 닫는다(입력줄·편집기)."""
         self.schedule_emoji_button.close_popup()
+        self.schedule_options_button.close_popup()
         if self._schedule_editor is not None:
             self._schedule_editor.emoji_button.close_popup()
+
+    # ─── 입력줄 세부 설정(보류 중 값) ──────────────────────────────
+    def _set_pending_options(self, options: ScheduleOptions) -> None:
+        self.schedule_options_button.set_options(options)
+        self._sync_pending_pills()
+
+    def _on_pending_options_changed(self, _options) -> None:
+        self._sync_pending_pills()
+
+    def _on_pending_option_cleared(self, kind: str) -> None:
+        if not self._schedule_emoji_allowed():
+            return
+        button = self.schedule_options_button
+        self._set_pending_options(rules.clear_part(button.options(), button.start_date(), kind))
+
+    def _sync_pending_pills(self) -> None:
+        button = self.schedule_options_button
+        self.schedule_options_pills.set_state(button.start_date(), button.options())
+
+    def _rebase_pending_options(self, old_date: str, new_date: str) -> None:
+        """고른 날짜가 바뀌면 보류 중 값을 새 날짜 기준으로 옮긴다(기간 길이 유지, 지난 끝 날짜 해제)."""
+        self.schedule_options_button.close_popup()
+        options = self.schedule_options_button.options()
+        try:
+            moved = rules.rebase_options(options, old_date, new_date) if not options.is_default else options
+        except ValueError:
+            moved = ScheduleOptions()
+        self.schedule_options_button.set_context(new_date)
+        self._set_pending_options(moved)
 
     def _after_schedule_change(self, highlight_id: int | None = None) -> None:
         """일정 추가·수정 뒤: 달 전체 칸·목록을 다시 읽는다(반복·기간은 여러 칸과 순서에 걸친다)."""
@@ -3641,6 +3695,7 @@ class MainCalendarWindow(QWidget):
         self._hide_optional_mini_apps()
         self._finish_calendar_move_edit()
         self._close_schedule_emoji_popups()
+        self._set_pending_options(ScheduleOptions())
         self._cancel_sticky_file_links()
         if self._finish_current_edit:
             self._finish_current_edit(False)
