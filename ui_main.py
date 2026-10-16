@@ -410,6 +410,9 @@ from ui_search import SearchWindow
 from ui_schedule_emoji import (
     SCHEDULE_CONTROL_DIAMETER, ScheduleEmojiButton, ScheduleInlineEditor,
 )
+import schedule_rules as rules
+from schedule_rules import ScheduleOptions
+from ui_schedule_options import ElidePaintMixin, icon_pixmap
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
 import optional_mini_apps
@@ -780,6 +783,7 @@ class CalendarDayButton(QWidget):
     def _make_chip(self, text: str, color: str, dim: bool = False) -> QLabel:
         """단일 일정 칩 라벨을 만든다."""
         chip = QLabel(self._chips_container)
+        chip.setTextFormat(Qt.PlainText)  # 본문의 <…>를 서식으로 해석하지 않는다.
         chip.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         # 말줄임된 문자열이 열 최소 폭에 반영되면 좁은 요일이 회복되지 않는다.
         chip.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
@@ -1349,6 +1353,10 @@ class ShortcutSidebarWidget(QWidget):
             slot.setVisible(visible)
 
 
+class ScheduleTextLabel(ElidePaintMixin, BodyLabel):
+    """일정 목록 본문. text()는 전체 본문이고 좁으면 그릴 때만 말줄임한다."""
+
+
 class ScheduleRow(QWidget):
     """일정 목록 한 줄. 삭제 버튼은 마우스를 올린 줄과 키보드로 고른 줄에만 보인다(디자인 점검 13번).
 
@@ -1466,6 +1474,7 @@ class MainCalendarWindow(QWidget):
         )
         self._show_desktop_keeper.guard(self)
 
+        self._list_reload_pending = False  # 다른 줄을 편집 중이라 미룬 목록 다시 만들기
         self._build_ui()
         self._apply_sidebar_visibility()
         self._apply_calendar_scale()
@@ -2360,17 +2369,10 @@ class MainCalendarWindow(QWidget):
         self._day_cells = {}
 
         today = date.today()
-        event_date_colors = db.get_all_schedule_date_colors()
-        event_date_counts = db.get_all_schedule_date_counts()
-        schedule_palette = db.get_schedule_palette()
         self._show_lunar = db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1"
         calendar_scale = self._current_calendar_scale()
         cell_mode = "expanded" if calendar_scale != "compact" else "compact"
         self._style_weekday_header(calendar_scale)
-        month_events = (
-            db.get_schedules_for_month(self._current_year, self._current_month)
-            if cell_mode == "expanded" else {}
-        )
 
         # 달력 계산 (일요일 시작)
         cal = calendar.Calendar(firstweekday=6).monthdayscalendar(
@@ -2391,28 +2393,14 @@ class MainCalendarWindow(QWidget):
                     self._current_month == today.month and
                     actual_day == today.day
                 )
-                event_colors = [
-                    db.schedule_display_color(color, schedule_palette)
-                    for color in event_date_colors.get(target_date, [])
-                ]
                 is_holiday = bool(target_date) and holidays.is_holiday(target_date)
-                count = event_date_counts.get(target_date, 0)
 
+                # 색·개수·칩은 아래 _refresh_month_data()가 한 번의 조회로 채운다.
                 cell = CalendarDayButton(
-                    actual_day, is_today, event_colors, is_current, target_date,
-                    is_holiday, col_idx, count, cell_mode, self,
+                    actual_day, is_today, [], is_current, target_date,
+                    is_holiday, col_idx, 0, cell_mode, self,
                     calendar_scale=calendar_scale,
                 )
-                if cell_mode == "expanded" and target_date:
-                    cell.set_events([
-                        {
-                            **event,
-                            "color": db.schedule_display_color(
-                                event.get("color"), schedule_palette
-                            ),
-                        }
-                        for event in month_events.get(target_date, [])
-                    ])
                 if target_date:
                     cell.set_callback(self._on_date_selected)
                     self._day_cells[target_date] = cell
@@ -2421,9 +2409,51 @@ class MainCalendarWindow(QWidget):
 
                 self.calendar_grid.addWidget(cell, row_idx, col_idx)
 
+        self._refresh_month_data()
+
         # 선택된 날짜 정보 갱신 (루프 완료 후)
         if self._selected_date in self._day_cells:
             self._on_date_selected(self._selected_date)
+
+    # ─── 월 데이터(나타나는 일정) ────────────────────────────────
+    def _month_bounds(self) -> tuple[str, str]:
+        last_day = calendar.monthrange(self._current_year, self._current_month)[1]
+        first = date(self._current_year, self._current_month, 1)
+        return first.isoformat(), first.replace(day=last_day).isoformat()
+
+    @staticmethod
+    def _cell_colors(entries: list, palette) -> list:
+        """그날 일정의 서로 다른 색(슬롯 순서)을 표시색으로 바꾼다."""
+        order = {color: index for index, (color, _name) in enumerate(db.SCHEDULE_COLORS)}
+        colors = sorted({entry["color"] for entry in entries}, key=lambda c: order.get(c, 99))
+        return [db.schedule_display_color(color, palette) for color in colors]
+
+    @staticmethod
+    def _chip_events(entries: list, palette) -> list:
+        """중간·크게 칩: 그 날 시각이 보이는 일정은 '14:00 본문'."""
+        return [{
+            "content": f"{entry['start_time']} {entry['content']}" if entry.get("shows_time")
+            else entry["content"],
+            "color": db.schedule_display_color(entry.get("color"), palette),
+        } for entry in entries]
+
+    def _refresh_month_data(self) -> None:
+        """보이는 달의 나타나는 일정을 한 번 읽어 칸 위젯을 다시 만들지 않고 갱신한다."""
+        first, last = self._month_bounds()
+        try:
+            month = db.get_occurrences(first, last)
+            palette = db.get_schedule_palette()
+        except (sqlite3.Error, OSError) as exc:
+            _logger.error("달력 일정 조회 실패: %s", exc)
+            return
+        expanded = self._current_calendar_scale() != "compact"
+        for day, cell in self._day_cells.items():
+            entries = month.get(day, [])
+            cell._update_squares(self._cell_colors(entries, palette))
+            cell.set_count(len(entries))
+            if expanded:
+                cell.set_events(self._chip_events(entries, palette))
+
     def _on_date_selected(self, date_str: str):
         """날짜 클릭 시 하단 패널 업데이트"""
         if not self._save_schedule_edit():
@@ -2476,9 +2506,12 @@ class MainCalendarWindow(QWidget):
                 self.schedule_list.removeItemWidget(item)
                 widget.deleteLater()
         self.schedule_list.clear()
+        self._list_reload_pending = False
         try:
             schedules = db.get_schedules(self._selected_date)
             schedule_palette = db.get_schedule_palette()
+            # 그날 시각이 보이는 일정이 하나라도 있을 때만 시각 열을 둔다.
+            show_time = any(s.get("shows_time") for s in schedules)
             for s in schedules:
                 self._add_schedule_item(
                     s["id"], s["content"],
@@ -2487,25 +2520,44 @@ class MainCalendarWindow(QWidget):
                     display_color=db.schedule_display_color(
                         s.get("color"), schedule_palette
                     ),
+                    entry=s, show_time_column=show_time,
                 )
         except (sqlite3.Error, OSError) as e:
             _logger.error("일정 로드 실패: %s", e)
         self._update_count()
         return True
 
+    @staticmethod
+    def _schedule_tooltip(content: str, options: ScheduleOptions, start: str) -> str:
+        """본문 전체 + 세부 설정 설명 줄(기본값이면 지금처럼 본문만)."""
+        details = []
+        if not options.is_default:
+            try:
+                details = rules.detail_lines(start, options)
+            except ValueError:
+                details = []
+        return "\n".join([content, *details])
+
     def _add_schedule_item(self, schedule_id: int, content: str,
                            decryption_failed: bool = False,
-                           color: str = None, display_color: str = None):
+                           color: str = None, display_color: str = None,
+                           *, entry: dict | None = None, show_time_column: bool = False):
         if color is None:
             color = db.DEFAULT_SCHEDULE_COLOR
         if display_color is None:
             display_color = db.schedule_display_color(color)
+        options = entry["options"] if entry else ScheduleOptions()
+        series_start = entry["date"] if entry else self._selected_date
+        occurrence = entry["occurrence_date"] if entry else self._selected_date
 
         item = QListWidgetItem()
         item.setData(Qt.UserRole, schedule_id)
         item.setData(Qt.UserRole + 1, content)
         item.setData(Qt.UserRole + 2, color)
         item.setData(Qt.UserRole + 3, decryption_failed)
+        item.setData(Qt.UserRole + 4, options)        # 세부 설정(ScheduleOptions)
+        item.setData(Qt.UserRole + 5, series_start)   # 반복·기간의 시작 날짜
+        item.setData(Qt.UserRole + 6, occurrence)     # 이 목록이 보여 주는 날짜
         self.schedule_list.addItem(item)
 
         row_widget = ScheduleRow()
@@ -2522,14 +2574,57 @@ class MainCalendarWindow(QWidget):
         )
         row_layout.addWidget(color_dot)
 
-        text_label = BodyLabel(content)
-        text_label.setToolTip(content)
+        row_widget.schedule_time_label = None
+        if show_time_column:
+            # 시각 열: 그 날 시각이 보이면 13px 시각, 아니면 11px '종일'(40px 고정).
+            shows_time = bool(entry and entry.get("shows_time"))
+            time_label = QLabel(entry["start_time"] if shows_time else "종일")
+            time_label.setTextFormat(Qt.PlainText)
+            time_label.setFixedWidth(40)
+            time_label.setStyleSheet(
+                "color: #475569; font-size: 13px; background: transparent;" if shows_time
+                else "color: #94A3B8; font-size: 11px; background: transparent;"
+            )
+            row_layout.addWidget(time_label)
+            row_widget.schedule_time_label = time_label
+
+        # 본문 묶음: 본문 바로 뒤에 반복·종 아이콘을 붙이고 남는 폭은 비운다.
+        text_box = QWidget()
+        text_box.setStyleSheet("background: transparent;")
+        box_layout = QHBoxLayout(text_box)
+        box_layout.setContentsMargins(0, 0, 0, 0)
+        box_layout.setSpacing(4)
+        text_label = ScheduleTextLabel(content)
+        text_label.setTextFormat(Qt.PlainText)
+        text_label.setToolTip(self._schedule_tooltip(content, options, series_start))
         row_widget.schedule_text_label = text_label
         if decryption_failed:
             text_label.setStyleSheet("color: #D32F2F; font-style: italic;")
         else:
             text_label.setStyleSheet("color: #1a1a1a;")
-        row_layout.addWidget(text_label, 1)
+        box_layout.addWidget(text_label)
+        row_widget.schedule_icons = []
+        ratio = self.devicePixelRatioF()
+        for name, enabled in (("repeat", bool(options.repeat_rule)),
+                              ("bell", options.alarm_before is not None)):
+            if enabled:
+                icon = QLabel()
+                icon.setObjectName(f"scheduleRowIcon_{name}")
+                icon.setFixedSize(12, 12)
+                icon.setPixmap(icon_pixmap(name, 12, "#94A3B8", ratio))
+                box_layout.addWidget(icon)
+                row_widget.schedule_icons.append(name)
+        box_layout.addStretch(1)
+        row_layout.addWidget(text_box, 1)
+        row_widget.schedule_text_box = text_box
+
+        row_widget.schedule_period_label = None
+        if entry and entry["span_start"] != entry["span_end"]:
+            period_label = QLabel(rules.range_text(entry["span_start"], entry["span_end"]))
+            period_label.setTextFormat(Qt.PlainText)
+            period_label.setStyleSheet("color: #94A3B8; font-size: 11px; background: transparent;")
+            row_layout.addWidget(period_label)
+            row_widget.schedule_period_label = period_label
 
         delete_btn = TransparentToolButton(FIF.DELETE)
         delete_btn.setFixedSize(24, 24)
@@ -2583,32 +2678,16 @@ class MainCalendarWindow(QWidget):
         menu.exec(self.schedule_list.viewport().mapToGlobal(pos))
 
     def _refresh_cell_for_date(self, date_str: str):
-        """일정 변경 후 해당 날짜 셀만 현재 모드에 맞게 갱신."""
-        cell = self._day_cells.get(date_str)
-        if not cell:
-            return
-        schedules = db.get_schedules(date_str)
-        schedule_palette = db.get_schedule_palette()
-        cell.set_count(len(schedules))
-        if getattr(cell, "_mode", "compact") == "expanded":
-            cell.set_events([
-                {
-                    "content": schedule["content"],
-                    "color": db.schedule_display_color(
-                        schedule.get("color") or db.DEFAULT_SCHEDULE_COLOR,
-                        schedule_palette,
-                    ),
-                }
-                for schedule in schedules
-            ])
-        else:
-            colors = {s.get("color") or db.DEFAULT_SCHEDULE_COLOR for s in schedules}
-            color_order = {color[0]: index for index, color in enumerate(db.SCHEDULE_COLORS)}
-            ordered = sorted(colors, key=lambda color: color_order.get(color, 99))
-            cell._update_squares([
-                db.schedule_display_color(color, schedule_palette)
-                for color in ordered
-            ])
+        """일정 변경 후 칸을 갱신한다. 반복·기간은 여러 칸에 걸치므로 보이는 달 전체를 다시 읽는다."""
+        self._refresh_month_data()
+
+    def _remove_schedule_item(self, item: QListWidgetItem) -> None:
+        row = self.schedule_list.row(item)
+        widget = self.schedule_list.itemWidget(item)
+        if widget:
+            self.schedule_list.removeItemWidget(item)
+            widget.deleteLater()
+        self.schedule_list.takeItem(row)
 
     def _on_delete_schedule(self, item: QListWidgetItem, schedule_id: int):
         if self._is_locked:
@@ -2617,12 +2696,7 @@ class MainCalendarWindow(QWidget):
             db.delete_schedule(schedule_id)
             if self._editing_item is item and self._finish_current_edit:
                 self._finish_current_edit(False)
-            row = self.schedule_list.row(item)
-            widget = self.schedule_list.itemWidget(item)
-            if widget:
-                self.schedule_list.removeItemWidget(item)
-                widget.deleteLater()
-            self.schedule_list.takeItem(row)
+            self._remove_schedule_item(item)
             self._refresh_cell_for_date(self._selected_date)
             self._update_count()
         except (sqlite3.Error, OSError, ValueError):
@@ -2642,10 +2716,8 @@ class MainCalendarWindow(QWidget):
             return
         try:
             new_id = db.add_schedule(self._selected_date, text, self._schedule_color)
-            self._add_schedule_item(new_id, text, color=self._schedule_color)
             self.schedule_input.clear()
-            self._refresh_cell_for_date(self._selected_date)
-            self._update_count()
+            self._after_schedule_change(highlight_id=new_id)
         except (sqlite3.Error, OSError, ValueError):
             InfoBar.error(
                 title="저장 오류",
@@ -2679,12 +2751,16 @@ class MainCalendarWindow(QWidget):
         layout = row_widget.layout()
 
         text_label = row_widget.schedule_text_label
-        text_label.hide()
+        text_box = row_widget.schedule_text_box
+        period_label = row_widget.schedule_period_label
+        text_box.hide()
+        if period_label is not None:
+            period_label.hide()
 
         editor = ScheduleInlineEditor(old_text, self._schedule_emoji_allowed, row_widget)
         self._schedule_editor = editor
         edit = editor.edit
-        layout.insertWidget(layout.indexOf(text_label) + 1, editor, 1)
+        layout.insertWidget(layout.indexOf(text_box) + 1, editor, 1)
         editor.show()
         item.setSizeHint(row_widget.sizeHint())
         edit.setFocus()
@@ -2723,8 +2799,12 @@ class MainCalendarWindow(QWidget):
             editor.hide()
             layout.removeWidget(editor)
             editor.deleteLater()
-            text_label.show()
+            text_box.show()
+            if period_label is not None:
+                period_label.show()
             item.setSizeHint(row_widget.sizeHint())
+            if self._list_reload_pending:
+                QTimer.singleShot(0, self, self._after_schedule_change)
             return True
 
         self._finish_current_edit = _finish_edit
@@ -2740,6 +2820,29 @@ class MainCalendarWindow(QWidget):
         self.schedule_emoji_button.close_popup()
         if self._schedule_editor is not None:
             self._schedule_editor.emoji_button.close_popup()
+
+    def _after_schedule_change(self, highlight_id: int | None = None) -> None:
+        """일정 추가·수정 뒤: 달 전체 칸·목록을 다시 읽는다(반복·기간은 여러 칸과 순서에 걸친다)."""
+        self._refresh_month_data()
+        if self._editing_item is not None:
+            self._list_reload_pending = True  # 다른 줄을 편집 중이면 끝난 뒤에 다시 만든다.
+        elif self._load_schedules() and highlight_id is not None:
+            self._highlight_schedule(highlight_id)
+
+    def _highlight_schedule(self, schedule_id: int) -> None:
+        """추가 직후 새 줄을 1.2초 동안 연한 파랑으로 보인다."""
+        for index in range(self.schedule_list.count()):
+            item = self.schedule_list.item(index)
+            if item.data(Qt.UserRole) != schedule_id:
+                continue
+            row = self.schedule_list.itemWidget(item)
+            self.schedule_list.scrollToItem(item)
+            if isinstance(row, ScheduleRow):
+                row.setObjectName("scheduleRowNew")
+                row.setAttribute(Qt.WA_StyledBackground, True)
+                row.setStyleSheet("#scheduleRowNew { background: #EFF6FF; border-radius: 6px; }")
+                QTimer.singleShot(1200, row, lambda r=row: r.setStyleSheet(""))
+            return
 
     def _update_count(self):
         n = self.schedule_list.count()
