@@ -1,10 +1,12 @@
 """v4.1 일정 알림 엔진·카드 회귀. 가짜 시계와 합성 데이터만 쓴다."""
+import ctypes
+from ctypes import wintypes
 from datetime import datetime, timedelta
 
 import pytest
-from PySide6.QtCore import QObject, QPoint, Qt
+from PySide6.QtCore import QObject, Qt
 from PySide6.QtWidgets import QApplication
-from shiboken6 import isValid
+from shiboken6 import VoidPtr, isValid
 
 import database as db
 import ui_main
@@ -225,3 +227,175 @@ def test_window_without_alarms_leaves_settings_unchanged(qtbot):
     assert win.prepare_for_quit()
     with db._connection() as conn:
         assert [tuple(row) for row in conn.execute("SELECT * FROM app_settings ORDER BY key")] == before
+
+
+# ─── 1차 수정: 카드 위치·다시 알림·저장 시각·정리 ───────────────────────
+
+
+def assert_anchored(card):
+    """카드 틀의 오른쪽·아래가 작업 영역 안쪽 12px에 닿아 있다."""
+    available = card.screen().availableGeometry()
+    frame = card.frame.geometry().translated(card.pos())
+    assert abs((available.right() + 1) - (frame.right() + 1) - 12) <= 1
+    assert abs((available.bottom() + 1) - (frame.bottom() + 1) - 12) <= 1
+
+
+def test_open_card_stays_anchored_when_rows_change_and_on_lock_unlock(qtbot):
+    win = card_window(qtbot)
+    win._on_schedule_alarms([item(1, "첫째")], False)
+    card = win._alarm_card
+    QApplication.processEvents()
+    assert_anchored(card)
+    heights = [card.height()]
+    for more in ([item(2, "둘째"), item(3, "셋째")], [item(4, "넷째")]):
+        card.add_items(more, missed=False, locked=False)  # 이미 열려 있는 카드에 줄을 더한다.
+        QApplication.processEvents()
+        heights.append(card.height())
+        assert_anchored(card)
+    assert heights[1] > heights[0]  # 줄이 늘어 카드가 실제로 커졌다.
+    win._lock()
+    QApplication.processEvents()
+    assert card.is_locked_view()
+    assert_anchored(card)
+    assert card.height() < heights[-1]
+    win._unlock()
+    QApplication.processEvents()
+    assert not card.is_locked_view()
+    assert_anchored(card)
+    assert card.height() == heights[-1]
+
+
+def test_snoozed_refire_is_not_missed_and_can_be_snoozed_again(qtbot):
+    db.add_schedule("2026-10-15", "유지", options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 15, 14, 59))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 15, 0, 1)
+    scheduler.check()
+    assert emitted[0][1] is False
+    for count in (2, 3):  # 5분 뒤 다시를 두 번 이어서 눌러도 계속 돌아온다.
+        scheduler.snooze(emitted[-1][0])
+        clock.value += timedelta(minutes=5, seconds=2)
+        scheduler.check()
+        assert len(emitted) == count
+        assert emitted[-1][1] is False
+        card = ScheduleAlarmCard()
+        card.add_items(emitted[-1][0], missed=emitted[-1][1], locked=False)
+        card.show_at(QApplication.primaryScreen())
+        assert card.snooze_button.isVisibleTo(card)
+        card.close()
+
+
+def test_seen_at_never_moves_backward(qtbot):
+    db.add_schedule("2026-10-15", "회의", options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 15, 14, 59))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 15, 0, 1)
+    scheduler.check()
+    assert db.get_setting(KEY, "") == "2026-10-15T15:00:01"
+    clock.value = datetime(2026, 10, 15, 14, 0, 0)  # 1시간 뒤로
+    scheduler.check()
+    scheduler.snooze(emitted[0][0])
+    clock.value = datetime(2026, 10, 15, 14, 5, 1)
+    scheduler.check()
+    assert len(emitted) == 2  # 다시 알림은 돌아왔지만
+    assert db.get_setting(KEY, "") == "2026-10-15T15:00:01"  # 저장한 시각은 되돌아가지 않는다.
+
+
+@pytest.mark.parametrize("value", ["2026-10-15T09:00:00+09:00", "2026-10-15T00:00:00Z", "읽을 수 없는 값"])
+def test_seen_value_with_timezone_or_garbage_is_ignored(qtbot, value):
+    db.add_schedule("2026-10-15", "아침", options=ScheduleOptions(start_time="09:00", alarm_before=0))
+    db.save_setting(KEY, value)
+    clock = Clock(datetime(2026, 10, 15, 14, 0))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    assert scheduler.is_running()  # 비교할 수 없는 값 때문에 엔진이 멈춰 버리지 않는다.
+    assert scheduler.last_check() == clock.value  # 키가 없는 것처럼 지금부터 센다.
+    assert emitted == []
+
+
+def test_fired_keys_are_pruned_after_window_and_cleared_on_stop(qtbot):
+    db.add_schedule("2026-10-15", "회의", options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 15, 14, 59))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 15, 0, 1)
+    scheduler.check()
+    assert len(emitted) == 1 and len(scheduler._fired) == 1
+    clock.value = datetime(2026, 10, 15, 20, 0)
+    scheduler.check()
+    assert len(scheduler._fired) == 1  # 12시간 안에서는 남겨 중복을 막는다.
+    clock.value = datetime(2026, 10, 16, 4, 0)
+    scheduler.check()
+    assert not scheduler._fired  # 확인 창(12시간)을 벗어난 키는 지운다.
+    db.add_schedule("2026-10-16", "새 회의", options=ScheduleOptions(start_time="04:02", alarm_before=0))
+    clock.value = datetime(2026, 10, 16, 4, 2, 1)
+    scheduler.check()
+    assert len(scheduler._fired) == 1
+    scheduler.stop()
+    assert not scheduler._fired  # 초기화 뒤에는 일정 번호가 다시 시작하므로 비운다.
+
+
+def test_check_rearms_timer_even_when_it_raises(qtbot, monkeypatch):
+    clock = Clock(datetime(2026, 10, 15, 9, 0))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    scheduler._timer.stop()
+    clock.value = datetime(2026, 10, 15, 9, 0, 30)
+
+    def boom(after, until):
+        raise RuntimeError("합성 오류")
+
+    original = db.get_alarm_occurrences
+    monkeypatch.setattr(db, "get_alarm_occurrences", boom)
+    with pytest.raises(RuntimeError):  # 오류는 삼키지 않고 그대로 올라온다.
+        scheduler.check()
+    assert scheduler.is_running()
+    assert scheduler._timer.isActive() and scheduler._timer.remainingTime() > 0
+    monkeypatch.setattr(db, "get_alarm_occurrences", original)
+    db.add_schedule("2026-10-15", "회복", options=ScheduleOptions(start_time="09:02", alarm_before=0))
+    clock.value = datetime(2026, 10, 15, 9, 2, 1)
+    scheduler.check()
+    assert [[i.content for i in items] for items, _missed in emitted] == [["회복"]]
+
+
+def test_locked_header_always_shows_count_and_snooze_is_ignored(qtbot):
+    card = ScheduleAlarmCard()
+    requested = []
+    card.snooze_requested.connect(requested.append)
+    card.add_items([item(1, "비밀")], missed=False, locked=True)
+    card.show_at(QApplication.primaryScreen())
+    assert card.title_label.text() == "일정 알림 1건"  # 잠금 중에는 한 건이어도 건수를 보인다.
+    card._snooze()
+    assert requested == [] and card.isVisible()  # 잠금 중에는 다시 알림을 보내지 않는다.
+    card.set_locked(False)
+    assert card.title_label.text() == "일정 알림"
+    card._snooze()
+    assert len(requested) == 1
+
+
+def test_resume_decides_privacy_lock_before_building_card(qtbot, monkeypatch):
+    db.add_schedule("2026-10-15", "비밀 회의", options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    db.save_setting(db.SETTING_USE_PRIVACY_LOCK, "1")
+    win = card_window(qtbot)
+    scheduler = win._schedule_alarm_scheduler
+    scheduler.stop()
+    clock = Clock(datetime(2026, 10, 15, 14, 30))
+    scheduler._now = clock
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 15, 1)  # 절전 중에 알림 시각이 지났다.
+    built = []
+    original = ScheduleAlarmCard.add_items
+
+    def spy(self, items, *, missed, locked, now=None):
+        built.append(locked)
+        return original(self, items, missed=missed, locked=locked, now=now)
+
+    monkeypatch.setattr(ScheduleAlarmCard, "add_items", spy)
+    msg = wintypes.MSG()
+    msg.message = ui_main.WM_POWERBROADCAST
+    msg.wParam = ui_main.PBT_APMRESUMESUSPEND
+    win.nativeEvent(b"windows_generic_MSG", VoidPtr(ctypes.addressof(msg)))
+    assert built == [True]  # 카드는 처음부터 잠금 모양으로 만들어진다.
+    assert win._is_locked and win._alarm_card.is_locked_view()

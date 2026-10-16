@@ -12,6 +12,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
+from shiboken6 import isValid
 
 import database as db
 import schedule_rules as rules
@@ -32,10 +33,14 @@ UNREADABLE = "내용을 읽을 수 없는 일정"
 
 
 def _parse_seen(value: str) -> datetime | None:
+    """저장된 처리 시각. 읽을 수 없거나 시간대가 붙은 값은 없는 것으로 본다(현지 시각과 견줄 수 없다)."""
     try:
-        return datetime.fromisoformat(value) if value else None
+        parsed = datetime.fromisoformat(value) if value else None
     except ValueError:
         return None
+    if parsed is not None and parsed.tzinfo is not None:
+        return None
+    return parsed
 
 
 class ScheduleAlarmScheduler(QObject):
@@ -48,7 +53,7 @@ class ScheduleAlarmScheduler(QObject):
         self._now = now or datetime.now
         self._running = False
         self._last_check = None
-        self._fired = set()
+        self._fired = {}  # 이미 띄운 알림 키 -> 알림 시각(확인 창 12시간이 지나면 지운다)
         self._snoozed = {}
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -87,6 +92,7 @@ class ScheduleAlarmScheduler(QObject):
                 _logger.error("일정 알림 처리 시각 저장 실패: %s", exc)
         self._running = False
         self._snoozed.clear()
+        self._fired.clear()  # 초기화 뒤에는 일정 번호가 다시 시작한다.
 
     def refresh(self) -> None:
         """일정이 바뀐 뒤: 지난 알림은 다시 울리지 않고 다음 확인 시각만 다시 맞춘다."""
@@ -102,29 +108,40 @@ class ScheduleAlarmScheduler(QObject):
         if not self._running:
             return
         now = self._now()
+        try:
+            self._check_at(now)
+        finally:
+            self._schedule_next(now)  # 중간에 예외가 나도 단발 타이머는 반드시 다시 건다.
+
+    def _check_at(self, now) -> None:
         mark = self._last_check or now
         if mark - now > LOOKBACK:
             mark = now  # 시계를 크게 되돌렸으면 지금부터 다시 센다(이미 띄운 것은 _fired가 막는다).
         # 확인한 가장 늦은 시각(mark)은 되돌리지 않는다: 시계가 조금 뒤로 가도 지난 알림이 다시 울리지 않는다.
         after = max(mark, now - LOOKBACK)
         found = self._load(after, now) if now > after else []
-        due = [item for item in found if item.key not in self._fired]
+        fresh = [item for item in found if item.key not in self._fired]
+        again = []  # '5분 뒤 다시'로 돌아온 알림: 놓친 알림이 아니다.
         for key, (item, until) in list(self._snoozed.items()):
             if until <= now:
                 del self._snoozed[key]
                 if self._still_scheduled(item):
-                    due.append(item)
+                    again.append(item)
         self._last_check = max(mark, now)
+        self._fired = {key: when for key, when in self._fired.items() if when >= now - LOOKBACK}
+        due = fresh + again
         if due:
             due.sort(key=lambda item: (item.due, item.schedule_id))
-            self._fired.update(item.key for item in due)
+            self._fired.update((item.key, item.due) for item in due)
             try:
-                db.save_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT, now.isoformat(timespec="seconds"))
+                # 저장하는 값은 되돌아가지 않는다(확인한 가장 늦은 시각).
+                db.save_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT,
+                                self._last_check.isoformat(timespec="seconds"))
             except (sqlite3.Error, OSError) as exc:
                 _logger.error("일정 알림 처리 시각 저장 실패: %s", exc)
-            missed = all(now - item.due > MISSED_AFTER for item in due)
+            # 놓친 알림은 시작·복귀 때 확인 창에서 찾은 것만이다. 다시 알림은 놓친 것이 아니다.
+            missed = not again and all(now - item.due > MISSED_AFTER for item in fresh)
             self.alarms_ready.emit(due, missed)
-        self._schedule_next(now)
 
     def snooze(self, items) -> None:
         """'5분 뒤 다시': 메모리에만 두며 종료하면 사라진다."""
@@ -150,14 +167,16 @@ class ScheduleAlarmScheduler(QObject):
     def _schedule_next(self, now) -> None:
         if not self._running:
             return
-        horizon = now + timedelta(milliseconds=MAX_INTERVAL_MS)
-        candidates = [item.due for item in self._load(now, horizon) if item.key not in self._fired]
-        candidates += [until for _item, until in self._snoozed.values()]
-        interval = MAX_INTERVAL_MS
-        if candidates:
-            wait = (min(candidates) - now).total_seconds() * 1000 + 50
-            interval = max(50, min(MAX_INTERVAL_MS, int(wait)))
-        self._timer.start(interval)
+        interval = MAX_INTERVAL_MS  # 계산 중 예외가 나도 이 간격으로 타이머는 다시 걸린다.
+        try:
+            horizon = now + timedelta(milliseconds=MAX_INTERVAL_MS)
+            candidates = [item.due for item in self._load(now, horizon) if item.key not in self._fired]
+            candidates += [until for _item, until in self._snoozed.values()]
+            if candidates:
+                wait = (min(candidates) - now).total_seconds() * 1000 + 50
+                interval = max(50, min(MAX_INTERVAL_MS, int(wait)))
+        finally:
+            self._timer.start(interval)
 
 
 class ScheduleAlarmCard(QWidget):
@@ -178,6 +197,7 @@ class ScheduleAlarmCard(QWidget):
         self._missed = True
         self._locked = False
         self._now = datetime.now()
+        self._screen = None  # show_at이 정한 화면: 크기가 바뀌면 이 화면 오른쪽 아래에 다시 맞춘다.
         outer = QVBoxLayout(self)
         outer.setContentsMargins(CARD_MARGIN, CARD_MARGIN, CARD_MARGIN, CARD_MARGIN)
         self.frame = QFrame(self)
@@ -282,24 +302,30 @@ class ScheduleAlarmCard(QWidget):
             "QPushButton#scheduleAlarmOk:hover{background:#1D4ED8;}"
         )
         ratio = self.devicePixelRatioF()
-        self.title_label.setText("일정 알림" if count <= 1 else f"일정 알림 {count}건")
+        # 잠금 중에는 건수를 늘 보인다(내용은 가려도 몇 건인지는 알린다).
+        self.title_label.setText(f"일정 알림 {count}건" if count > 1 or self._locked else "일정 알림")
         if self._locked:
             self.icon_label.setPixmap(icon_pixmap("lock", 16, "#475569", ratio))
             locked = QLabel("PIN 잠금 중이라 내용을 숨겼습니다.", self.rows_box)
             locked.setObjectName("scheduleAlarmLocked")
             locked.setTextFormat(Qt.PlainText)
             self.rows_layout.addWidget(locked)
+            locked.show()
             self.more_label.hide()
         else:
             self.icon_label.setPixmap(icon_pixmap("bell", 16, "#2563EB", ratio))
             for item in self._items[:MAX_ROWS]:
-                self.rows_layout.addWidget(self._row(item))
+                row = self._row(item)
+                self.rows_layout.addWidget(row)
+                row.show()  # 열린 카드에 더한 줄은 레이아웃이 늦게 보이므로, 크기를 재기 전에 보인다.
             extra = count - MAX_ROWS
             self.more_label.setText(f"외 {extra}건" if extra > 0 else "")
             self.more_label.setVisible(extra > 0)
         self.snooze_button.setVisible(not self._missed and not self._locked)
         self.frame.layout().activate()
         self.adjustSize()
+        if self.isVisible():
+            self._anchor()  # 열려 있는 카드는 크기가 바뀌어도 오른쪽 아래에 붙어 있다.
 
     def _row(self, item) -> QWidget:
         row = QWidget(self.rows_box)
@@ -316,18 +342,28 @@ class ScheduleAlarmCard(QWidget):
         layout.addWidget(sub)
         return row
 
-    def show_at(self, screen) -> None:
-        """screen 작업 영역의 오른쪽 아래, 12px 안쪽에 보인다."""
+    def _anchor(self) -> None:
+        """기억한 화면 작업 영역의 오른쪽 아래, 12px 안쪽에 카드 틀이 닿게 옮긴다."""
+        screen = self._screen if self._screen is not None and isValid(self._screen) else self.screen()
+        if screen is None:
+            return
         self.adjustSize()
         available = screen.availableGeometry()
         x = available.right() + 1 - SCREEN_GAP - (self.width() - CARD_MARGIN)
         y = available.bottom() + 1 - SCREEN_GAP - (self.height() - CARD_MARGIN)
         self.move(QPoint(x, y))
+
+    def show_at(self, screen) -> None:
+        """screen 작업 영역의 오른쪽 아래, 12px 안쪽에 보인다."""
+        self._screen = screen
+        self._anchor()
         self.show()
         self.raise_()
         remove_dwm_border(self)
 
     def _snooze(self) -> None:
+        if self._locked:  # 잠금 중에는 다시 알림을 받지 않는다(버튼도 숨겨져 있다).
+            return
         self.snooze_requested.emit(list(self._items))
         self.close()
 

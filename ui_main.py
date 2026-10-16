@@ -4239,8 +4239,6 @@ class MainCalendarWindow(QWidget):
             if event_type == b"windows_generic_MSG":
                 msg = wintypes.MSG.from_address(int(message))
 
-                if msg.message == WM_POWERBROADCAST and msg.wParam == PBT_APMRESUMESUSPEND:
-                    self._schedule_alarm_scheduler.resume()
                 should_lock = (
                     (msg.message == WM_POWERBROADCAST and msg.wParam == PBT_APMRESUMESUSPEND) or
                     (msg.message == WM_WTSSESSION_CHANGE and msg.wParam == WTS_SESSION_UNLOCK)
@@ -4248,6 +4246,9 @@ class MainCalendarWindow(QWidget):
                 if should_lock and not self._is_locked:
                     if db.get_setting(db.SETTING_USE_PRIVACY_LOCK, "0") == "1":
                         self._lock()
+                # 잠금을 정한 뒤에 확인한다: 잠금으로 끝나는 복귀에서 알림 카드가 풀린 채 만들어지지 않게 한다.
+                if msg.message == WM_POWERBROADCAST and msg.wParam == PBT_APMRESUMESUSPEND:
+                    self._schedule_alarm_scheduler.resume()
         except (OSError, ValueError):
             _logger.debug("nativeEvent 처리 중 예외 (PySide6 버전 호환성)")
 
