@@ -93,7 +93,7 @@ def test_seed_is_isolated_and_cannot_overwrite_existing_dataset():
     data_root = directory / "synthetic"
     data_root.mkdir()
     before = smoke.data_step("seed", data_root, directory / "seed.json")
-    assert before["version"] == 17
+    assert before["version"] == 18
     assert before["integrity"] == ["ok"]
     assert len(before["ids"]["schedules"]) == 3
     assert len(before["ids"]["sticky_notes"]) == 2

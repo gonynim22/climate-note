@@ -21,7 +21,7 @@ _logger = logging.getLogger("app_error")
 
 DB_FILE = APP_DIR / "calendar.db"
 EXPORT_FORMAT_VERSION = 2
-CURRENT_SCHEMA_VERSION = 17
+CURRENT_SCHEMA_VERSION = 18
 AUTO_BACKUP_FORMAT = "climatenote-auto-backup"
 AUTO_BACKUP_FORMAT_VERSION = 1
 AUTO_BACKUP_KEEP_DAYS = 5
@@ -45,6 +45,17 @@ SETTING_CALENDAR_SCALE = "calendar_scale"    # compact / medium / large (v3.0)
 SETTING_KEEP_ON_SHOW_DESKTOP = "keep_on_show_desktop"  # Win+D/모두최소화에도 유지 "1"/"0"
 SETTING_CALENDAR_POSITION_MODE = "calendar_position_mode"  # corner / free (v3.3)
 SETTING_CALENDAR_MOVE_ENABLED = "calendar_move_enabled"  # v3.9a J안부터 읽지 않음. 기존 행·Export 값은 보존
+SETTING_SCHEDULE_ALARM_SEEN_AT = "schedule_alarm_seen_at"  # v4.1: 여기까지의 알림은 처리함(Export 제외)
+
+# v4.1(DB v18): 일정 표에 열만 더한다. 이름 → 고정 SQL(외부 값이 섞이지 않는 상수).
+SCHEDULE_V18_COLUMNS = (
+    ("start_time", "ALTER TABLE schedules ADD COLUMN start_time TEXT NOT NULL DEFAULT ''"),
+    ("end_date", "ALTER TABLE schedules ADD COLUMN end_date TEXT NOT NULL DEFAULT ''"),
+    ("repeat_rule", "ALTER TABLE schedules ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT ''"),
+    ("repeat_until", "ALTER TABLE schedules ADD COLUMN repeat_until TEXT NOT NULL DEFAULT ''"),
+    ("repeat_skip", "ALTER TABLE schedules ADD COLUMN repeat_skip TEXT NOT NULL DEFAULT ''"),
+    ("alarm_before", "ALTER TABLE schedules ADD COLUMN alarm_before INTEGER"),
+)
 SETTING_SCHEDULE_COLOR_1 = "schedule_color_1"
 SETTING_SCHEDULE_COLOR_2 = "schedule_color_2"
 SETTING_SCHEDULE_COLOR_3 = "schedule_color_3"
@@ -230,7 +241,9 @@ def inspect_startup_data_health() -> DataHealthReport:
             version = int(
                 conn.execute("PRAGMA user_version").fetchone()[0]
             )
-            if not 0 < version <= CURRENT_SCHEMA_VERSION:
+            if version > CURRENT_SCHEMA_VERSION:
+                return DataHealthReport(False, "schema_newer", version)
+            if version <= 0:
                 return DataHealthReport(False, "schema_invalid", version)
 
             tables = {
@@ -244,6 +257,12 @@ def inspect_startup_data_health() -> DataHealthReport:
                     return DataHealthReport(
                         False, "schema_invalid", version
                     )
+            if version >= 18 and "schedules" in tables:
+                schedule_columns = {
+                    row[1] for row in conn.execute("PRAGMA table_info(schedules)")
+                }
+                if not {name for name, _sql in SCHEDULE_V18_COLUMNS} <= schedule_columns:
+                    return DataHealthReport(False, "schema_invalid", version)
 
             for table, column in _PROTECTED_COLUMNS:
                 if table not in tables:
@@ -814,6 +833,24 @@ def migrate(*, initial_calendar_scale: str | None = None) -> None:
             conn.execute("PRAGMA user_version = 17")
             conn.commit()
             version = 17
+
+        if version == 17:
+            # v4.1: 일정 시각·기간·반복·알림 열 추가. 기존 행의 값은 읽거나 쓰지 않는다.
+            # 열 추가와 버전 표시를 한 트랜잭션으로 묶어 중간에 실패하면 모두 되돌린다.
+            if conn.in_transaction:
+                conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = {row[1] for row in conn.execute("PRAGMA table_info(schedules)")}
+                for name, statement in SCHEDULE_V18_COLUMNS:
+                    if name not in existing:
+                        conn.execute(statement)
+                conn.execute("PRAGMA user_version = 18")
+                conn.execute("COMMIT")
+            except sqlite3.Error:
+                conn.execute("ROLLBACK")
+                raise
+            version = 18
 
     # 암호화 키 마이그레이션 (MAC → MachineGuid)
     _try_migrate_encryption()

@@ -11,10 +11,10 @@ import database as db
 # ─── 마이그레이션 ─────────────────────────────────────────────
 
 class TestMigration:
-    def test_fresh_install_is_v17(self, app_dir):
+    def test_fresh_install_is_current_version(self, app_dir):
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
 
     def test_fresh_has_color_column_in_schedules(self, app_dir):
         with db._connection() as conn:
@@ -45,7 +45,7 @@ class TestMigration:
             cols = [c[1] for c in conn.execute("PRAGMA table_info(schedules)").fetchall()]
             version = conn.execute("PRAGMA user_version").fetchone()[0]
         assert "color" in cols
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
 
     def test_fresh_has_trash_columns_in_sticky_notes(self, app_dir):
         with db._connection() as conn:
@@ -67,15 +67,15 @@ class TestMigration:
             cols = [c[1] for c in conn.execute("PRAGMA table_info(sticky_notes)").fetchall()]
             version = conn.execute("PRAGMA user_version").fetchone()[0]
         assert "is_deleted" in cols and "deleted_at" in cols
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
 
     def test_migrate_is_idempotent(self, app_dir):
-        """migrate()를 두 번 호출해도 오류 없이 v17 유지"""
+        """migrate()를 두 번 호출해도 오류 없이 최신 버전 유지"""
         db.migrate()
         db.migrate()
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
 
     def test_v7_to_v8_preserves_existing_data(self, app_dir):
         """v7→v8 마이그레이션 시 기존 일정 데이터와 암호화 내용 보존"""
@@ -112,7 +112,7 @@ class TestMigration:
         db.migrate()
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
 
     def test_all_tables_exist(self, app_dir):
         with db._connection() as conn:
@@ -163,10 +163,10 @@ class TestMigration:
         assert len(db.get_shortcuts()) == 6
 
     def test_migration_v16_adds_keep_on_show_desktop_default_on(self, app_dir):
-        """app_dir 픽스처가 최신 migrate() 실행 → v17 + 기본 ON."""
+        """app_dir 픽스처가 최신 migrate() 실행 → 최신 버전 + 기본 ON."""
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
         assert db.get_setting(db.SETTING_KEEP_ON_SHOW_DESKTOP) == "1"
 
     def test_migration_v16_preserves_existing_and_idempotent(self, app_dir):
@@ -188,7 +188,7 @@ class TestMigration:
         assert db.get_setting(db.SETTING_KEEP_ON_SHOW_DESKTOP) == "1"
         assert db.get_setting(db.SETTING_APP_OPACITY) == "55"  # 기존 설정 무손상
         with db._connection() as conn:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
 
         # 멱등: 사용자가 "0"으로 바꾼 상태에서 v15→v16 블록이 다시 실행돼도 값 보존
         db.save_setting(db.SETTING_KEEP_ON_SHOW_DESKTOP, "0")
@@ -198,7 +198,7 @@ class TestMigration:
         db.migrate()
         assert db.get_setting(db.SETTING_KEEP_ON_SHOW_DESKTOP) == "0"
         with db._connection() as conn:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
 
     def test_migration_v17_seeds_settings_without_touching_schedules(self, app_dir):
         """v16→v17은 설정만 추가하고 일정 행 원문은 한 바이트도 바꾸지 않는다."""
@@ -233,7 +233,7 @@ class TestMigration:
             ]
             version = conn.execute("PRAGMA user_version").fetchone()[0]
         assert after == before
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
         assert db.get_schedule_palette() == db.DEFAULT_SCHEDULE_PALETTE
         assert (
             db.get_setting(db.SETTING_CALENDAR_POSITION_MODE)
@@ -254,7 +254,7 @@ class TestMigration:
         assert db.get_schedule_palette() == custom
         assert db.get_setting(db.SETTING_CALENDAR_POSITION_MODE) == "free"
         with db._connection() as conn:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
 
     def test_migration_v17_preserves_all_existing_user_tables_exactly(self, app_dir):
         """v16→v17에서 일정 외 메모·위젯·세션·바로가기 원문도 변하지 않는다."""
@@ -368,7 +368,7 @@ class TestMigration:
 
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
         assert db.get_setting(db.SETTING_APP_FONT) == db.DEFAULT_APP_FONT
         assert db.get_schedules("2026-04-22")[0]["content"] == "v2.7 이전 일정"
 
@@ -389,7 +389,7 @@ class TestMigration:
 
             with db._connection() as conn:
                 version = conn.execute("PRAGMA user_version").fetchone()[0]
-            assert version == 17
+            assert version == db.CURRENT_SCHEMA_VERSION
             assert db.get_setting(db.SETTING_APP_FONT) == db.DEFAULT_APP_FONT
 
     def test_v11_to_v12_adds_focus_tables_and_preserves_data(self, app_dir):
@@ -410,7 +410,7 @@ class TestMigration:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()}
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
         assert {"focus_widgets", "focus_sessions"}.issubset(tables)
         assert db.get_schedules("2026-04-27")[0]["content"] == "v2.8 이전 일정"
 
@@ -430,7 +430,7 @@ class TestMigration:
 
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
         assert db.get_setting(db.SETTING_APP_OPACITY) == db.DEFAULT_APP_OPACITY
         assert db.get_setting(db.SETTING_CALENDAR_SCALE) == db.DEFAULT_CALENDAR_SCALE
         assert db.get_schedules("2026-06-10")[0]["content"] == "v13 일정"
@@ -450,14 +450,14 @@ class TestMigration:
 
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
         assert db.get_setting(db.SETTING_APP_OPACITY) == "60"
         assert db.get_setting(db.SETTING_CALENDAR_SCALE) == "large"
 
-    def test_fresh_install_is_v17_with_new_settings(self, app_dir):
+    def test_fresh_install_is_current_version_with_new_settings(self, app_dir):
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
         assert db.get_setting(db.SETTING_APP_OPACITY) == db.DEFAULT_APP_OPACITY
         assert db.get_setting(db.SETTING_CALENDAR_SCALE) == db.DEFAULT_CALENDAR_SCALE
 
@@ -994,20 +994,20 @@ class TestBackupRotation:
         app_main._initialize_database()
 
         with db._connection() as conn:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
         assert not list(
-            (app_dir / "backups").glob("calendar_pre_v17_*.db")
+            (app_dir / "backups").glob(f"calendar_pre_v{db.CURRENT_SCHEMA_VERSION}_*.db")
         )
 
-    def test_initialize_database_current_v17_skips_pre_snapshot(
+    def test_initialize_database_current_version_skips_pre_snapshot(
             self, app_dir):
         import main as app_main
         app_main._initialize_database()
 
         with db._connection() as conn:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
         assert not list(
-            (app_dir / "backups").glob("calendar_pre_v17_*.db")
+            (app_dir / "backups").glob(f"calendar_pre_v{db.CURRENT_SCHEMA_VERSION}_*.db")
         )
 
     def test_backup_includes_committed_rows_still_in_wal(
@@ -1088,7 +1088,7 @@ class TestBackupRotation:
         assert db.backup_before_migration() is True
         snapshot = (
             app_dir / "backups"
-            / f"calendar_pre_v17_v{legacy_version}.db"
+            / f"calendar_pre_v{db.CURRENT_SCHEMA_VERSION}_v{legacy_version}.db"
         )
         assert snapshot.exists()
 
@@ -1114,7 +1114,7 @@ class TestBackupRotation:
             conn.commit()
         assert db.backup_before_migration() is True
 
-        snapshot = app_dir / "backups" / "calendar_pre_v17_v16.db"
+        snapshot = app_dir / "backups" / f"calendar_pre_v{db.CURRENT_SCHEMA_VERSION}_v16.db"
         with open(snapshot, "rb") as snapshot_file:
             before = snapshot_file.read()
         db.add_schedule("2026-07-25", "새로 추가된 원본")
@@ -1675,11 +1675,11 @@ class TestFactoryReset:
         assert db.get_schedules("2025-01-01") == []
         assert db.get_memo("2025-01-01") == ""
 
-    def test_reset_then_migrate_v17(self, app_dir):
+    def test_reset_then_migrate_current_version(self, app_dir):
         db.reset_database()
         with db._connection() as conn:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == 17
+        assert version == db.CURRENT_SCHEMA_VERSION
 
     def test_reset_then_insert_works(self, app_dir):
         db.reset_database()

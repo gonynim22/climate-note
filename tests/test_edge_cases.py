@@ -61,7 +61,7 @@ class TestScheduleEdgeCases:
                 "SELECT * FROM schedules WHERE id IN (?, ?) ORDER BY id", (original_id, emoji_id)
             )] == before
             assert [tuple(row) for row in conn.execute("SELECT * FROM app_settings ORDER BY key")] == settings
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
         assert security.read_existing_salt() == salt
 
     def test_unknown_color_stored_as_is(self, app_dir):

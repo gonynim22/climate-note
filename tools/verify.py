@@ -31,12 +31,13 @@ QUICK_TESTS = (
     "tests/test_app_paths.py", "tests/test_startup_path.py",
     "tests/test_fetch_data.py", "tests/test_verify.py",
     "tests/test_release_smoke.py",
-    "tests/test_database.py::TestMigration::test_fresh_install_is_v17",
+    "tests/test_database.py::TestMigration::test_fresh_install_is_current_version",
     "tests/test_data_safety.py::test_health_gate_missing_salt_fails_without_creating_replacement",
     "tests/test_ui.py::test_schedule_right_click_menu_edits_and_deletes",
     "tests/test_ui.py::test_prepare_for_quit_blocks_when_sticky_save_fails",
 )
 DATA_TESTS = tuple(f"tests/test_{name}.py" for name in (
+    "schedule_rules", "schedule_storage",
     "database", "security", "data_safety", "edge_cases", "stress",
     "startup_path", "ui", "ui_sticky", "ui_sticky_panel", "ui_data_lifecycle", "widget_limits",
 ))

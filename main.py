@@ -170,6 +170,11 @@ def _data_health_error_message(code: str) -> tuple[str, str]:
             "기존 데이터에 필요한 salt 파일을 확인하지 못했습니다. "
             "새 salt를 만들지 않았습니다."
         )
+    elif code == "schema_newer":
+        detail = (
+            "더 새 버전의 기후노트에서 쓰던 데이터입니다. "
+            "최신 버전으로 실행해 주세요."
+        )
     elif code == "decrypt_failed":
         detail = (
             "기존 암호화 데이터를 안전하게 읽지 못했습니다. "

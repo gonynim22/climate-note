@@ -202,7 +202,7 @@ def test_pre_v35_backup_preserves_existing_settings_only_database(app_dir):
         "calendar_pre_v35_*.cnbak"
     ))
     assert len(bundles) == 1
-    assert db.validate_backup_bundle(bundles[0])["schema_version"] == 17
+    assert db.validate_backup_bundle(bundles[0])["schema_version"] == db.CURRENT_SCHEMA_VERSION
 
 
 def test_auto_backup_same_day_keeps_first_verified_bundle(app_dir):
@@ -308,7 +308,7 @@ def test_destructive_operation_creates_non_rotating_recovery_bundle(
         f"calendar_before_{operation}_*.cnbak"
     ))
     assert len(bundles) == 1
-    assert db.validate_backup_bundle(bundles[0])["schema_version"] == 17
+    assert db.validate_backup_bundle(bundles[0])["schema_version"] == db.CURRENT_SCHEMA_VERSION
 
 
 def test_v35_startup_blocks_before_any_backup_when_health_fails(app_dir):
@@ -347,7 +347,7 @@ def test_v35_first_start_preserves_existing_rows_ciphertext_and_salt(app_dir):
             "SELECT id, date, content, created_at, color "
             "FROM schedules WHERE id = ?", (schedule_id,)
         ).fetchone())
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
     with open(security.SALT_FILE, "rb") as salt_file:
         after_salt = salt_file.read()
 
