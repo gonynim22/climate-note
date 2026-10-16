@@ -5,6 +5,7 @@
 카드 안에서는 다른 팝업(드롭다운·QCalendarWidget·메뉴)을 띄우지 않는다.
 """
 import calendar
+import logging
 from dataclasses import replace
 from datetime import date, timedelta
 
@@ -19,6 +20,8 @@ import holidays
 import schedule_rules as rules
 from popup_border_fix import remove_dwm_border
 from schedule_rules import ScheduleOptions
+
+_logger = logging.getLogger("app_error")
 
 SCHEDULE_CONTROL_DIAMETER = 22
 SHADOW_MARGIN = 16
@@ -204,12 +207,15 @@ class ScheduleOptionsButton(QPushButton):
         self._start = ""
         self._occurrence = ""
         self.setFixedSize(26, 26)
+        self.setObjectName("scheduleOptionsButton")
         self.setAccessibleName("일정 세부 설정")
         self.setCursor(Qt.PointingHandCursor)
+        # 자식인 세부 카드로 번지지 않도록 #objectName으로 범위를 좁힌다.
         self.setStyleSheet(
-            "QPushButton{color:#475569;background:transparent;"
+            "QPushButton#scheduleOptionsButton{color:#475569;background:transparent;"
             "border:1px solid transparent;border-radius:5px;}"
-            "QPushButton:hover,QPushButton:focus{background:#EFF6FF;border-color:#2563EB;}"
+            "QPushButton#scheduleOptionsButton:hover,QPushButton#scheduleOptionsButton:focus"
+            "{background:#EFF6FF;border-color:#2563EB;}"
         )
         self._restore_timer = QTimer(self)
         self._restore_timer.setSingleShot(True)
@@ -254,7 +260,9 @@ class ScheduleOptionsButton(QPushButton):
         if self._start and not self._options.is_default:
             try:
                 summary = rules.options_summary(self._start, self._options)
-            except ValueError:
+            except ValueError as exc:
+                # 일정 내용(날짜·시각 값)은 남기지 않고 예외 종류만 기록한다.
+                _logger.warning("일정 세부 설정 요약 실패: %s", type(exc).__name__)
                 summary = ""
         self.setToolTip(f"세부 설정: {summary}" if summary else "시각·알림·기간·반복")
 
@@ -286,8 +294,8 @@ class ScheduleOptionsButton(QPushButton):
 
     def open_popup(self) -> None:
         if (not self._can_edit() or not self.isVisible() or not self.isEnabled()
-                or self._popup is not None):
-            return
+                or self._popup is not None or not self._start):
+            return  # 기준 날짜가 아직 없으면(set_context 전) 카드를 만들지 않는다.
         popup = ScheduleOptionsPopup(self._options, self._start, self._occurrence, self)
         self._popup = popup
         popup.options_changed.connect(lambda options: self._on_popup_changed(popup, options))
@@ -348,6 +356,7 @@ class MiniMonthPicker(QWidget):
     """카드 안에 펼치는 작은 달력(일요일 시작). 따로 팝업을 띄우지 않는다."""
 
     date_picked = Signal(str)
+    month_changed = Signal()  # 보이는 달이 바뀜(줄 수가 달라지면 카드 크기도 달라진다)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -427,7 +436,8 @@ class MiniMonthPicker(QWidget):
                 button.setVisible(True)
                 button.setText(str(number))
                 button.setProperty("day", iso)
-                allowed = day >= self._lower and (self._upper is None or day <= self._upper)
+                allowed = ((self._lower is None or day >= self._lower)
+                           and (self._upper is None or day <= self._upper))
                 button.setEnabled(allowed)
                 if day == self._selected or (self._range_start is not None and day == self._range_start):
                     role = "end"
@@ -443,6 +453,7 @@ class MiniMonthPicker(QWidget):
                 button.setAccessibleName(rules.korean_date(day))
             button.style().unpolish(button)
             button.style().polish(button)
+        self.month_changed.emit()
 
     def button_for(self, iso: str) -> QPushButton | None:
         return next((b for b in self.day_buttons if b.property("day") == iso), None)
@@ -476,6 +487,8 @@ class ScheduleOptionsPopup(QWidget):
         self._occurrence = occurrence or start
         self._was_repeat = bool(options.repeat_rule)
         self._picker_for = ""
+        self._reported_size = QSize()  # 마지막으로 size_changed로 알린 크기
+        self._rendering = False  # _render 도중 작은 달력이 내는 month_changed는 마지막 한 번만 배치한다.
         self._last_time = options.start_time or "09:00"
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN, SHADOW_MARGIN)
@@ -564,6 +577,7 @@ class ScheduleOptionsPopup(QWidget):
         self.period_picker = MiniMonthPicker(self.card)
         self.period_picker.date_picked.connect(
             lambda iso: self._change(replace(self._options, end_date=iso)))
+        self.period_picker.month_changed.connect(self._on_month_changed)
         body.addWidget(self.period_picker)
         self.period_note = self._note(REPEAT_ONLY_ONE_DAY)
         body.addWidget(self.period_note)
@@ -606,6 +620,7 @@ class ScheduleOptionsPopup(QWidget):
         self.until_picker = MiniMonthPicker(self.until_row)
         self.until_picker.date_picked.connect(
             lambda iso: self._change(replace(self._options, repeat_until=iso)))
+        self.until_picker.month_changed.connect(self._on_month_changed)
         body.addWidget(self.until_picker)
         layout.addWidget(self.until_row)
 
@@ -744,6 +759,19 @@ class ScheduleOptionsPopup(QWidget):
 
     # ── 그리기 ──
     def _render(self) -> None:
+        self._rendering = True
+        try:
+            self._render_state()
+        finally:
+            self._rendering = False
+        self._relayout()
+
+    def _on_month_changed(self) -> None:
+        """달 넘기기로 줄 수(5↔6)가 바뀌면 카드 크기를 맞추고 size_changed로 위치를 다시 잡게 한다."""
+        if not self._rendering:
+            self._relayout()
+
+    def _render_state(self) -> None:
         options = self._options
         timed = bool(options.start_time)
         period = bool(options.end_date)
@@ -798,14 +826,21 @@ class ScheduleOptionsPopup(QWidget):
             until = rules.parse_date(options.repeat_until)
             self.until_picker.set_state(month=until, lower=self._start_day, upper=None,
                                         range_start=None, selected=until)
-        self._relayout()
 
     def _relayout(self) -> None:
-        old = self.size()
-        self.card.layout().activate()
-        self.layout().activate()
+        """카드 크기를 내용에 맞추고, 지난번에 알린 크기와 달라졌으면 size_changed를 낸다.
+
+        칸(위젯) 경계마다 배치 요청이 비동기로 올라가므로 안쪽 칸부터 바깥으로 차례로 맞춘다.
+        자식을 보이는 순간 Qt가 창을 먼저 키우기도 해서, 호출 직전 크기가 아니라
+        마지막으로 알린 크기와 비교해야 커진 경우에도 위치를 다시 잡는다.
+        """
+        for widget in (self.period_picker, self.until_picker, self.until_row, self.card, self):
+            layout = widget.layout()
+            layout.invalidate()
+            layout.activate()
         self.adjustSize()
-        if self.size() != old:
+        if self.size() != self._reported_size:
+            self._reported_size = self.size()
             self.size_changed.emit()
 
     # ── 포커스·닫기 ──

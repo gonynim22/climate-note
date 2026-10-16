@@ -1,5 +1,7 @@
 """v4.1 세부 설정 부품(아이콘·말줄임 라벨·시계 버튼·세부 카드·작은 달력·알약) 회귀. 합성 값만 쓴다."""
+import logging
 import os
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -12,8 +14,8 @@ import ui_schedule_emoji
 import ui_schedule_options
 from schedule_rules import ScheduleOptions
 from ui_schedule_options import (
-    CARD_WIDTH, ElidedLabel, ScheduleOptionsButton, ScheduleOptionsPills, ScheduleOptionsPopup,
-    icon_pixmap, popup_position,
+    CARD_WIDTH, ElidedLabel, MiniMonthPicker, ScheduleOptionsButton, ScheduleOptionsPills,
+    ScheduleOptionsPopup, icon_pixmap, popup_position,
 )
 
 
@@ -310,3 +312,96 @@ def test_pills_texts_and_signals(qtbot, host):
     assert cleared == ["time"] and opened == [True]
     host.pills.set_state("2026-10-21", ScheduleOptions())
     assert host.pills.isHidden()
+
+
+def _track_resize_and_placement(host, card):
+    """카드 크기 변화 신호(size_changed)와 버튼의 재배치(_place) 호출 횟수를 센다."""
+    sizes, placed = [], []
+    card.size_changed.connect(lambda: sizes.append(card.height()))
+    original = host.button._place
+    host.button._place = lambda popup: (placed.append(popup), original(popup))[1]
+    return sizes, placed
+
+
+def test_period_picker_month_navigation_resizes_and_replaces_card(qtbot, host):
+    card = open_card(qtbot, host.button)
+    click(qtbot, card.many_days_chip)  # 시작 2026-10-15: 10월은 5줄
+    picker = card.period_picker
+    assert picker.title_label.text() == "2026년 10월"
+    assert not picker.day_buttons[35].isVisible()
+    base = card.height()
+    sizes, placed = _track_resize_and_placement(host, card)
+    for _ in range(3):  # 11월·12월(5줄) → 2027년 1월(6줄)
+        click(qtbot, picker.next_button)
+    assert picker.title_label.text() == "2027년 1월"
+    assert picker.day_buttons[35].isVisible()
+    assert card.height() > base
+    assert sizes and sizes[-1] == card.height()
+    assert placed and all(popup is card for popup in placed)
+    for _ in range(3):
+        click(qtbot, picker.prev_button)
+    assert picker.title_label.text() == "2026년 10월"
+    assert card.height() == base
+    assert sizes[-1] == base
+
+
+def test_until_picker_month_navigation_resizes_and_replaces_card(qtbot, host):
+    card = open_card(qtbot, host.button)
+    click(qtbot, card.repeat_chips["monthly"])
+    click(qtbot, card.until_chip)  # 시작 2026-10-15의 한 달 뒤: 11월은 5줄
+    picker = card.until_picker
+    assert picker.isVisible() and picker.title_label.text() == "2026년 11월"
+    base = card.height()
+    sizes, placed = _track_resize_and_placement(host, card)
+    for _ in range(2):  # 12월(5줄) → 2027년 1월(6줄)
+        click(qtbot, picker.next_button)
+    assert picker.title_label.text() == "2027년 1월"
+    assert card.height() > base
+    assert sizes and sizes[-1] == card.height()
+    assert placed
+    for _ in range(2):
+        click(qtbot, picker.prev_button)
+    assert card.height() == base
+
+
+def test_options_button_style_is_scoped_to_its_own_object_name(host):
+    button = host.button
+    assert button.objectName() == "scheduleOptionsButton"
+    rules = [rule for rule in button.styleSheet().split("}") if rule.strip()]
+    assert rules
+    for rule in rules:
+        selectors = rule.split("{")[0].split(",")
+        assert all(selector.strip().startswith("QPushButton#scheduleOptionsButton")
+                   for selector in selectors), rule
+
+
+def test_tooltip_summary_failure_is_logged_without_content(host, caplog):
+    secret = "비공개-값"
+    with caplog.at_level(logging.WARNING, logger="app_error"):
+        host.button.set_options(ScheduleOptions(end_date=secret))  # 요약 계산이 ValueError를 낸다.
+    assert host.button.toolTip() == "시각·알림·기간·반복"
+    logged = [record for record in caplog.records if record.name == "app_error"]
+    assert logged and logged[0].levelno == logging.WARNING
+    assert all(secret not in record.getMessage() and "2026-10-15" not in record.getMessage()
+               for record in logged)
+
+
+def test_open_popup_without_context_does_nothing(qtbot):
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    button = ScheduleOptionsButton(QLineEdit(parent), lambda: True, parent)
+    parent.show()
+    assert button.isVisible() and button.start_date() == ""
+    button.open_popup()
+    assert button._popup is None
+    button.set_context("2026-10-15")
+    button.open_popup()
+    assert button._popup is not None
+    button.close_popup()
+
+
+def test_mini_month_without_state_treats_missing_lower_bound_as_open():
+    picker = MiniMonthPicker()
+    picker.show_month(date(2026, 10, 1))
+    assert picker.button_for("2026-10-01").isEnabled()
+    assert picker.button_for("2026-10-31").isEnabled()
