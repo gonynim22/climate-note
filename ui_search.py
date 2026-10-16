@@ -12,6 +12,7 @@ from qfluentwidgets import (
 )
 
 import database as db
+from schedule_rules import ScheduleOptions, search_suffix
 from ui_window_card import TABLE_QSS, WindowCard
 
 SEARCH_HINT = "검색어를 입력하고 Enter를 누르세요.\n[전체 검색]은 모든 일정과 메모를 보여 줍니다."
@@ -135,6 +136,10 @@ class SearchWindow(QWidget):
             content_text = r["content"].replace('\n', ' ')
             if len(content_text) > 80:
                 content_text = content_text[:80] + "..."
+            if r["type"] == "일정":
+                # 반복·기간은 원본 한 줄(시작 날짜)에 표시용 꼬리만 붙인다(저장값은 그대로).
+                content_text += search_suffix(r["date"], ScheduleOptions(
+                    end_date=r.get("end_date", ""), repeat_rule=r.get("repeat_rule", "")))
             content_item = QTableWidgetItem(content_text)
             content_item.setToolTip(r["content"]) # 마우스를 올리면 전체 내용을 볼 수 있도록
             

@@ -300,3 +300,22 @@ def test_legacy_date_row_still_edits_text_but_not_options(qtbot):
     assert [s["content"] for s in db.get_schedules("2026-7-1")] == ["고친 옛 일정"]
     win._on_date_selected("2026-07-02")
     assert win.schedule_options_button.isEnabled()
+
+
+def test_search_shows_repeat_and_period_tail_without_changing_data(qtbot):
+    db.add_schedule("2026-10-05", "주간 회의", options=WEEKLY)
+    db.add_schedule("2026-10-21", "출장 보고", options=ScheduleOptions(end_date="2026-10-23"))
+    db.add_schedule("2026-10-22", "일반 회의")
+    with db._connection() as conn:
+        before = [tuple(r) for r in conn.execute("SELECT * FROM schedules ORDER BY id")]
+    search = SearchWindow()
+    qtbot.addWidget(search)
+    search._on_search(search_all=True)
+    cells = {search.result_table.item(row, 0).text(): search.result_table.item(row, 2)
+             for row in range(search.result_table.rowCount())}
+    assert cells["2026-10-05"].text() == "주간 회의 (매주 월요일 반복)"
+    assert cells["2026-10-21"].text() == "출장 보고 (~10.23)"
+    assert cells["2026-10-22"].text() == "일반 회의"
+    assert cells["2026-10-05"].toolTip() == "주간 회의"
+    with db._connection() as conn:
+        assert [tuple(r) for r in conn.execute("SELECT * FROM schedules ORDER BY id")] == before
