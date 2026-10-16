@@ -1,4 +1,5 @@
 """v4.1 일정 저장(DB v18 마이그레이션·API·Export v3) 회귀. 합성 데이터만 쓴다."""
+import json
 import logging
 import sqlite3
 import time
@@ -407,3 +408,93 @@ def test_search_results_ignore_corrupt_end_date(app_dir):
     _insert_raw_schedule("2026-10-05", "깨진 기간", end_date="2026-10-01", repeat_rule="monthly")
     result = db.search_all("깨진")[0]
     assert (result["date"], result["end_date"], result["repeat_rule"]) == ("2026-10-05", "", "monthly")
+
+
+OPTION_KEYS = ("start_time", "end_date", "repeat_rule", "repeat_until", "repeat_skip", "alarm_before")
+
+
+def test_export_v3_writes_all_schedule_fields_and_hides_alarm_seen_at(app_dir):
+    db.add_schedule("2026-10-05", "주간 회의",
+                    options=ScheduleOptions(start_time="10:00", repeat_rule="weekly",
+                                            repeat_until="2026-12-28", alarm_before=10))
+    sid = db.add_schedule("2026-10-05", "건너뛴 회의", options=ScheduleOptions(repeat_rule="weekly"))
+    db.skip_schedule_occurrence(sid, "2026-10-12")
+    db.add_schedule("2026-10-15", "옛 일정")
+    db.save_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT, "2026-10-15T09:00:00")
+
+    payload = json.loads(db.export_all_data())
+
+    assert payload["format_version"] == 3
+    first, second, legacy = payload["schedules"]
+    assert {k: first[k] for k in OPTION_KEYS} == {
+        "start_time": "10:00", "end_date": "", "repeat_rule": "weekly",
+        "repeat_until": "2026-12-28", "repeat_skip": [], "alarm_before": 10}
+    assert second["repeat_skip"] == ["2026-10-12"]
+    assert {k: legacy[k] for k in OPTION_KEYS} == {
+        "start_time": "", "end_date": "", "repeat_rule": "", "repeat_until": "",
+        "repeat_skip": [], "alarm_before": None}
+    assert db.SETTING_SCHEDULE_ALARM_SEEN_AT not in payload["settings"]
+    assert db.SETTING_PRIVACY_PIN not in payload["settings"]
+
+
+def test_v3_roundtrip_restores_options(app_dir):
+    db.add_schedule("2026-10-05", "주간 회의",
+                    options=ScheduleOptions(start_time="10:00", repeat_rule="weekly",
+                                            repeat_until="2026-12-28", alarm_before=10))
+    db.add_schedule("2026-10-21", "출장", options=ScheduleOptions(end_date="2026-10-23"))
+    text = db.export_all_data()
+    db.reset_database()
+    db.import_all_data(text)
+    assert db.get_schedules("2026-10-19")[0]["options"] == ScheduleOptions(
+        start_time="10:00", repeat_rule="weekly", repeat_until="2026-12-28", alarm_before=10)
+    assert db.get_schedules("2026-10-22")[0]["span_end"] == "2026-10-23"
+
+
+def test_v2_file_imports_with_default_options_and_ignores_extra_keys(app_dir):
+    payload = {"format_version": 2, "schedules": [{
+        "date": "2026-10-15", "content": "v2 일정", "created_at": "2026-10-01 09:00:00",
+        "color": "#FFD166", "repeat_rule": "daily"}]}
+    db.import_all_data(json.dumps(payload))
+    assert [e["options"] for e in db.get_schedules("2026-10-15")] == [ScheduleOptions()]
+    assert db.get_schedules("2026-10-16") == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("start_time", "9:30"), ("start_time", 930), ("end_date", "2026-10-15"),
+    ("repeat_rule", "biweekly"), ("repeat_until", "2026-10-01"), ("repeat_skip", "2026-10-22"),
+    ("repeat_skip", [20261022]), ("alarm_before", 15), ("alarm_before", True),
+])
+def test_v3_invalid_schedule_options_reject_whole_file(app_dir, field, value):
+    base = {"date": "2026-10-15", "content": "x"}
+    if field in ("repeat_until", "repeat_skip"):
+        base["repeat_rule"] = "weekly"
+    payload = {
+        "format_version": 3,
+        "schedules": [{"date": "2026-10-15", "content": "정상"}, {**base, field: value}],
+        "memos": [{"date": "2026-10-15", "content": "메모"}],
+    }
+    with pytest.raises(ValueError):
+        db.import_all_data(json.dumps(payload))
+    with db._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM memos").fetchone()[0] == 0
+
+
+def test_import_ignores_alarm_seen_at_setting(app_dir):
+    payload = {"format_version": 3, "settings": {
+        db.SETTING_SCHEDULE_ALARM_SEEN_AT: "2030-01-01T00:00:00", "show_lunar": "1"}}
+    db.import_all_data(json.dumps(payload))
+    assert db.get_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT, "") == ""
+    assert db.get_setting("show_lunar") == "1"
+
+
+def test_legacy_date_string_survives_export_import(app_dir):
+    """Review Focus 1: 형식이 다른 옛 날짜도 v3 내보내기·가져오기를 그대로 지난다."""
+    with db._connection() as conn:
+        conn.execute("INSERT INTO schedules (date, content, created_at, color) VALUES (?, ?, ?, ?)",
+                     ("2026-7-1", security.encrypt("옛 형식"), "2026-01-01 00:00:00", "#FFD166"))
+        conn.commit()
+    text = db.export_all_data()
+    db.reset_database()
+    db.import_all_data(text)
+    assert [e["content"] for e in db.get_schedules("2026-7-1")] == ["옛 형식"]

@@ -24,7 +24,7 @@ from security import APP_DIR, encrypt, decrypt, legacy_decrypt, audit, validate_
 _logger = logging.getLogger("app_error")
 
 DB_FILE = APP_DIR / "calendar.db"
-EXPORT_FORMAT_VERSION = 2
+EXPORT_FORMAT_VERSION = 3
 CURRENT_SCHEMA_VERSION = 18
 AUTO_BACKUP_FORMAT = "climatenote-auto-backup"
 AUTO_BACKUP_FORMAT_VERSION = 1
@@ -50,6 +50,8 @@ SETTING_KEEP_ON_SHOW_DESKTOP = "keep_on_show_desktop"  # Win+D/모두최소화�
 SETTING_CALENDAR_POSITION_MODE = "calendar_position_mode"  # corner / free (v3.3)
 SETTING_CALENDAR_MOVE_ENABLED = "calendar_move_enabled"  # v3.9a J안부터 읽지 않음. 기존 행·Export 값은 보존
 SETTING_SCHEDULE_ALARM_SEEN_AT = "schedule_alarm_seen_at"  # v4.1: 여기까지의 알림은 처리함(Export 제외)
+# Export에 넣지 않고 Import에서도 쓰지 않는 설정(평문 PIN, 이 PC의 알림 처리 시각)
+EXPORT_EXCLUDED_SETTINGS = frozenset({SETTING_PRIVACY_PIN, SETTING_SCHEDULE_ALARM_SEEN_AT})
 
 # v4.1(DB v18): 일정 표에 열만 더한다. 이름 → 고정 SQL(외부 값이 섞이지 않는 상수).
 SCHEDULE_V18_COLUMNS = (
@@ -1554,14 +1556,21 @@ def export_all_data() -> str:
     with _connection() as conn:
         # 여러 테이블을 하나의 시점으로 읽어 Export 중 변경이 섞이지 않게 한다.
         conn.execute("BEGIN")
-        schedules = [{
-            "date": row["date"],
-            "content": _decrypt_for_export(
-                row["content"], "schedules", row["id"]
-            ),
-            "created_at": row["created_at"],
-            "color": row["color"] or DEFAULT_SCHEDULE_COLOR,
-        } for row in conn.execute("SELECT * FROM schedules")]
+        schedules = []
+        for row in conn.execute("SELECT * FROM schedules"):
+            options = ScheduleOptions.from_row(row)
+            schedules.append({
+                "date": row["date"],
+                "content": _decrypt_for_export(row["content"], "schedules", row["id"]),
+                "created_at": row["created_at"],
+                "color": row["color"] or DEFAULT_SCHEDULE_COLOR,
+                "start_time": options.start_time,
+                "end_date": options.end_date,
+                "repeat_rule": options.repeat_rule,
+                "repeat_until": options.repeat_until,
+                "repeat_skip": list(options.repeat_skip),
+                "alarm_before": options.alarm_before,
+            })
 
         memos = [{
             "date": row["date"],
@@ -1630,11 +1639,11 @@ def export_all_data() -> str:
             "created_at": row["created_at"],
         } for row in conn.execute("SELECT * FROM focus_sessions")]
 
-        # app_settings 전체 백업 (privacy_pin은 평문 PIN이므로 제외)
+        # app_settings 전체 백업 (평문 PIN과 이 PC의 알림 처리 시각은 제외)
         settings = {
             row["key"]: row["value"]
             for row in conn.execute("SELECT key, value FROM app_settings")
-            if row["key"] != SETTING_PRIVACY_PIN
+            if row["key"] not in EXPORT_EXCLUDED_SETTINGS
         }
         shortcuts = [
             dict(row)
@@ -1699,6 +1708,18 @@ def _validate_import_flag(
         )
 
 
+def _import_options(item: dict) -> ScheduleOptions:
+    """v3 일정 항목의 세부 설정(없는 키는 기본값)."""
+    return ScheduleOptions(
+        start_time=item.get("start_time", ""),
+        end_date=item.get("end_date", ""),
+        repeat_rule=item.get("repeat_rule", ""),
+        repeat_until=item.get("repeat_until", ""),
+        repeat_skip=tuple(item.get("repeat_skip", [])),
+        alarm_before=item.get("alarm_before"),
+    )
+
+
 def _validate_import_payload(data) -> dict:
     """전체 Import payload를 검증하고 쓰기 가능한 형태로 정규화한다."""
     if not isinstance(data, dict):
@@ -1736,6 +1757,19 @@ def _validate_import_payload(data) -> dict:
             _validate_import_field(
                 item, "schedules", index, field, str
             )
+        if version >= 3:
+            for field in ("start_time", "end_date", "repeat_rule", "repeat_until"):
+                _validate_import_field(item, "schedules", index, field, str)
+            skips = item.get("repeat_skip", [])
+            if not isinstance(skips, list) or not all(isinstance(day, str) for day in skips):
+                raise ValueError(f"schedules[{index}].repeat_skip 형식이 올바르지 않습니다.")
+            _validate_import_field(item, "schedules", index, "alarm_before", int, allow_none=True)
+            options = _import_options(item)
+            if not options.is_default:
+                try:
+                    validate_options(item["date"], options)
+                except ValueError as exc:
+                    raise ValueError(f"schedules[{index}] 세부 설정이 올바르지 않습니다: {exc}") from exc
 
     for index, item in enumerate(data.get("memos", [])):
         for field in ("date", "content"):
@@ -1879,10 +1913,13 @@ def import_all_data(json_str: str) -> None:
         now = _now_str()
 
         for s in data.get("schedules", []):
+            options = _import_options(s) if data["format_version"] >= 3 else ScheduleOptions()
+            if not options.is_default:
+                options = validate_options(s["date"], options)
             conn.execute(
-                "INSERT INTO schedules (date, content, created_at, color) VALUES (?, ?, ?, ?)",
+                _SCHEDULE_INSERT,
                 (s["date"], encrypt(s["content"]), s.get("created_at", now),
-                 s.get("color", DEFAULT_SCHEDULE_COLOR))
+                 s.get("color", DEFAULT_SCHEDULE_COLOR), *options.to_db_values()),
             )
 
         for m in data.get("memos", []):
@@ -1987,9 +2024,9 @@ def import_all_data(json_str: str) -> None:
                     ),
                 )
 
-        # 설정 복원 (privacy_pin 평문 PIN 제외, None 값 건너뜀)
+        # 설정 복원 (평문 PIN·알림 처리 시각 제외, None 값 건너뜀)
         for key, value in data.get("settings", {}).items():
-            if key == SETTING_PRIVACY_PIN or value is None:
+            if key in EXPORT_EXCLUDED_SETTINGS or value is None:
                 continue
             conn.execute(
                 "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
