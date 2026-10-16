@@ -6,8 +6,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-
-SCHEDULE_CONTROL_DIAMETER = 22
+# 지름·팝업 위치는 세부 설정 모듈로 옮겼고, 기존 import 경로를 위해 이 이름으로 다시 내보낸다.
+from ui_schedule_options import SCHEDULE_CONTROL_DIAMETER, popup_position  # noqa: F401
 
 
 SCHEDULE_EMOJIS = (
@@ -36,18 +36,6 @@ def apply_schedule_emoji(edit: QLineEdit, emoji: str) -> None:
     prefix_units = len(old_prefix.encode("utf-16-le")) // 2
     edit.setSelection(0, prefix_units)
     edit.insert(new_prefix)
-
-
-def popup_position(anchor, size, available) -> QPoint:
-    """버튼 아래(공간 부족 시 위)에 놓고 음수 좌표 작업 영역도 보존한다."""
-    x = anchor.left()
-    y = anchor.bottom() + 1
-    if y + size.height() > available.bottom() + 1:
-        y = anchor.top() - size.height()
-    return QPoint(
-        max(available.left(), min(x, available.right() + 1 - size.width())),
-        max(available.top(), min(y, available.bottom() + 1 - size.height())),
-    )
 
 
 class ScheduleEmojiPopup(QWidget):
