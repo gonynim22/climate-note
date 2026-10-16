@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from datetime import date
+import calendar
+from datetime import date, datetime, time, timedelta
 
 REPEAT_RULES = ("", "daily", "weekdays", "weekly", "monthly", "yearly")
 TIMED_ALARMS = (0, 10, 30, 60, 1440)
@@ -115,3 +116,167 @@ def validate_options(start: str, options: ScheduleOptions) -> ScheduleOptions:
         if type(options.alarm_before) is not int or options.alarm_before not in allowed:
             raise ValueError("지원하지 않는 알림입니다.")
     return replace(options, repeat_skip=skips)
+
+
+ALLDAY_ALARM_TIME = time(9, 0)
+
+
+def add_months(day: date, months: int) -> date:
+    """달 단위로 옮긴다. 없는 날짜는 그 달의 마지막 날로 맞춘다."""
+    index = day.month - 1 + months
+    year, month = day.year + index // 12, index % 12 + 1
+    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+
+
+def _clamped(year: int, month: int, day: int) -> date:
+    return date(year, month, min(day, calendar.monthrange(year, month)[1]))
+
+
+def occurrence_dates(start: str, options: ScheduleOptions, first: date, last: date) -> list[date]:
+    """[first, last] 안에서 일정이 나타나는 날짜(오름차순)."""
+    if last < first:
+        return []
+    begin = parse_date(start)
+    if options.end_date:
+        end = parse_date(options.end_date)
+        low, high = max(begin, first), min(end, last)
+        return [low + timedelta(days=i) for i in range((high - low).days + 1)] if low <= high else []
+    rule = options.repeat_rule
+    if not rule:
+        return [begin] if first <= begin <= last else []
+    stop = min(last, parse_date(options.repeat_until)) if options.repeat_until else last
+    low = max(begin, first)
+    if low > stop:
+        return []
+    result: list[date] = []
+    if rule in ("daily", "weekdays"):
+        day = low
+        while day <= stop:
+            if rule == "daily" or day.weekday() < 5:
+                result.append(day)
+            day += timedelta(days=1)
+    elif rule == "weekly":
+        day = low + timedelta(days=(begin.weekday() - low.weekday()) % 7)
+        while day <= stop:
+            result.append(day)
+            day += timedelta(days=7)
+    elif rule == "monthly":
+        year, month = low.year, low.month
+        while True:
+            day = _clamped(year, month, begin.day)
+            if day > stop:
+                break
+            if day >= low:
+                result.append(day)
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    elif rule == "yearly":
+        year = low.year
+        while True:
+            day = _clamped(year, begin.month, begin.day)
+            if day > stop:
+                break
+            if day >= low:
+                result.append(day)
+            year += 1
+    skips = set(options.repeat_skip)
+    return [day for day in result if day.isoformat() not in skips]
+
+
+def occurs_on(start: str, options: ScheduleOptions, day: date) -> bool:
+    return bool(occurrence_dates(start, options, day, day))
+
+
+def occurrence_sort_key(shows_time: bool, start_time: str, schedule_id: int) -> tuple:
+    """하루 목록 순서: 시각 없이 보이는 것(하루 종일·기간 둘째 날 이후) 먼저 ID 순, 그다음 시각·ID 순."""
+    return (1, start_time, schedule_id) if shows_time else (0, "", schedule_id)
+
+
+def alarm_base(day: date, options: ScheduleOptions) -> datetime:
+    """알림 기준 시각: 그 날의 시작 시각(하루 종일이면 09:00)."""
+    if options.start_time:
+        hour, minute = (int(part) for part in options.start_time.split(":"))
+        return datetime.combine(day, time(hour, minute))
+    return datetime.combine(day, ALLDAY_ALARM_TIME)
+
+
+def alarm_times(start: str, options: ScheduleOptions, after: datetime, until: datetime) -> list[tuple[date, datetime]]:
+    """after < 알림 ≤ until 인 (날짜, 알림 시각) 목록. 기간 일정은 첫날만 알린다."""
+    if options.alarm_before is None or until <= after:
+        return []
+    shift = timedelta(minutes=options.alarm_before)
+    first = (after + shift).date() - timedelta(days=1)
+    last = (until + shift).date() + timedelta(days=1)
+    days_found = occurrence_dates(start, options, first, last)
+    if options.end_date:
+        begin = parse_date(start)
+        days_found = [day for day in days_found if day == begin]
+    result = []
+    for day in days_found:
+        due = alarm_base(day, options) - shift
+        if after < due <= until:
+            result.append((day, due))
+    return result
+
+
+@dataclass(frozen=True)
+class AlarmItem:
+    """알릴 일정 한 건(어느 날짜의 어느 시각에 울릴지)."""
+
+    schedule_id: int
+    occurrence_date: str
+    due: datetime
+    content: str
+    color: str
+    start_time: str
+    decryption_failed: bool = False
+
+    @property
+    def key(self) -> tuple:
+        return (self.schedule_id, self.occurrence_date, self.due)
+
+
+def with_start_time(options: ScheduleOptions, start_time: str) -> ScheduleOptions:
+    """시각을 바꾼다. 하루 종일↔시각으로 방식이 바뀔 때만 두 방식에 모두 있는 알림(0·1440)을 남긴다."""
+    if bool(start_time) == bool(options.start_time):
+        return replace(options, start_time=start_time)
+    alarm = options.alarm_before if options.alarm_before in (None, 0, 1440) else None
+    return replace(options, start_time=start_time, alarm_before=alarm)
+
+
+def with_repeat(options: ScheduleOptions, start: str, rule: str) -> ScheduleOptions:
+    """반복을 바꾼다. 끄면 끝 날짜·건너뛴 날도 지우고, 종류를 바꾸면 건너뛴 날을 비운다."""
+    if rule == options.repeat_rule:
+        return options
+    if not rule:
+        return replace(options, repeat_rule="", repeat_until="", repeat_skip=())
+    until = options.repeat_until
+    if until and parse_date(until) < parse_date(start):
+        until = ""
+    return replace(options, repeat_rule=rule, repeat_until=until, repeat_skip=(), end_date="")
+
+
+def clear_part(options: ScheduleOptions, start: str, kind: str) -> ScheduleOptions:
+    """알약의 ×: 그 항목만 지운다(시각을 지우면 알림도 지운다)."""
+    if kind == "time":
+        return replace(options, start_time="", alarm_before=None)
+    if kind == "alarm":
+        return replace(options, alarm_before=None)
+    if kind == "period":
+        return replace(options, end_date="")
+    if kind == "repeat":
+        return with_repeat(options, start, "")
+    raise ValueError(f"알 수 없는 항목입니다: {kind}")
+
+
+def rebase_options(options: ScheduleOptions, old_start: str, new_start: str) -> ScheduleOptions:
+    """고른 날짜가 바뀔 때 보류 중 값을 새 날짜 기준으로 옮긴다(기간 길이 유지, 지난 끝 날짜 제거)."""
+    if old_start == new_start:
+        return options
+    end_date = ""
+    if options.end_date:
+        length = parse_date(options.end_date) - parse_date(old_start)
+        end_date = (parse_date(new_start) + length).isoformat()
+    until = options.repeat_until
+    if until and parse_date(until) < parse_date(new_start):
+        until = ""
+    return replace(options, end_date=end_date, repeat_until=until, repeat_skip=())
