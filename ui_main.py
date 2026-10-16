@@ -13,7 +13,9 @@ from PySide6.QtWidgets import (
     QScrollArea, QFrame,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QUrl, QPoint, QPointF, QRect, QRectF
-from PySide6.QtGui import QFont, QFontMetrics, QDesktopServices, QPainter, QBrush, QPen, QColor, QRegion
+from PySide6.QtGui import (
+    QFont, QFontMetrics, QDesktopServices, QPainter, QBrush, QPen, QColor, QRegion, QIcon,
+)
 
 import ctypes
 from ctypes import wintypes
@@ -2647,7 +2649,8 @@ class MainCalendarWindow(QWidget):
         delete_btn = TransparentToolButton(FIF.DELETE)
         delete_btn.setFixedSize(24, 24)
         delete_btn.clicked.connect(
-            lambda checked=False, i=item, sid=schedule_id: self._on_delete_schedule(i, sid)
+            lambda checked=False, i=item, sid=schedule_id, b=delete_btn:
+                self._on_delete_button(i, sid, b)
         )
         row_layout.addWidget(delete_btn)
         row_widget.set_delete_button(delete_btn)
@@ -2676,6 +2679,12 @@ class MainCalendarWindow(QWidget):
         )
         menu.addAction(edit_action)
 
+        options = item.data(Qt.UserRole + 4)
+        if options is not None and options.repeat_rule:
+            menu.addSeparator()
+            self._add_repeat_delete_actions(menu, item)
+            return menu
+
         delete_action = Action(FIF.DELETE, "삭제", menu)
         delete_action.triggered.connect(
             lambda checked=False, i=item, sid=schedule_id:
@@ -2683,6 +2692,36 @@ class MainCalendarWindow(QWidget):
         )
         menu.addAction(delete_action)
         return menu
+
+    def _add_repeat_delete_actions(self, menu: "RoundMenu", item: QListWidgetItem) -> None:
+        """반복 일정 지우기: 이 날만(달력 아이콘) / 반복 전체(빨간 반복 아이콘)."""
+        ratio = self.devicePixelRatioF()
+        skip_action = Action(QIcon(icon_pixmap("calendar", 16, "#475569", ratio)), "이 날만 삭제", menu)
+        skip_action.triggered.connect(lambda checked=False, i=item: self._on_skip_occurrence(i))
+        menu.addAction(skip_action)
+        all_action = Action(QIcon(icon_pixmap("repeat", 16, "#D32F2F", ratio)), "반복 전체 삭제", menu)
+        all_action.triggered.connect(
+            lambda checked=False, i=item: self._on_delete_schedule(i, i.data(Qt.UserRole)))
+        menu.addAction(all_action)
+
+    def _build_repeat_delete_menu(self, item: QListWidgetItem) -> "RoundMenu":
+        menu = RoundMenu(parent=self)
+        menu.setWindowOpacity(1.0)
+        self._apply_header_menu_style(menu)
+        self._add_repeat_delete_actions(menu, item)
+        return menu
+
+    def _on_delete_button(self, item: QListWidgetItem, schedule_id: int, button) -> None:
+        """휴지통: 반복 일정이면 이 날만/반복 전체 메뉴, 아니면 지금처럼 바로 지운다."""
+        if self._is_locked:
+            return
+        options = item.data(Qt.UserRole + 4)
+        if options is None or not options.repeat_rule:
+            self._on_delete_schedule(item, schedule_id)
+            return
+        menu = self._build_repeat_delete_menu(item)
+        menu.closedSignal.connect(menu.deleteLater)
+        menu.exec(button.mapToGlobal(QPoint(0, button.height())))
 
     def _on_schedule_context_menu(self, pos: QPoint):
         """우클릭한 일정 행 옆에 편집·삭제 메뉴를 표시한다."""
@@ -2706,6 +2745,28 @@ class MainCalendarWindow(QWidget):
             self.schedule_list.removeItemWidget(item)
             widget.deleteLater()
         self.schedule_list.takeItem(row)
+
+    def _on_skip_occurrence(self, item: QListWidgetItem) -> None:
+        """반복 일정의 이 날 하나만 지운다(건너뛴 날에 더한다)."""
+        if self._is_locked:
+            return
+        try:
+            db.skip_schedule_occurrence(item.data(Qt.UserRole), item.data(Qt.UserRole + 6))
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            _logger.error("반복 일정 이 날만 삭제 실패: %s", exc)
+            InfoBar.error(
+                title="삭제 오류",
+                content="일정 삭제 중 오류가 발생했습니다.",
+                parent=self,
+                position=InfoBarPosition.BOTTOM,
+                duration=3000,
+            )
+            return
+        if self._editing_item is item and self._finish_current_edit:
+            self._finish_current_edit(False)
+        self._remove_schedule_item(item)
+        self._refresh_month_data()
+        self._update_count()
 
     def _on_delete_schedule(self, item: QListWidgetItem, schedule_id: int):
         if self._is_locked:
@@ -2762,6 +2823,9 @@ class MainCalendarWindow(QWidget):
                 return
         schedule_id = item.data(Qt.UserRole)
         old_text = item.data(Qt.UserRole + 1)
+        old_options = item.data(Qt.UserRole + 4) or ScheduleOptions()
+        series_start = item.data(Qt.UserRole + 5) or self._selected_date
+        occurrence = item.data(Qt.UserRole + 6) or self._selected_date
         editing_date = self._selected_date
         if not schedule_id or not old_text:
             return
@@ -2780,12 +2844,17 @@ class MainCalendarWindow(QWidget):
         if period_label is not None:
             period_label.hide()
 
-        editor = ScheduleInlineEditor(old_text, self._schedule_emoji_allowed, row_widget)
+        # 반복 일정을 고치면 시리즈 전체가 바뀐다. 기준 날짜는 시리즈의 시작 날짜다.
+        editor = ScheduleInlineEditor(
+            old_text, self._schedule_emoji_allowed, row_widget,
+            options=old_options, start=series_start, occurrence=occurrence,
+        )
         self._schedule_editor = editor
         edit = editor.edit
         layout.insertWidget(layout.indexOf(text_box) + 1, editor, 1)
         editor.show()
         item.setSizeHint(row_widget.sizeHint())
+        editor.summary_changed.connect(lambda: item.setSizeHint(row_widget.sizeHint()))
         edit.setFocus()
         edit.selectAll()
 
@@ -2796,10 +2865,17 @@ class MainCalendarWindow(QWidget):
                 return False
             # 열기만 한 기존 본문은 공백까지 보존하고 실제 변경만 저장한다.
             new_text = old_text if edit.text() == old_text else edit.text().strip()
+            new_options = editor.options()
+            text_changed = bool(new_text) and new_text != old_text
+            options_changed = new_options != old_options
 
-            if save and new_text and new_text != old_text:
+            if save and (text_changed or options_changed):
                 try:
-                    db.update_schedule(schedule_id, content=new_text)
+                    db.update_schedule(
+                        schedule_id,
+                        content=new_text if text_changed else None,
+                        options=new_options if options_changed else None,
+                    )
                 except (sqlite3.Error, OSError, ValueError) as exc:
                     _logger.error("일정 수정 실패 (id=%s): %s", schedule_id, exc)
                     InfoBar.error(
@@ -2810,10 +2886,14 @@ class MainCalendarWindow(QWidget):
                         duration=3000,
                     )
                     return False
-                text_label.setText(new_text)
-                text_label.setToolTip(new_text)
-                item.setData(Qt.UserRole + 1, new_text)
-                self._refresh_cell_for_date(editing_date)
+                if text_changed:
+                    text_label.setText(new_text)
+                    text_label.setToolTip(self._schedule_tooltip(new_text, new_options, series_start))
+                    item.setData(Qt.UserRole + 1, new_text)
+                if options_changed:
+                    item.setData(Qt.UserRole + 4, new_options)
+            else:
+                text_changed = options_changed = False
 
             self._editing_item = None
             self._finish_current_edit = None
@@ -2826,8 +2906,10 @@ class MainCalendarWindow(QWidget):
             if period_label is not None:
                 period_label.show()
             item.setSizeHint(row_widget.sizeHint())
-            if self._list_reload_pending:
+            if options_changed or self._list_reload_pending:
                 QTimer.singleShot(0, self, self._after_schedule_change)
+            elif text_changed:
+                self._refresh_cell_for_date(editing_date)
             return True
 
         self._finish_current_edit = _finish_edit
@@ -2845,6 +2927,7 @@ class MainCalendarWindow(QWidget):
         self.schedule_options_button.close_popup()
         if self._schedule_editor is not None:
             self._schedule_editor.emoji_button.close_popup()
+            self._schedule_editor.options_button.close_popup()
 
     # ─── 입력줄 세부 설정(보류 중 값) ──────────────────────────────
     def _set_pending_options(self, options: ScheduleOptions) -> None:

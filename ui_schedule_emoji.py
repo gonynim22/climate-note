@@ -1,4 +1,6 @@
 """일정 본문의 선두 이모지를 편집하는 공용 선택 도우미."""
+import logging
+
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -6,8 +8,14 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+import schedule_rules as rules
+from schedule_rules import ScheduleOptions
 # 지름·팝업 위치는 세부 설정 모듈로 옮겼고, 기존 import 경로를 위해 이 이름으로 다시 내보낸다.
-from ui_schedule_options import SCHEDULE_CONTROL_DIAMETER, popup_position  # noqa: F401
+from ui_schedule_options import (  # noqa: F401
+    SCHEDULE_CONTROL_DIAMETER, ElidedLabel, ScheduleOptionsButton, popup_position,
+)
+
+_logger = logging.getLogger("app_error")
 
 
 SCHEDULE_EMOJIS = (
@@ -207,9 +215,12 @@ class ScheduleEmojiButton(QPushButton):
 
 
 class ScheduleInlineEditor(QWidget):
+    """[스마일][시계][본문] 한 줄 + 세부 설정 요약 한 줄. 두 팝업까지 하나의 편집 영역이다."""
     finish_requested = Signal(bool)
+    summary_changed = Signal()
 
-    def __init__(self, content: str, can_edit, parent=None):
+    def __init__(self, content: str, can_edit, parent=None, *,
+                 options: ScheduleOptions | None = None, start: str = "", occurrence: str = ""):
         super().__init__(parent)
         self._active = True
         self._can_edit = can_edit
@@ -220,18 +231,55 @@ class ScheduleInlineEditor(QWidget):
             "border-radius:3px;padding:1px 4px;"
         )
         self.emoji_button = ScheduleEmojiButton(self.edit, self.can_edit, self)
-        row = QHBoxLayout(self)
+        self.options_button = ScheduleOptionsButton(self.edit, self.can_edit, self)
+        self.options_button.set_context(start, occurrence)
+        self.options_button.set_options(options or ScheduleOptions())
+        self.summary_label = ElidedLabel("", self)
+        self.summary_label.setObjectName("scheduleEditorSummary")
+        self.summary_label.setStyleSheet("color:#5B6577;font-size:11px;background:transparent;")
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(2)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
         row.addWidget(self.emoji_button)
+        row.addWidget(self.options_button)
         row.addWidget(self.edit, 1)
+        column.addLayout(row)
+        column.addWidget(self.summary_label)
         self._focus_timer = QTimer(self)
         self._focus_timer.setSingleShot(True)
         self._focus_timer.timeout.connect(self._check_focus)
         self.edit.installEventFilter(self)
         self.emoji_button.installEventFilter(self)
+        self.options_button.installEventFilter(self)
         self.edit.returnPressed.connect(lambda: self.finish_requested.emit(True))
         self.emoji_button.popup_closed.connect(lambda: self._focus_timer.start(0))
+        self.options_button.popup_closed.connect(lambda: self._focus_timer.start(0))
+        self.options_button.options_changed.connect(lambda _options: self._sync_summary())
+        self._sync_summary()
+
+    def options(self) -> ScheduleOptions:
+        return self.options_button.options()
+
+    def _sync_summary(self) -> None:
+        options = self.options()
+        start = self.options_button.start_date()
+        summary = ""
+        if start and not options.is_default:
+            try:
+                summary = rules.options_summary(start, options)
+            except ValueError as exc:
+                # 일정 내용(날짜·시각 값)은 남기지 않고 예외 종류만 기록한다.
+                _logger.warning("일정 편집 요약 실패: %s", type(exc).__name__)
+                summary = ""
+            if summary and options.repeat_rule:
+                summary += " · 모든 날에 적용"
+        self.summary_label.setText(summary)
+        self.summary_label.setToolTip(summary)
+        self.summary_label.setVisible(bool(summary))
+        self.summary_changed.emit()
 
     def can_edit(self) -> bool:
         return self._active and self._can_edit()
@@ -245,7 +293,8 @@ class ScheduleInlineEditor(QWidget):
         return super().eventFilter(obj, event)
 
     def _check_focus(self) -> None:
-        if not self.can_edit() or self.emoji_button._popup is not None:
+        if (not self.can_edit() or self.emoji_button._popup is not None
+                or self.options_button._popup is not None):
             return
         focused = QApplication.focusWidget()
         if focused is not None and (focused is self or self.isAncestorOf(focused)):
@@ -256,3 +305,4 @@ class ScheduleInlineEditor(QWidget):
         self._active = False
         self._focus_timer.stop()
         self.emoji_button.close_popup()
+        self.options_button.close_popup()
