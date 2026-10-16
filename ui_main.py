@@ -2868,10 +2868,18 @@ class MainCalendarWindow(QWidget):
         """고른 날짜가 바뀌면 보류 중 값을 새 날짜 기준으로 옮긴다(기간 길이 유지, 지난 끝 날짜 해제)."""
         self.schedule_options_button.close_popup()
         options = self.schedule_options_button.options()
-        try:
-            moved = rules.rebase_options(options, old_date, new_date) if not options.is_default else options
-        except ValueError:
-            moved = ScheduleOptions()
+        moved = options
+        if not options.is_default:
+            try:
+                # 새 날짜가 옛 형식(2026-7-1 등)이면 세부 설정을 둘 수 없다(버튼이 꺼지는 기준과 같다).
+                rules.parse_date(new_date)
+                moved = rules.rebase_options(options, old_date, new_date)
+            except ValueError as exc:
+                # 보류 중 값은 아직 저장 전인 입력일 뿐이라 비워도 저장된 일정은 그대로다.
+                # 알약을 새로 그리다 다시 예외가 나면 날짜 선택이 끊기므로 먼저 비운다.
+                # 날짜·내용은 남기지 않고 예외 종류만 기록한다.
+                _logger.warning("보류 중 세부 설정 이동 실패: %s", type(exc).__name__)
+                moved = ScheduleOptions()
         self.schedule_options_button.set_context(new_date)
         self._set_pending_options(moved)
 

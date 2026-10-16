@@ -75,12 +75,15 @@ def test_add_with_options_saves_then_clears_and_failure_keeps(qtbot, monkeypatch
     win._set_pending_options(options)
     win.schedule_input.setText("부서 회의")
     original = db.add_schedule
+    errors = []
+    monkeypatch.setattr(ui_main.InfoBar, "error", lambda **kw: errors.append(kw))
 
     def fail(*args, **kwargs):
         raise sqlite3.OperationalError("synthetic failure")
 
     monkeypatch.setattr(db, "add_schedule", fail)
     win._on_add_schedule()
+    assert len(errors) == 1  # 저장 오류 안내가 한 번 떴다.
     assert win.schedule_input.text() == "부서 회의"
     assert win.schedule_options_button.options() == options
     assert win.schedule_options_pills.visible_texts() == ["15:00 · 10분 전", "매주 목"]
@@ -91,6 +94,7 @@ def test_add_with_options_saves_then_clears_and_failure_keeps(qtbot, monkeypatch
     assert win.schedule_input.text() == ""
     assert win.schedule_options_button.options() == ScheduleOptions()
     assert win.schedule_options_pills.isHidden()
+    assert len(errors) == 1  # 성공한 저장은 오류 안내를 더하지 않는다.
 
 
 def test_card_changes_pending_options_without_saving(qtbot):
@@ -122,6 +126,29 @@ def test_pending_options_follow_selected_date(qtbot):
     win._set_pending_options(ScheduleOptions(repeat_rule="weekly", repeat_until="2026-10-24"))
     win._on_date_selected("2026-10-25")
     assert win.schedule_options_button.options() == ScheduleOptions(repeat_rule="weekly")
+
+
+def test_legacy_format_date_with_pending_options_completes_selection(qtbot):
+    win = main_window(qtbot)
+    win._set_pending_options(ScheduleOptions(start_time="09:00"))
+    assert win.schedule_options_pills.visible_texts() == ["09:00"]
+    win._on_date_selected("2026-7-1")  # 검색 결과로 들어오는 옛 형식 날짜
+    assert win._selected_date == "2026-7-1"
+    assert win.selected_date_label.text() == "2026년 7월 1일"
+    assert win.schedule_options_pills.isHidden()
+    assert win.schedule_options_button.options() == ScheduleOptions()
+    assert not win.schedule_options_button.isEnabled()
+    win._on_date_selected("2026-10-20")  # 정상 날짜로 돌아오면 입력줄이 다시 동작한다.
+    assert win._selected_date == "2026-10-20"
+    assert win.schedule_options_button.isEnabled()
+    win._set_pending_options(ScheduleOptions(start_time="10:30"))
+    assert win.schedule_options_pills.visible_texts() == ["10:30"]
+    win.schedule_input.setText("옛 날짜 뒤 일정")
+    win._on_add_schedule()
+    saved = db.get_schedules("2026-10-20")
+    assert [(s["content"], s["options"]) for s in saved] == [
+        ("옛 날짜 뒤 일정", ScheduleOptions(start_time="10:30"))
+    ]
 
 
 def test_hidden_pills_add_no_space_and_align_with_input(qtbot):
