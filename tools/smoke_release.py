@@ -27,6 +27,7 @@ else:
 
 # 앱의 ui_main.UPGRADE_NOTICE_TITLE과 같아야 한다(tests/test_upgrade_notice.py가 대조한다).
 UPGRADE_NOTICE_TITLE = "기후노트 업데이트 안내"
+NOTICE_SETTLE_SECONDS = 2.0  # 안내창 지연(0.8초)보다 넉넉히 더 지켜보는 시간
 
 
 class _BasicLimits(ctypes.Structure):
@@ -464,6 +465,14 @@ def scenario(exe, run_dir, name):
             time.sleep(0.2)
         if not ready:
             raise TimeoutError(f"{name}: 창/백업 준비 시간 초과. 관측 창={observed}")
+        if name != "upgrade":
+            # 안내창은 본 창을 띄우고 0.8초 뒤에 열리므로, 준비된 뒤에도 그보다 길게 지켜봐야
+            # '업그레이드가 아닌 실행에서 안내창이 뜨면 실패'가 실제로 걸린다.
+            settle = time.monotonic() + NOTICE_SETTLE_SECONDS
+            while time.monotonic() < settle:
+                if any(w["title"] == UPGRADE_NOTICE_TITLE for w in windows_in_job(job)):
+                    raise RuntimeError(f"{name}: 업그레이드가 아닌데 업데이트 안내창이 표시됐습니다.")
+                time.sleep(0.2)
     result = {"status": "passed", "windows": observed, "cleanup": "job_close_forced",
               "graceful_quit_verified": False, "first_run_setup_seen": setup_seen}
     if name == "blocked":
