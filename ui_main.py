@@ -417,6 +417,7 @@ from schedule_rules import ScheduleOptions
 from ui_schedule_options import (
     ElidePaintMixin, ScheduleOptionsButton, ScheduleOptionsPills, icon_pixmap,
 )
+from ui_calendar_spans import CalendarSpanOverlay, SpanBar
 from ui_update import show_update_guide
 from fluent_icons import fluent_icon
 import optional_mini_apps
@@ -619,6 +620,7 @@ class CalendarMoveEditOverlay(QWidget):
 class CalendarDayButton(QWidget):
     """달력 날짜 셀 위젯 (compact / expanded 2-모드)"""
 
+    layout_changed = Signal()  # 중간·크게 칩을 다시 놓았을 때(막대 오버레이가 다시 그린다)
     _CHIP_HEIGHT = 16
     _CHIP_SPACING = 2
     _MAX_CHIPS = 6
@@ -643,6 +645,8 @@ class CalendarDayButton(QWidget):
         self._chip_spacing = 3 if calendar_scale == "large" else self._CHIP_SPACING
         self._count = count
         self._events = []
+        self._span_lanes = []
+        self.span_lane_cap = 0  # 이 칸 높이에서 막대에 내줄 수 있는 차선 수(칩 자리 - 1)
         self._rendering_events = False
         self._selected = False
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -693,6 +697,22 @@ class CalendarDayButton(QWidget):
         self._set_style(False)
         self.setCursor(Qt.PointingHandCursor)
         self._set_mode(mode)
+
+    @property
+    def chips_container(self) -> QWidget:
+        return self._chips_container
+
+    @property
+    def chips_layout(self) -> QVBoxLayout:
+        return self._chips_layout
+
+    @property
+    def chip_height(self) -> int:
+        return self._chip_height
+
+    @property
+    def chip_spacing(self) -> int:
+        return self._chip_spacing
 
     def set_count(self, n: int):
         """그날 총 일정 수. 색 네모로 다 보이지 못한 수만 '+N'으로 보인다."""
@@ -812,9 +832,15 @@ class CalendarDayButton(QWidget):
             )
         return chip
 
-    def set_events(self, events: list):
-        """expanded 셀 일정 칩 데이터를 갱신한다."""
+    def set_events(self, events: list, span_lanes: list | None = None):
+        """expanded 셀 일정 칩 데이터를 갱신한다.
+
+        span_lanes: 이 날을 덮는 여러 날 막대의 차선 번호들. 보이는 차선만큼 칩 자리를
+        비워 두고(막대는 오버레이가 그린다), 자리가 없는 막대는 '+N 더'에 더한다.
+        """
         self._events = list(events)
+        if span_lanes is not None:
+            self._span_lanes = sorted(span_lanes)
         if self._mode != "expanded" or self._rendering_events:
             return
         self._rendering_events = True
@@ -824,19 +850,29 @@ class CalendarDayButton(QWidget):
                 if item.widget():
                     item.widget().hide()
                     item.widget().deleteLater()
-            if not events:
-                return
             avail_h = self._chips_container.height()
             per = self._chip_height + self._chip_spacing
             fit = max(1, avail_h // per) if avail_h > 0 else self._MAX_CHIPS
             max_show = min(self._MAX_CHIPS, fit)
-            if len(events) > max_show:
-                keep = max(1, max_show - 1)
-                visible = events[:keep]
-                remaining = len(events) - keep
-            else:
+            self.span_lane_cap = max(0, max_show - 1)
+            lanes = self._span_lanes
+            lane_rows = min(lanes[-1] + 1, self.span_lane_cap) if lanes else 0
+            hidden = sum(1 for lane in lanes if lane >= lane_rows)
+            for _ in range(lane_rows):
+                slot = QWidget(self._chips_container)
+                slot.setObjectName("calendarSpanSlot")
+                slot.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+                slot.setFixedHeight(self._chip_height)
+                self._chips_layout.addWidget(slot)
+                slot.show()
+            slots = max_show - lane_rows
+            if hidden == 0 and len(events) <= slots:
                 visible = events
                 remaining = 0
+            else:
+                keep = max(1 if hidden == 0 else 0, slots - 1)
+                visible = events[:keep]
+                remaining = len(events) - len(visible) + hidden
             for event in visible:
                 chip = self._make_chip(event["content"], event["color"])
                 self._chips_layout.addWidget(chip)
@@ -847,6 +883,7 @@ class CalendarDayButton(QWidget):
                 overflow.show()
         finally:
             self._rendering_events = False
+        self.layout_changed.emit()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1929,6 +1966,9 @@ class MainCalendarWindow(QWidget):
         for col in range(7):
             self.calendar_grid.setColumnStretch(col, 1)
         calendar_layout.addLayout(self.calendar_grid)
+        self._calendar_section = calendar_section
+        self._grid_cells = []  # 주마다 7칸(빈칸 포함)
+        self._span_overlay = CalendarSpanOverlay(calendar_section, self.calendar_grid)
 
         # ── 구분선 ──
         divider = QLabel()
@@ -2391,6 +2431,7 @@ class MainCalendarWindow(QWidget):
         calendar_scale = self._current_calendar_scale()
         cell_mode = "expanded" if calendar_scale != "compact" else "compact"
         self._style_weekday_header(calendar_scale)
+        self._grid_cells = []
 
         # 달력 계산 (일요일 시작)
         cal = calendar.Calendar(firstweekday=6).monthdayscalendar(
@@ -2398,6 +2439,7 @@ class MainCalendarWindow(QWidget):
         )
 
         for row_idx, week in enumerate(cal):
+            self._grid_cells.append([])
             for col_idx, day in enumerate(week):
                 is_current = day != 0
                 actual_day = day if is_current else 0
@@ -2419,6 +2461,8 @@ class MainCalendarWindow(QWidget):
                     is_holiday, col_idx, 0, cell_mode, self,
                     calendar_scale=calendar_scale,
                 )
+                cell.layout_changed.connect(self._span_overlay.update)
+                self._grid_cells[row_idx].append(cell)
                 if target_date:
                     cell.set_callback(self._on_date_selected)
                     self._day_cells[target_date] = cell
@@ -2465,12 +2509,38 @@ class MainCalendarWindow(QWidget):
             _logger.error("달력 일정 조회 실패: %s", exc)
             return
         expanded = self._current_calendar_scale() != "compact"
+        weeks = [[cell.target_date for cell in row] for row in self._grid_cells]
+        spans = {}
+        if expanded:
+            for entries in month.values():
+                for entry in entries:
+                    if entry["span_start"] != entry["span_end"]:
+                        spans.setdefault(entry["id"], entry)
+        segments = rules.week_segments(
+            weeks, {key: (e["span_start"], e["span_end"]) for key, e in spans.items()}
+        ) if spans else []
+        lanes_by_day = {}
+        for segment in segments:
+            for col in range(segment.first_col, segment.last_col + 1):
+                lanes_by_day.setdefault(weeks[segment.row][col], []).append(segment.lane)
         for day, cell in self._day_cells.items():
             entries = month.get(day, [])
             cell._update_squares(self._cell_colors(entries, palette))
             cell.set_count(len(entries))
             if expanded:
-                cell.set_events(self._chip_events(entries, palette))
+                singles = [e for e in entries if e["span_start"] == e["span_end"]]
+                cell.set_events(self._chip_events(singles, palette),
+                                span_lanes=lanes_by_day.get(day, []))
+        bars = []
+        for segment in segments:
+            entry = spans[segment.key]
+            label = entry["content"]
+            if segment.starts and entry["start_time"]:
+                label = f"{entry['start_time']} {label}"
+            bars.append(SpanBar(segment, label,
+                                db.schedule_display_color(entry.get("color"), palette)))
+        font_px = 13 if self._current_calendar_scale() == "large" else 10
+        self._span_overlay.set_bars(self._grid_cells, bars, font_px=font_px, visible=expanded)
 
     def _on_date_selected(self, date_str: str):
         """날짜 클릭 시 하단 패널 업데이트"""
