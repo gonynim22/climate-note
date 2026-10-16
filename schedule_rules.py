@@ -26,14 +26,14 @@ _TIME_INPUT_RE = re.compile(r"^([0-9]{1,2})(?::?([0-9]{2}))?$")
 
 def parse_date(value) -> date:
     """'YYYY-MM-DD'만 받는다. 틀리면 ValueError."""
-    if not isinstance(value, str) or not _DATE_RE.match(value):
+    if not isinstance(value, str) or not _DATE_RE.fullmatch(value):
         raise ValueError(f"날짜 형식이 올바르지 않습니다: {value!r}")
     return date.fromisoformat(value)
 
 
 def parse_time_input(text) -> str:
     """'9'·'930'·'1430'·'14:30'을 'HH:MM'으로 바꾼다. 틀리면 ValueError."""
-    match = _TIME_INPUT_RE.match((text or "").strip())
+    match = _TIME_INPUT_RE.fullmatch((text or "").strip())
     if not match:
         raise ValueError("시각은 0930·14:30처럼 입력합니다.")
     hour = int(match.group(1))
@@ -65,16 +65,31 @@ class ScheduleOptions:
             value = row[name]
             return value if isinstance(value, str) else ""
 
+        def valid_date(value: str) -> str:
+            try:
+                parse_date(value)
+            except ValueError:
+                return ""
+            return value
+
         start_time = text("start_time")
+        if not _TIME_RE.fullmatch(start_time):
+            start_time = ""
         rule = text("repeat_rule")
         alarm = row["alarm_before"]
+        allowed = TIMED_ALARMS if start_time else ALLDAY_ALARMS
+        end_date = valid_date(text("end_date"))
+        # 줄의 날짜보다 늦지 않은 끝 날짜는 일정이 보이지 않게 만들므로 버린다.
+        row_date = valid_date(text("date")) if "date" in row.keys() else ""
+        if end_date and row_date and end_date <= row_date:
+            end_date = ""
         return cls(
-            start_time=start_time if _TIME_RE.match(start_time) else "",
-            end_date=text("end_date"),
+            start_time=start_time,
+            end_date=end_date,
             repeat_rule=rule if rule in REPEAT_RULES else "",
-            repeat_until=text("repeat_until"),
-            repeat_skip=tuple(day for day in text("repeat_skip").split(",") if day),
-            alarm_before=alarm if type(alarm) is int else None,
+            repeat_until=valid_date(text("repeat_until")),
+            repeat_skip=tuple(day for day in text("repeat_skip").split(",") if valid_date(day)),
+            alarm_before=alarm if type(alarm) is int and alarm in allowed else None,
         )
 
     def to_db_values(self) -> tuple:
@@ -92,7 +107,7 @@ def validate_options(start: str, options: ScheduleOptions) -> ScheduleOptions:
             isinstance(day, str) for day in options.repeat_skip):
         raise ValueError("세부 설정 형식이 올바르지 않습니다.")
     start_day = parse_date(start)
-    if options.start_time and not _TIME_RE.match(options.start_time):
+    if options.start_time and not _TIME_RE.fullmatch(options.start_time):
         raise ValueError("시작 시각 형식이 올바르지 않습니다.")
     if options.repeat_rule not in REPEAT_RULES:
         raise ValueError("지원하지 않는 반복입니다.")

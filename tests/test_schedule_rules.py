@@ -326,3 +326,70 @@ def test_until_caption_detail_lines_and_unknown_rule_suffix():
     assert rules.detail_lines("2026-10-21", ScheduleOptions(repeat_rule="daily")) == ["매일 반복 · 끝: 계속"]
     assert rules.detail_lines("2026-10-21", ScheduleOptions()) == []
     assert rules.search_suffix("2026-10-05", ScheduleOptions(repeat_rule="biweekly")) == ""
+
+
+def stored_row(**overrides):
+    """DB 행처럼 읽히는 dict. 기본은 규칙에 맞는 '하루 종일·반복 없음' 행이다."""
+    row = {"date": "2026-10-15", "start_time": "", "end_date": "", "repeat_rule": "",
+           "repeat_until": "", "repeat_skip": "", "alarm_before": None}
+    row.update(overrides)
+    return row
+
+
+def test_from_row_drops_alarm_that_does_not_fit_the_start_time_mode():
+    """시각 방식에 맞지 않는 저장 알림은 없는 것으로 읽어, 표시 함수가 KeyError를 내지 않는다."""
+    broken_time = ScheduleOptions.from_row(stored_row(start_time="9시", alarm_before=10))
+    assert broken_time == ScheduleOptions()
+    off_list = ScheduleOptions.from_row(stored_row(start_time="09:00", alarm_before=15))
+    assert off_list == ScheduleOptions(start_time="09:00")
+    assert rules.time_pill(off_list) == "09:00"
+    assert rules.options_summary(START, off_list) == "09:00"
+    assert rules.detail_lines(START, off_list) == ["시작: 09:00"]
+    # 하루 종일에는 0·1440만 허용된다(10·30·60은 시각 일정 전용).
+    assert ScheduleOptions.from_row(stored_row(alarm_before=30)) == ScheduleOptions()
+    # 규칙에 맞는 값은 그대로 읽는다.
+    assert ScheduleOptions.from_row(stored_row(start_time="09:00", alarm_before=30)) == ScheduleOptions(
+        start_time="09:00", alarm_before=30)
+    assert ScheduleOptions.from_row(stored_row(alarm_before=1440)) == ScheduleOptions(alarm_before=1440)
+
+
+def test_from_row_blanks_malformed_dates_and_end_date_not_after_the_row_date():
+    """깨진 날짜 저장값은 읽을 때 걸러, 펼치기가 ValueError를 내거나 일정이 사라지지 않게 한다."""
+    options = ScheduleOptions.from_row(stored_row(
+        end_date="2026/10/17", repeat_rule="daily", repeat_until="garbage",
+        repeat_skip="2026-10-20,x,2026-13-01,2026-10-22"))
+    assert options == ScheduleOptions(repeat_rule="daily", repeat_skip=("2026-10-20", "2026-10-22"))
+    assert days("2026-10-15", options, "2026-10-15", "2026-10-23") == [
+        "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18", "2026-10-19", "2026-10-21", "2026-10-23"]
+    # 줄의 날짜보다 앞서거나 같은 끝 날짜는 버린다(없으면 일정이 통째로 안 보인다).
+    assert ScheduleOptions.from_row(stored_row(end_date="2026-10-15")).end_date == ""
+    assert ScheduleOptions.from_row(stored_row(end_date="2026-10-14")).end_date == ""
+    assert ScheduleOptions.from_row(stored_row(end_date="2026-10-17")).end_date == "2026-10-17"
+    # 줄의 날짜 자체가 깨졌으면 비교하지 않고, 형식이 맞는 끝 날짜는 둔다.
+    assert ScheduleOptions.from_row(stored_row(date="2026-7-1", end_date="2026-10-17")).end_date == "2026-10-17"
+    # 'date' 열이 없는 행(dict)도 읽는다.
+    plain = stored_row(end_date="2026-10-17")
+    del plain["date"]
+    assert ScheduleOptions.from_row(plain).end_date == "2026-10-17"
+
+
+def test_from_row_reads_sqlite_rows_with_the_same_rules():
+    import sqlite3
+    with sqlite3.connect(":memory:") as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            "SELECT '2026-10-15' AS date, '14:00' AS start_time, '2026-10-12' AS end_date, '' AS repeat_rule, "
+            "'' AS repeat_until, '' AS repeat_skip, 15 AS alarm_before").fetchone()
+    assert ScheduleOptions.from_row(row) == ScheduleOptions(start_time="14:00")
+
+
+def test_format_checks_reject_a_trailing_newline():
+    """정규식 $는 끝의 줄바꿈을 통과시키므로 전체 일치(fullmatch)로 검사한다."""
+    with pytest.raises(ValueError, match="시작 시각"):
+        rules.validate_options(START, ScheduleOptions(start_time="09:30\n"))
+    with pytest.raises(ValueError, match="날짜"):
+        rules.parse_date("2026-10-15\n")
+    with pytest.raises(ValueError, match="날짜"):
+        rules.validate_options("2026-10-15\n", ScheduleOptions())
+    with pytest.raises(ValueError, match="날짜"):
+        rules.validate_options(START, ScheduleOptions(end_date="2026-10-17\n"))
