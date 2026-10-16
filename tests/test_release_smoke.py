@@ -2,6 +2,7 @@
 
 from ctypes import wintypes as W
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -126,3 +127,27 @@ def test_smoke_failure_and_interruption_are_recorded(tmp_path, monkeypatch):
     monkeypatch.setattr(smoke, "scenario", interrupted)
     assert smoke.main(["--exe", str(exe), "--run-dir", str(tmp_path)]) == 130
     assert verify.read_json(tmp_path / "smoke.json")["status"] == "interrupted"
+
+
+def test_upgrade_tooling_detects_kept_values_and_snapshot():
+    directory = verify.create_run_dir()
+    data_root = directory / "legacy"
+    data_root.mkdir()
+    before = smoke.data_step("seed_v17", data_root, directory / "seed_v17.json")
+    assert before["version"] == 17
+    conn = sqlite3.connect(data_root / "MyDesktopCalendar" / "calendar.db")
+    try:
+        assert [r[1] for r in conn.execute("PRAGMA table_info(schedules)")] == [
+            "id", "date", "content", "created_at", "color"]
+    finally:
+        conn.close()
+    with pytest.raises(RuntimeError, match="inspect_upgrade"):
+        smoke.data_step("inspect_upgrade", data_root, directory / "too-early.json")
+
+    smoke.data_step("upgrade_source", data_root, directory / "upgrade.json")
+    after = smoke.data_step("inspect_upgrade", data_root, directory / "after.json")
+    assert after["version"] == 18
+    assert after["tables"] == before["tables"]
+    assert after["pre_snapshot"]["tables"] == before["tables"]
+    assert after["pre_snapshot"]["version"] == 17
+    assert after["salt_sha256"] == before["salt_sha256"]

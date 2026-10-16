@@ -273,6 +273,55 @@ def _data_worker(action, data_root, result_path):
         security._fernet_cache = None
         security._legacy_fernet_cache = None
         result = {"code": db.inspect_startup_data_health().code}
+    elif action == "seed_v17":
+        if db.DB_FILE.exists():
+            raise ValueError("새 합성 데이터 폴더만 초기화할 수 있습니다.")
+        db.DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+        day = date.today().isoformat()
+        conn = sqlite3.connect(db.DB_FILE)
+        try:
+            with open(V17_FIXTURE, encoding="utf-8") as fixture:
+                conn.executescript(fixture.read())
+            for color, _ in db.SCHEDULE_COLORS:
+                conn.execute(
+                    "INSERT INTO schedules (date, content, created_at, color) VALUES (?, ?, ?, ?)",
+                    (day, security.encrypt("v17 합성 일정 " + color), day + " 09:00:00", color))
+            conn.execute("INSERT INTO memos (date, content, updated_at) VALUES (?, ?, ?)",
+                         (day, security.encrypt("v17 합성 메모"), day + " 09:00:00"))
+            # 닫힌 스티키로 둔다. 열린 스티키는 앱이 창 크기를 5mm 격자에 맞춰(300×400→306×396 등)
+            # 저장하는 기존 동작이 있어, 실행 시간에 따라 값 비교가 흔들린다(v4.0부터 같은 동작).
+            conn.execute("INSERT INTO sticky_notes (content, is_open) VALUES (?, 0)",
+                         (security.encrypt("v17 스티키"),))
+            conn.execute("PRAGMA user_version = 17")
+            conn.commit()
+        finally:
+            conn.close()
+        result = _original_columns_snapshot(db.DB_FILE)
+        result["salt_sha256"] = file_hash(security.SALT_FILE)
+    elif action == "upgrade_source":
+        # EXE 없이 같은 시작 경로를 소스로 실행한다(검사 도구 자체 시험용).
+        import main as app_main
+        app_main._initialize_database()
+        result = {"ok": True}
+    elif action == "inspect_upgrade":
+        health = db.inspect_startup_data_health()
+        if not health.ok:
+            raise ValueError(f"업그레이드 뒤 데이터 건강 검사 실패: {health.code}")
+        result = _original_columns_snapshot(db.DB_FILE)
+        if result["version"] != db.CURRENT_SCHEMA_VERSION:
+            raise ValueError("업그레이드 뒤 DB 버전이 최신이 아닙니다.")
+        with db._connection(read_only=True, enable_wal=False) as conn:
+            changed = conn.execute(
+                "SELECT COUNT(*) FROM schedules WHERE start_time != '' OR end_date != '' "
+                "OR repeat_rule != '' OR repeat_until != '' OR repeat_skip != '' "
+                "OR alarm_before IS NOT NULL").fetchone()[0]
+        if changed:
+            raise ValueError("업그레이드 뒤 새 칸이 기본값이 아닙니다.")
+        snapshot = db.APP_DIR / "backups" / "calendar_pre_v18_v17.db"
+        if not snapshot.is_file():
+            raise ValueError("마이그레이션 전 스냅샷이 없습니다.")
+        result["pre_snapshot"] = _original_columns_snapshot(snapshot)
+        result["salt_sha256"] = file_hash(security.SALT_FILE)
     elif action == "inspect":
         health = db.inspect_startup_data_health()
         if not health.ok:
@@ -297,6 +346,29 @@ def _data_worker(action, data_root, result_path):
     write_json(result_path, result)
 
 
+V18_COLUMNS = ("start_time", "end_date", "repeat_rule", "repeat_until", "repeat_skip", "alarm_before")
+V17_FIXTURE = ROOT / "tests" / "fixtures" / "schema_v17.sql"
+
+
+def _original_columns_snapshot(path):
+    """모든 표의 v17 열 값 해시(v18 새 열 제외)와 user_version."""
+    conn = sqlite3.connect(f"{Path(path).as_uri()}?mode=ro", uri=True)
+    try:
+        tables = [row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")]
+        hashes = {}
+        for table in tables:  # 표·열 이름은 sqlite_master·table_info에서만 온다.
+            columns = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")
+                       if row[1] not in V18_COLUMNS]
+            rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY rowid").fetchall()
+            hashes[table] = hashlib.sha256(
+                json.dumps(rows, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+    return {"tables": hashes, "version": version}
+
+
 def protected_hashes(data_root):
     """시작 차단 시 DB/salt/기존 백업이 그대로인지 확인한다."""
     folder = data_root / "MyDesktopCalendar"
@@ -311,7 +383,9 @@ def scenario(exe, run_dir, name):
     data_root = folder / "appdata"
     data_root.mkdir()
     before = None
-    if name != "fresh":
+    if name == "upgrade":
+        before = data_step("seed_v17", data_root, folder / "before.json")
+    elif name != "fresh":
         before = data_step("seed", data_root, folder / "before.json")
     if name == "blocked":
         data_step("corrupt", data_root, folder / "corrupt.json")
@@ -362,6 +436,16 @@ def scenario(exe, run_dir, name):
             raise ValueError("시작 차단 후 원본 DB/salt/백업이 변경됐습니다.")
         result["preserved"] = after
     else:
+        if name == "upgrade":
+            after = data_step("inspect_upgrade", data_root, folder / "after.json")
+            if after["tables"] != before["tables"]:
+                raise ValueError("업그레이드가 기존 값을 바꿨습니다.")
+            if after["pre_snapshot"] != {"tables": before["tables"], "version": 17}:
+                raise ValueError("마이그레이션 전 스냅샷이 원본과 다릅니다.")
+            if after["salt_sha256"] != before["salt_sha256"]:
+                raise ValueError("업그레이드가 salt를 바꿨습니다.")
+            result["data"] = after
+            return result
         after = data_step("inspect", data_root, folder / "after.json")
         if name == "fresh" and (not setup_seen or after["calendar_scale"] != "compact"):
             raise ValueError("최초 설정 표시/선택한 크기 저장을 확인하지 못했습니다.")
@@ -384,7 +468,7 @@ def main(argv=None):
     report = {"status": "running", "exe_sha256": file_hash(exe), "scenarios": {}}
     write_json(directory / "smoke.json", report)
     try:
-        for name in ("fresh", "existing", "blocked"):
+        for name in ("fresh", "existing", "blocked", "upgrade"):
             print(f"[smoke] {name}", flush=True)
             report["scenarios"][name] = {"status": "running"}
             write_json(directory / "smoke.json", report)
