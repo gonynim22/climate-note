@@ -870,7 +870,8 @@ class CalendarDayButton(QWidget):
                 visible = events
                 remaining = 0
             else:
-                keep = max(1 if hidden == 0 else 0, slots - 1)
+                # 막대 자리가 있으면 칩을 억지로 하나 남기지 않는다(줄 예산을 넘겨 그 주만 커진다).
+                keep = max(1 if hidden == 0 and lane_rows == 0 else 0, slots - 1)
                 visible = events[:keep]
                 remaining = len(events) - len(visible) + hidden
             for event in visible:
@@ -2432,6 +2433,10 @@ class MainCalendarWindow(QWidget):
         cell_mode = "expanded" if calendar_scale != "compact" else "compact"
         self._style_weekday_header(calendar_scale)
         self._grid_cells = []
+        # 칸을 새로 만드는 중이다. 막대 오버레이가 삭제될 옛 칸을 쥐지 않게 먼저 비운다
+        # (아래 월 조회가 실패해 일찍 끝나도 그리기가 죽은 칸을 건드리지 않는다).
+        self._span_overlay.set_bars(
+            [], [], font_px=13 if calendar_scale == "large" else 10, visible=False)
 
         # 달력 계산 (일요일 시작)
         cal = calendar.Calendar(firstweekday=6).monthdayscalendar(

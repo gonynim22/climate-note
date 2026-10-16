@@ -1,5 +1,6 @@
 """v4.1 달력: 나타나는 일정 개수·색, 중간·크게 칩 시각과 여러 날 막대 회귀. 합성 데이터만 쓴다."""
 import os
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QGridLayout, QWidget
 import database as db
 from schedule_rules import ScheduleOptions
 from show_desktop_guard import ShowDesktopKeeper
-from ui_main import MainCalendarWindow
+from ui_main import CalendarDayButton, MainCalendarWindow
 
 
 class _Screen:
@@ -193,3 +194,83 @@ def test_period_is_a_bar_not_a_chip(qtbot, monkeypatch):
     layout = win._day_cells["2026-10-13"].chips_layout
     names = [layout.itemAt(i).widget().objectName() for i in range(layout.count())]
     assert names == ["calendarSpanSlot"]
+
+
+def test_db_error_during_rebuild_clears_overlay_instead_of_keeping_deleted_cells(qtbot, monkeypatch):
+    """칸을 새로 만든 직후 월 조회가 실패해도 막대 오버레이가 삭제된 옛 칸을 쥐고 있지 않다."""
+    db.add_schedule("2026-10-13", "기간", options=ScheduleOptions(end_date="2026-10-15"))
+    win = calendar_window(qtbot, monkeypatch, "medium")
+    assert win._span_overlay.isVisible() and win._span_overlay.bar_rects()
+    real = db.get_occurrences
+
+    def broken(*_args, **_kwargs):
+        raise sqlite3.Error("합성 조회 실패")
+
+    monkeypatch.setattr(db, "get_occurrences", broken)
+    win._refresh_calendar()
+    qtbot.wait(150)  # 옛 칸의 deleteLater가 처리될 때까지
+    assert win._span_overlay.bar_rects() == []
+    assert win._span_overlay.bars() == []
+    assert win._span_overlay.isHidden()
+    assert not win._span_overlay.grab().isNull()  # 그려도 예외가 없다(pytest-qt가 이벤트 루프 예외를 실패로 센다)
+    monkeypatch.setattr(db, "get_occurrences", real)
+    win._refresh_month_data()
+    qtbot.wait(80)
+    assert win._span_overlay.isVisible() and len(win._span_overlay.bar_rects()) == 1
+
+
+def row_budget_cell(qtbot, rows):
+    """칩 자리가 정확히 rows줄인 중간 칸(화면 크기와 무관하게 칸 크기를 고정한다)."""
+    cell = CalendarDayButton(14, False, [], True, "2026-10-14", False, 3, 0, "expanded",
+                             calendar_scale="medium")
+    qtbot.addWidget(cell)
+    per = cell.chip_height + cell.chip_spacing
+    cell.setFixedSize(120, 33 + rows * per + 1)  # 숫자 26 + 위 여백 4 + 아래 여백 3
+    cell.show()
+    qtbot.waitUntil(lambda: cell.chips_container.height() // per == rows)
+    return cell
+
+
+@pytest.mark.parametrize("rows", [2, 3, 4])
+@pytest.mark.parametrize("lanes", [[], [0], [0, 1], [0, 1, 2], [2], [1, 0]])
+@pytest.mark.parametrize("singles", [0, 1, 2, 3, 5])
+def test_cell_rows_never_exceed_budget_and_overflow_counts_everything(qtbot, rows, lanes, singles):
+    """막대 차선이 있어도 칸은 칩 자리 예산을 넘지 않고, '+N 더'는 못 보인 막대·일정을 다 센다."""
+    cell = row_budget_cell(qtbot, rows)
+    events = [{"content": f"하루 {i}", "color": "#FFD166"} for i in range(singles)]
+    cell.set_events(events, span_lanes=lanes)
+    layout = cell.chips_layout
+    widgets = [layout.itemAt(i).widget() for i in range(layout.count())]
+    slots = [w for w in widgets if w.objectName() == "calendarSpanSlot"]
+    rest = [w for w in widgets if w.objectName() != "calendarSpanSlot"]
+    overflow = [w for w in rest if w.text().endswith(" 더")]
+    chips = [w for w in rest if not w.text().endswith(" 더")]
+    assert len(widgets) <= rows
+    assert len(slots) == min(max(lanes, default=-1) + 1, cell.span_lane_cap)
+    hidden = sum(1 for lane in lanes if lane >= len(slots))
+    if overflow:
+        assert overflow == rest[-1:]
+        assert overflow[0].text() == f"+{singles - len(chips) + hidden} 더"
+    else:
+        assert hidden == 0 and len(chips) == singles
+
+
+def test_two_bars_and_two_singles_keep_the_row_budget_and_week_heights(qtbot, monkeypatch):
+    """두 막대 + 하루 일정 둘이 한 날에 몰려도 그 칸은 하루 일정 셋과 같은 줄 수·최소 높이이고 주 줄도 커지지 않는다."""
+    win = calendar_window(qtbot, monkeypatch, "medium")
+
+    def heights():
+        return [win.calendar_grid.cellRect(row, 0).height() for row in range(win.calendar_grid.rowCount())]
+
+    db.add_schedule("2026-10-13", "기간 하나", options=ScheduleOptions(end_date="2026-10-15"))
+    db.add_schedule("2026-10-14", "기간 둘", options=ScheduleOptions(end_date="2026-10-16"))
+    db.add_schedule("2026-10-14", "하루 하나")
+    db.add_schedule("2026-10-14", "하루 둘")
+    for index in range(3):  # 막대 없는 기존 규칙의 3줄 칸(비교 기준)
+        db.add_schedule("2026-10-21", f"기준 {index}")
+    win._refresh_month_data()
+    qtbot.wait(120)
+    crowded, reference = win._day_cells["2026-10-14"], win._day_cells["2026-10-21"]
+    assert crowded.chips_layout.count() == reference.chips_layout.count()
+    assert crowded.minimumSizeHint().height() == reference.minimumSizeHint().height()
+    assert max(heights()) - min(heights()) <= 1  # 남는 픽셀 나눔 1px 외에는 모든 주 줄이 같다
