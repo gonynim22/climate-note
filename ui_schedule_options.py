@@ -45,6 +45,8 @@ CARD_QSS = (
     "#scheduleOptionsCard QLabel#scheduleOptionsHint{color:#94A3B8;font-size:11px;}"
     "#scheduleOptionsCard QPushButton[segment=\"true\"]{background:#FFFFFF;border:1px solid #CBD5E1;"
     "border-radius:13px;color:#334155;font-size:12px;padding:0px 9px;}"
+    # 종일 알림 줄은 글이 길어(하루 전 오전 9시) 125·150% 배율에서 2px 모자라므로 좌우 여백만 줄인다.
+    "#scheduleOptionsCard QPushButton[segment=\"true\"][compact=\"true\"]{padding:0px 6px;}"
     "#scheduleOptionsCard QPushButton[segment=\"true\"]:hover{background:#F8FAFC;}"
     "#scheduleOptionsCard QPushButton[segment=\"true\"]:checked{background:#EFF6FF;"
     "border:1px solid #2563EB;color:#1D4ED8;font-weight:bold;}"
@@ -558,6 +560,7 @@ class ScheduleOptionsPopup(QWidget):
         self.all_day_alarm_chips = {}
         for value, text in ALLDAY_ALARM_CHOICES:
             chip = self._chip(text, lambda v=value: self._change(replace(self._options, alarm_before=v)))
+            chip.setProperty("compact", True)
             row.addWidget(chip)
             self.all_day_alarm_chips[value] = chip
         row.addStretch(1)
