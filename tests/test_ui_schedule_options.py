@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
 from shiboken6 import isValid
 
 import ui_schedule_emoji
@@ -183,12 +183,12 @@ def test_mini_month_limits_range_and_picks_end(qtbot, host):
     picker = card.period_picker
     assert picker.isVisible() and not card.until_picker.isVisible()
     assert not picker.button_for("2026-10-15").isEnabled()  # 시작일은 고정
-    assert picker.button_for("2026-10-15").property("role") == "end"
+    assert picker.button_for("2026-10-15").property("role") == "start"
     assert picker.button_for("2026-10-16").property("role") == "end"
     click(qtbot, picker.button_for("2026-10-23"))
     assert host.button.options().end_date == "2026-10-23"
     assert picker.button_for("2026-10-20").property("role") == "in"
-    assert card.period_caption.text().startswith("10월 15일(목) ~ 23일(금) · 9일")
+    assert card.period_caption.text().startswith("~ 23일(금) · 9일")
     picker.show_month(picker._month.replace(year=2027))  # 365일 경계
     assert picker.button_for("2027-10-15").isEnabled()
     assert not picker.button_for("2027-10-16").isEnabled()
@@ -206,6 +206,7 @@ def test_until_picker_defaults_to_one_month_and_toggles(qtbot):
     assert host.button.options().repeat_until == "2026-02-28"
     assert card.until_picker.isVisible()
     assert card.until_picker.title_label.text() == "2026년 2월"
+    assert card.until_picker.button_for("2026-02-28").property("role") == "single"
     click(qtbot, card.until_picker.prev_button)
     assert not card.until_picker.button_for("2026-01-30").isEnabled()
     assert card.until_picker.button_for("2026-01-31").isEnabled()
@@ -405,3 +406,186 @@ def test_mini_month_without_state_treats_missing_lower_bound_as_open():
     picker.show_month(date(2026, 10, 1))
     assert picker.button_for("2026-10-01").isEnabled()
     assert picker.button_for("2026-10-31").isEnabled()
+
+
+def test_card_header_contains_actions_and_has_no_footer_hint(qtbot, host):
+    card = open_card(qtbot, host.button)
+    header = card.findChild(QFrame, "scheduleOptionsHeader")
+    assert header is not None
+    assert card.clear_button.parentWidget() is header
+    assert card.done_button.parentWidget() is header
+    assert header.geometry().contains(card.done_button.geometry())
+    assert card.findChild(QLabel, "scheduleOptionsHint") is None
+    assert CARD_WIDTH == card.card.width() == 320
+    for kind, track, name in (
+        ("time", card.time_track, "시각"), ("alarm", card.all_day_alarm_box, "알림"),
+        ("period", card.period_track, "기간"), ("repeat", card.repeat_track, "반복"),
+    ):
+        assert card.row_icons[kind].accessibleName() == card.row_icons[kind].toolTip() == name
+        assert track.accessibleName() == track.toolTip() == name
+
+
+def test_alarm_segments_have_short_text_and_full_accessible_names(qtbot, host):
+    card = open_card(qtbot, host.button)
+    assert [(chip.text(), chip.accessibleName(), chip.toolTip())
+            for chip in card.all_day_alarm_chips.values()] == [
+        ("없음", "알림 없음", "알림 없음"),
+        ("당일 9시", "당일 오전 9시", "당일 오전 9시"),
+        ("전날 9시", "하루 전 오전 9시", "하루 전 오전 9시"),
+    ]
+    assert card.all_day_alarm_chips[None].width() < card.all_day_alarm_chips[0].width()
+    click(qtbot, card.timed_chip)
+    assert [(chip.text(), chip.accessibleName()) for chip in card.timed_alarm_chips.values()] == [
+        ("없음", "알림 없음"), ("정시", "정시"), ("10분", "10분 전"),
+        ("30분", "30분 전"), ("1시간", "1시간 전"), ("1일", "하루 전"),
+    ]
+    assert all(chip.toolTip() == chip.accessibleName() for chip in card.timed_alarm_chips.values())
+    for chips in (card.timed_alarm_chips.values(), card.repeat_chips.values()):
+        widths = [chip.width() for chip in chips]
+        assert max(widths) - min(widths) <= 1
+
+
+def test_alarm_caption_uses_viewed_occurrence_and_hides_for_all_day(qtbot, host):
+    host.button.set_context("2026-10-15", "2026-10-22")
+    host.button.set_options(ScheduleOptions(start_time="15:00", alarm_before=10, repeat_rule="weekly"))
+    card = open_card(qtbot, host.button)
+    assert card.alarm_caption.isVisible()
+    assert card.alarm_caption.text() == "10분 전, 14:50에 알림"
+    click(qtbot, card.timed_alarm_chips[1440])
+    assert card.alarm_caption.text() == "하루 전, 10월 21일(수) 15:00에 알림"
+    click(qtbot, card.timed_alarm_chips[None])
+    assert card.alarm_caption.isHidden()
+    click(qtbot, card.all_day_chip)
+    click(qtbot, card.all_day_alarm_chips[0])
+    assert card.alarm_caption.isHidden()
+
+
+def test_row_icon_colors_follow_values_clear_and_disabled_repeat(qtbot, host):
+    card = open_card(qtbot, host.button)
+    colors = lambda: {kind: icon.property("iconColor") for kind, icon in card.row_icons.items()}
+    assert set(colors().values()) == {"#64748B"}
+    click(qtbot, card.timed_chip)
+    click(qtbot, card.timed_alarm_chips[0])
+    click(qtbot, card.repeat_chips["daily"])
+    assert colors() == {"time": "#335C8A", "alarm": "#335C8A", "period": "#64748B", "repeat": "#335C8A"}
+    assert card.period_note.text() == "반복 중엔 하루만"
+    click(qtbot, card.clear_button)
+    assert set(colors().values()) == {"#64748B"}
+    click(qtbot, card.many_days_chip)
+    assert colors() == {"time": "#64748B", "alarm": "#64748B", "period": "#335C8A", "repeat": "#B8C2CF"}
+    assert card.repeat_note.text() == "여러 날 일정은 반복할 수 없어요"
+
+
+@pytest.mark.parametrize("options,target_height", [
+    (ScheduleOptions(), 222),
+    (ScheduleOptions(start_time="15:00", alarm_before=10, repeat_rule="weekly"), 274),
+    (ScheduleOptions(end_date="2026-10-17"), 442),
+])
+def test_card_three_design_states_fit_target_heights(qtbot, host, options, target_height):
+    host.button.set_options(options)
+    card = open_card(qtbot, host.button)
+    if options.end_date:
+        click(qtbot, card.period_caption)
+    assert card.card.width() == 320
+    assert abs(card.card.height() - target_height) <= 15, card.card.height()
+
+
+@pytest.mark.parametrize("end,wraps", [("2026-10-17", False), ("2027-01-03", True)])
+def test_period_caption_wraps_long_dates_without_clipping(qtbot, host, end, wraps):
+    host.button.set_options(ScheduleOptions(end_date=end))
+    card = open_card(qtbot, host.button)
+    assert card.period_caption.text().endswith(" ▾")
+    caption = card.period_caption
+    track = card.period_track
+    top = caption.mapTo(card.card, QPoint())
+    track_top = track.mapTo(card.card, QPoint())
+    if wraps:
+        assert top.x() == track_top.x()
+        assert top.y() >= track_top.y() + track.height()
+    else:
+        assert top.x() > track_top.x() + track.width()
+        assert track_top.y() <= top.y() < track_top.y() + track.height()
+    assert caption.width() >= caption.sizeHint().width()
+    assert card.card.rect().contains(caption.mapTo(card.card, caption.rect().bottomRight()))
+    changed = []
+    host.button.options_changed.connect(changed.append)
+    click(qtbot, caption)
+    assert card.period_picker.isVisible()
+    assert not caption.text().endswith("▾")
+    click(qtbot, caption)
+    assert not card.period_picker.isVisible()
+    assert caption.text().endswith(" ▾")
+    assert not changed  # 펼치기·접기는 저장값을 바꾸지 않는다.
+
+
+def test_period_range_is_a_continuous_band_including_disabled_start(qtbot, host):
+    host.button.set_options(ScheduleOptions(end_date="2026-10-17"))
+    card = open_card(qtbot, host.button)
+    click(qtbot, card.period_caption)
+    picker = card.period_picker
+    start, middle, end = [picker.button_for(f"2026-10-{day}") for day in (15, 16, 17)]
+    assert [button.property("role") for button in (start, middle, end)] == ["start", "in", "end"]
+    assert not start.isEnabled()
+    assert start.x() + start.width() == middle.x()
+    assert middle.x() + middle.width() == end.x()
+    shot = card.grab().toImage()
+    ratio = shot.devicePixelRatio()
+
+    def pixel(button, x):
+        point = button.mapTo(card, QPoint(x, button.height() // 2))
+        return shot.pixelColor(round(point.x() * ratio), round(point.y() * ratio)).name().upper()
+
+    # 간격 없음은 위의 배치 경계로 검사한다. 색은 분수 배율의 경계 픽셀
+    # 안티앨리어싱을 피해서 2px 안쪽에서 확인한다.
+    assert pixel(start, start.width() - 2) == "#E8EEF6"
+    assert pixel(middle, 2) == "#E8EEF6"
+    assert pixel(middle, middle.width() - 2) == "#E8EEF6"
+    assert pixel(end, 2) == "#335C8A"
+
+
+def test_repeat_caption_elides_without_losing_full_tooltip(qtbot):
+    widget = Host(start="2026-01-31")
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.button.set_options(ScheduleOptions(repeat_rule="monthly"))
+    card = open_card(qtbot, widget.button)
+    caption = card.repeat_caption
+    assert caption.text() == caption.toolTip() == "매월 31일 (없는 달은 마지막 날)"
+    assert caption.width() < caption.fontMetrics().horizontalAdvance(caption.text())
+    assert card.forever_chip.width() >= card.forever_chip.sizeHint().width()
+    assert card.until_chip.width() >= card.until_chip.sizeHint().width()
+
+
+def test_keyboard_can_reach_and_choose_card_values_and_header_actions(qtbot, host):
+    host.button.setFocus()
+    qtbot.keyClick(host.button, Qt.Key_Return)
+    qtbot.waitUntil(lambda: host.button._popup is not None and host.button._popup.isVisible())
+    card = host.button._popup
+    assert card.focusWidget() is card.all_day_chip
+
+    def choose(button, key=Qt.Key_Space):
+        for _ in range(100):
+            if card.focusWidget() is button:
+                break
+            qtbot.keyClick(card.focusWidget(), Qt.Key_Tab)
+        assert card.focusWidget() is button
+        qtbot.keyClick(button, key)
+        QApplication.processEvents()
+
+    choose(card.timed_chip)
+    assert card.focusWidget() is card.time_edit
+    qtbot.keyClicks(card.time_edit, "1500")
+    qtbot.keyClick(card.time_edit, Qt.Key_Return)
+    choose(card.timed_alarm_chips[10], Qt.Key_Return)
+    choose(card.repeat_chips["weekly"])
+    choose(card.until_chip)
+    choose(card.until_picker.button_for("2026-11-16"))
+    assert host.button.options() == ScheduleOptions(
+        start_time="15:00", alarm_before=10, repeat_rule="weekly", repeat_until="2026-11-16")
+    choose(card.clear_button)
+    assert host.button.options().is_default
+    choose(card.many_days_chip)
+    choose(card.period_picker.button_for("2026-10-23"))
+    assert host.button.options() == ScheduleOptions(end_date="2026-10-23")
+    choose(card.done_button, Qt.Key_Return)
+    assert host.button._popup is None

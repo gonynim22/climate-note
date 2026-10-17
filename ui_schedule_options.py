@@ -10,10 +10,10 @@ from dataclasses import replace
 from datetime import date, timedelta
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QLineEdit, QPushButton, QSizePolicy, QStyle, QStyleOptionButton, QVBoxLayout, QWidget,
 )
 
 import holidays
@@ -25,69 +25,87 @@ _logger = logging.getLogger("app_error")
 
 SCHEDULE_CONTROL_DIAMETER = 22
 SHADOW_MARGIN = 16
-CARD_WIDTH = 330
+CARD_WIDTH = 320
 ICON_COLOR = "#475569"
 ACTIVE_COLOR = "#2563EB"
-TIMED_ALARM_CHOICES = ((None, "없음"), (0, "정시"), (10, "10분 전"),
-                       (30, "30분 전"), (60, "1시간 전"), (1440, "하루 전"))
-ALLDAY_ALARM_CHOICES = ((None, "없음"), (0, "당일 오전 9시"), (1440, "하루 전 오전 9시"))
+CARD_ACCENT = "#335C8A"
+CARD_ACCENT_DARK = "#2D4F77"
+CARD_TINT_50 = "#F4F7FB"
+CARD_TINT_100 = "#E8EEF6"
+CARD_TINT_200 = "#CCDBEB"
+CARD_TEXT = "#475569"
+CARD_MUTED = "#64748B"
+CARD_NOTE = "#94A3B8"
+CARD_DISABLED = "#B8C2CF"
+CARD_WARNING = "#B45309"
+TIMED_ALARM_CHOICES = ((None, "없음"), (0, "정시"), (10, "10분"),
+                       (30, "30분"), (60, "1시간"), (1440, "1일"))
+ALLDAY_ALARM_CHOICES = ((None, "없음"), (0, "당일 9시"), (1440, "전날 9시"))
 REPEAT_CHOICES = (("", "안 함"), ("daily", "매일"), ("weekdays", "평일"),
                   ("weekly", "매주"), ("monthly", "매월"), ("yearly", "매년"))
-REPEAT_ONLY_ONE_DAY = "반복 일정은 하루만 고를 수 있습니다"
-PERIOD_NO_REPEAT = "여러 날 일정은 반복할 수 없습니다"
+REPEAT_ONLY_ONE_DAY = "반복 중엔 하루만"
+PERIOD_NO_REPEAT = "여러 날 일정은 반복할 수 없어요"
 
-CARD_QSS = (
-    "QFrame#scheduleOptionsCard{background:#FFFFFF;border:1px solid #D9E1EC;border-radius:12px;}"
-    "#scheduleOptionsCard QLabel{background:transparent;}"
-    "#scheduleOptionsCard QLabel#scheduleOptionsTitle{color:#172B4D;font-size:13px;font-weight:bold;}"
-    "#scheduleOptionsCard QLabel#scheduleOptionsRowLabel{color:#64748B;font-size:12px;}"
-    "#scheduleOptionsCard QLabel#scheduleOptionsNote{color:#B45309;font-size:11px;}"
-    "#scheduleOptionsCard QLabel#scheduleOptionsHint{color:#94A3B8;font-size:11px;}"
-    "#scheduleOptionsCard QPushButton[segment=\"true\"]{background:#FFFFFF;border:1px solid #CBD5E1;"
-    "border-radius:13px;color:#334155;font-size:12px;padding:0px 9px;}"
-    # 종일 알림 줄은 글이 길어(하루 전 오전 9시) 125·150% 배율에서 2px 모자라므로 좌우 여백만 줄인다.
-    "#scheduleOptionsCard QPushButton[segment=\"true\"][compact=\"true\"]{padding:0px 6px;}"
-    "#scheduleOptionsCard QPushButton[segment=\"true\"]:hover{background:#F8FAFC;}"
-    "#scheduleOptionsCard QPushButton[segment=\"true\"]:checked{background:#EFF6FF;"
-    "border:1px solid #2563EB;color:#1D4ED8;font-weight:bold;}"
-    "#scheduleOptionsCard QPushButton[segment=\"true\"]:disabled{background:#F8FAFC;"
-    "border:1px solid #E2E8F0;color:#A3ACB9;}"
-    "#scheduleOptionsCard QPushButton[segment=\"true\"]:focus{border:2px solid #2563EB;}"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsCaption{background:transparent;border:0px;"
-    "color:#334155;font-size:12px;text-align:left;padding:0px;}"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsCaption:hover,"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsCaption:focus{color:#1D4ED8;}"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsClear{background:transparent;border:0px;"
-    "color:#64748B;font-size:12px;padding:0px 2px;}"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsClear:hover,"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsClear:focus{color:#B91C1C;}"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsDone{background:#2563EB;border:1px solid #2563EB;"
-    "border-radius:6px;color:#FFFFFF;font-size:12px;font-weight:bold;padding:0px 14px;}"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsDone:hover{background:#1D4ED8;}"
-    "#scheduleOptionsCard QPushButton#scheduleOptionsDone:focus{border:2px solid #1E3A8A;}"
-    "#scheduleOptionsCard QLineEdit#scheduleOptionsTime{background:#FFFFFF;border:1px solid #CBD5E1;"
-    "border-radius:6px;color:#172B4D;font-size:12px;padding:0px 6px;}"
-    "#scheduleOptionsCard QLineEdit#scheduleOptionsTime:focus{border:2px solid #2563EB;}"
-    "#scheduleOptionsCard QLineEdit#scheduleOptionsTime[invalid=\"true\"]{border:2px solid #DC2626;}"
-    "#scheduleOptionsCard QLabel#scheduleMiniTitle{color:#172B4D;font-size:12px;font-weight:bold;}"
-    "#scheduleOptionsCard QLabel#scheduleMiniWeekday{color:#64748B;font-size:11px;}"
-    "#scheduleOptionsCard QLabel#scheduleMiniWeekday[tone=\"sun\"]{color:#D32F2F;}"
-    "#scheduleOptionsCard QLabel#scheduleMiniWeekday[tone=\"sat\"]{color:#1565C0;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniNav{background:transparent;border:0px;"
-    "border-radius:4px;color:#475569;font-size:14px;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniNav:hover,"
-    "#scheduleOptionsCard QPushButton#scheduleMiniNav:focus{background:#EFF6FF;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniDay{background:transparent;border:0px;"
-    "border-radius:4px;color:#1A1A1A;font-size:11px;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniDay[tone=\"sun\"]{color:#D32F2F;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniDay[tone=\"sat\"]{color:#1565C0;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniDay:hover{background:#EFF6FF;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniDay:focus{border:1px solid #2563EB;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniDay[role=\"in\"]{background:#DBEAFE;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniDay[role=\"end\"]{background:#2563EB;"
-    "color:#FFFFFF;font-weight:bold;}"
-    "#scheduleOptionsCard QPushButton#scheduleMiniDay:disabled{background:transparent;color:#CBD5E1;}"
-)
+CARD_QSS = f"""
+QFrame#scheduleOptionsCard {{background:#FFFFFF;border:1px solid {CARD_TINT_200};border-radius:12px;}}
+#scheduleOptionsHeader {{background:{CARD_ACCENT};border:0px;
+    border-top-left-radius:11px;border-top-right-radius:11px;}}
+#scheduleOptionsCard QLabel {{background:transparent;}}
+#scheduleOptionsTitle {{color:#FFFFFF;font-size:14px;font-weight:bold;}}
+#scheduleOptionsNote, #scheduleOptionsEndLabel {{color:{CARD_NOTE};font-size:11px;}}
+#scheduleOptionsSeriesNote {{color:{CARD_WARNING};font-size:11px;}}
+#scheduleOptionsAlarmCaption {{color:{CARD_MUTED};font-size:11px;}}
+#scheduleOptionsRepeatCaption {{color:#334155;font-size:12px;}}
+#scheduleOptionsTrack {{background:{CARD_TINT_50};border:1px solid {CARD_TINT_100};border-radius:8px;}}
+#scheduleOptionsTrack[group="until"] {{border-radius:7px;}}
+#scheduleOptionsCard QPushButton[segment="true"] {{background:transparent;border:1px solid transparent;
+    border-radius:6px;color:{CARD_TEXT};font-size:12px;padding:0px 2px;}}
+#scheduleOptionsCard QPushButton[segment="true"][group="time"] {{padding:0px 12px;}}
+#scheduleOptionsCard QPushButton[segment="true"][group="period"] {{padding:0px 14px;}}
+#scheduleOptionsCard QPushButton[segment="true"][group="allDayAlarm"] {{padding:0px 6px;}}
+#scheduleOptionsCard QPushButton[segment="true"][group="until"] {{padding:0px 9px;font-size:11px;border-radius:5px;}}
+#scheduleOptionsCard QPushButton[segment="true"]:hover {{background:{CARD_TINT_100};}}
+#scheduleOptionsCard QPushButton[segment="true"]:checked {{background:{CARD_ACCENT};
+    border-color:{CARD_ACCENT};color:#FFFFFF;font-weight:bold;}}
+#scheduleOptionsCard QPushButton[segment="true"]:disabled {{background:transparent;
+    border-color:transparent;color:{CARD_DISABLED};}}
+#scheduleOptionsCard QPushButton[segment="true"]:focus {{border:2px solid {ACTIVE_COLOR};}}
+#scheduleOptionsCaption {{background:transparent;border:2px solid transparent;border-radius:4px;
+    color:{CARD_ACCENT_DARK};font-size:12px;font-weight:bold;text-align:left;padding:0px;}}
+#scheduleOptionsCaption:hover {{background:{CARD_TINT_50};}}
+#scheduleOptionsCaption:focus {{border-color:{ACTIVE_COLOR};}}
+#scheduleOptionsClear {{background:transparent;border:2px solid transparent;border-radius:6px;
+    color:{CARD_TINT_200};font-size:12px;padding:0px 6px;}}
+#scheduleOptionsClear:hover {{color:#FFFFFF;}}
+#scheduleOptionsDone {{background:#FFFFFF;border:2px solid transparent;border-radius:6px;
+    color:{CARD_ACCENT};font-size:12px;font-weight:bold;padding:0px 10px;}}
+#scheduleOptionsDone:hover {{background:{CARD_TINT_100};}}
+#scheduleOptionsClear:focus, #scheduleOptionsDone:focus {{border-color:#FBBF24;}}
+#scheduleOptionsTime {{background:#FFFFFF;border:1px solid {CARD_TINT_200};border-radius:6px;
+    color:{CARD_ACCENT_DARK};font-size:12px;font-weight:bold;padding:0px 6px;}}
+#scheduleOptionsTime:focus {{border:2px solid {ACTIVE_COLOR};}}
+#scheduleOptionsTime[invalid="true"] {{border:2px solid #DC2626;}}
+#scheduleMiniMonth {{background:{CARD_TINT_50};border:1px solid {CARD_TINT_100};border-radius:8px;}}
+#scheduleMiniTitle {{color:#172B4D;font-size:12px;font-weight:bold;}}
+#scheduleMiniWeekday {{color:{CARD_MUTED};font-size:11px;}}
+#scheduleMiniWeekday[tone="sun"] {{color:#D32F2F;}}
+#scheduleMiniWeekday[tone="sat"] {{color:#1565C0;}}
+#scheduleMiniNav {{background:transparent;border:2px solid transparent;border-radius:4px;color:{CARD_TEXT};font-size:14px;}}
+#scheduleMiniNav:hover {{background:{CARD_TINT_100};}}
+#scheduleMiniNav:focus {{border-color:{ACTIVE_COLOR};}}
+#scheduleMiniDay {{background:transparent;border:0px;border-radius:12px;color:#1A1A1A;font-size:11px;}}
+#scheduleMiniDay[tone="sun"] {{color:#D32F2F;}}
+#scheduleMiniDay[tone="sat"] {{color:#1565C0;}}
+#scheduleMiniDay:hover {{background:{CARD_TINT_100};}}
+#scheduleMiniDay:disabled {{background:transparent;color:#CBD5E1;}}
+#scheduleMiniDay[role="start"] {{background:{CARD_TINT_100};color:{CARD_ACCENT_DARK};font-weight:bold;
+    border-top-right-radius:0px;border-bottom-right-radius:0px;}}
+#scheduleMiniDay[role="in"] {{background:{CARD_TINT_100};color:{CARD_ACCENT_DARK};border-radius:0px;}}
+#scheduleMiniDay[role="end"] {{background:{CARD_ACCENT};color:#FFFFFF;font-weight:bold;
+    border-top-left-radius:0px;border-bottom-left-radius:0px;}}
+#scheduleMiniDay[role="single"] {{background:{CARD_ACCENT};color:#FFFFFF;font-weight:bold;}}
+#scheduleMiniDay:focus {{border:2px solid {ACTIVE_COLOR};}}
+"""
 
 
 def popup_position(anchor, size, available) -> QPoint:
@@ -354,7 +372,40 @@ class ScheduleOptionsButton(QPushButton):
             super().keyPressEvent(event)
 
 
-class MiniMonthPicker(QWidget):
+class _PeriodCaptionButton(QPushButton):
+    """text()·접근성은 평문으로 두고, 기간의 일수만 회색으로 그린다."""
+
+    def _text_parts(self):
+        end, separator, count = self.text().partition(" · ")
+        regular = QFont(self.font())
+        regular.setBold(False)
+        return end, separator + count, regular
+
+    def sizeHint(self):
+        end, count, regular = self._text_parts()
+        width = self.fontMetrics().horizontalAdvance(end) + QFontMetrics(regular).horizontalAdvance(count)
+        return QSize(width + 4, super().sizeHint().height())
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def paintEvent(self, event):
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        painter = QPainter(self)
+        self.style().drawControl(QStyle.CE_PushButtonBevel, option, painter, self)
+        end, count, regular = self._text_parts()
+        rect = self.rect().adjusted(2, 0, -2, 0)
+        painter.setFont(self.font())
+        painter.setPen(QColor(CARD_ACCENT_DARK))
+        painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, end)
+        rect.setLeft(rect.left() + self.fontMetrics().horizontalAdvance(end))
+        painter.setFont(regular)
+        painter.setPen(QColor(CARD_MUTED))
+        painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, count)
+
+
+class MiniMonthPicker(QFrame):
     """카드 안에 펼치는 작은 달력(일요일 시작). 따로 팝업을 띄우지 않는다."""
 
     date_picked = Signal(str)
@@ -369,7 +420,7 @@ class MiniMonthPicker(QWidget):
         self._range_start = None
         self._selected = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 0)
+        layout.setContentsMargins(8, 8, 8, 6)
         layout.setSpacing(2)
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
@@ -384,9 +435,10 @@ class MiniMonthPicker(QWidget):
         layout.addLayout(head)
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(2)
+        grid.setHorizontalSpacing(0)
         grid.setVerticalSpacing(1)
         for col, name in enumerate("일월화수목금토"):
+            grid.setColumnStretch(col, 1)
             label = QLabel(name, self)
             label.setObjectName("scheduleMiniWeekday")
             label.setAlignment(Qt.AlignCenter)
@@ -396,7 +448,8 @@ class MiniMonthPicker(QWidget):
         for index in range(42):
             button = QPushButton(self)
             button.setObjectName("scheduleMiniDay")
-            button.setFixedSize(30, 24)
+            button.setFixedHeight(24)
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             button.setCursor(Qt.PointingHandCursor)
             button.clicked.connect(lambda checked=False, i=index: self._pick(i))
             grid.addWidget(button, 1 + index // 7, index % 7)
@@ -406,7 +459,7 @@ class MiniMonthPicker(QWidget):
     def _nav_button(self, text: str, name: str, step: int) -> QPushButton:
         button = QPushButton(text, self)
         button.setObjectName("scheduleMiniNav")
-        button.setFixedSize(26, 22)
+        button.setFixedSize(22, 22)
         button.setAccessibleName(name)
         button.setToolTip(name)
         button.clicked.connect(lambda: self.show_month(rules.add_months(self._month, step)))
@@ -441,8 +494,10 @@ class MiniMonthPicker(QWidget):
                 allowed = ((self._lower is None or day >= self._lower)
                            and (self._upper is None or day <= self._upper))
                 button.setEnabled(allowed)
-                if day == self._selected or (self._range_start is not None and day == self._range_start):
-                    role = "end"
+                if day == self._selected:
+                    role = "end" if self._range_start is not None else "single"
+                elif day == self._range_start:
+                    role = "start"
                 elif (self._range_start is not None and self._selected is not None
                       and self._range_start < day < self._selected):
                     role = "in"
@@ -505,170 +560,205 @@ class ScheduleOptionsPopup(QWidget):
         self.card.setGraphicsEffect(shadow)
         outer.addWidget(self.card)
         layout = QVBoxLayout(self.card)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(10)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
 
-        head = QHBoxLayout()
-        title = QLabel("세부 설정", self.card)
+        header = QFrame(self.card)
+        header.setObjectName("scheduleOptionsHeader")
+        head = QHBoxLayout(header)
+        head.setContentsMargins(14, 10, 12, 10)
+        head.setSpacing(4)
+        title = QLabel("세부 설정", header)
         title.setObjectName("scheduleOptionsTitle")
         head.addWidget(title)
         head.addStretch(1)
-        self.clear_button = QPushButton("모두 지우기", self.card)
+        self.clear_button = QPushButton("모두 지우기", header)
         self.clear_button.setObjectName("scheduleOptionsClear")
+        self.clear_button.setFixedHeight(26)
         self.clear_button.setCursor(Qt.PointingHandCursor)
         self.clear_button.setToolTip("시각·알림·기간·반복을 모두 기본값으로 되돌립니다")
         self.clear_button.clicked.connect(lambda: self._change(ScheduleOptions()))
         head.addWidget(self.clear_button)
-        layout.addLayout(head)
+        self.done_button = QPushButton("완료", header)
+        self.done_button.setObjectName("scheduleOptionsDone")
+        self.done_button.setFixedHeight(26)
+        self.done_button.setCursor(Qt.PointingHandCursor)
+        self.done_button.clicked.connect(self.dismiss)
+        head.addWidget(self.done_button)
+        layout.addWidget(header)
 
-        body = self._row(layout, "시각")
+        self.body = QWidget(self.card)
+        layout.addWidget(self.body)
+        layout = QVBoxLayout(self.body)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(12)
+        self.row_icons = {}
+
+        body = self._row(layout, "time", "시각", "clock")
         line = QHBoxLayout()
-        line.setSpacing(6)
+        line.setSpacing(10)
         self.all_day_chip = self._chip("하루 종일", lambda: self._change(rules.with_start_time(self._options, "")))
         self.timed_chip = self._chip("시각", self._choose_timed)
+        self.time_track = self._track("시각", "time", [self.all_day_chip, self.timed_chip])
         self.time_edit = QLineEdit(self.card)
         self.time_edit.setObjectName("scheduleOptionsTime")
-        self.time_edit.setFixedSize(62, 26)
+        self.time_edit.setFixedSize(60, 28)
         self.time_edit.setPlaceholderText("09:00")
         self.time_edit.setAccessibleName("시작 시각")
         self.time_edit.setToolTip("0930·14:30처럼 입력하고 Enter")
         # 입력 중에는 검사만 하고(틀리면 빨간 테두리), Enter·다른 곳 누르기·닫기 때 반영한다.
         self.time_edit.textEdited.connect(self._on_time_edited)
         self.time_edit.editingFinished.connect(self._commit_time_text)
-        line.addWidget(self.all_day_chip)
-        line.addWidget(self.timed_chip)
+        line.addWidget(self.time_track)
         line.addWidget(self.time_edit)
         line.addStretch(1)
         body.addLayout(line)
 
-        body = self._row(layout, "알림")
-        self.timed_alarm_box = QWidget(self.card)
-        grid = QGridLayout(self.timed_alarm_box)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(6)
+        body = self._row(layout, "alarm", "알림", "bell")
+        body.setSpacing(5)
         self.timed_alarm_chips = {}
-        for index, (value, text) in enumerate(TIMED_ALARM_CHOICES):
+        for value, text in TIMED_ALARM_CHOICES:
             chip = self._chip(text, lambda v=value: self._change(replace(self._options, alarm_before=v)))
-            chip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            grid.addWidget(chip, index // 3, index % 3)
+            name = rules.alarm_label(ScheduleOptions(start_time="09:00", alarm_before=value)) or "알림 없음"
+            chip.setAccessibleName(name)
+            chip.setToolTip(name)
             self.timed_alarm_chips[value] = chip
+        self.timed_alarm_box = self._track("알림", "timedAlarm", self.timed_alarm_chips.values(), equal=True)
         body.addWidget(self.timed_alarm_box)
-        self.all_day_alarm_box = QWidget(self.card)
-        row = QHBoxLayout(self.all_day_alarm_box)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
         self.all_day_alarm_chips = {}
         for value, text in ALLDAY_ALARM_CHOICES:
             chip = self._chip(text, lambda v=value: self._change(replace(self._options, alarm_before=v)))
-            chip.setProperty("compact", True)
-            row.addWidget(chip)
+            name = rules.alarm_label(ScheduleOptions(alarm_before=value)) or "알림 없음"
+            chip.setAccessibleName(name)
+            chip.setToolTip(name)
             self.all_day_alarm_chips[value] = chip
-        row.addStretch(1)
+        self.all_day_alarm_box = self._track("알림", "allDayAlarm", self.all_day_alarm_chips.values(), expand=True)
         body.addWidget(self.all_day_alarm_box)
+        self.alarm_caption = self._note("")
+        self.alarm_caption.setObjectName("scheduleOptionsAlarmCaption")
+        body.addWidget(self.alarm_caption)
 
-        body = self._row(layout, "기간")
-        line = QHBoxLayout()
-        line.setSpacing(6)
+        body = self._row(layout, "period", "기간", "calendar")
+        self._period_layout = QGridLayout()
+        self._period_layout.setHorizontalSpacing(8)
+        self._period_layout.setVerticalSpacing(7)
+        self._period_layout.setColumnStretch(1, 1)
         self.one_day_chip = self._chip("하루", lambda: self._change(replace(self._options, end_date="")))
         self.many_days_chip = self._chip("여러 날", self._choose_many_days)
-        line.addWidget(self.one_day_chip)
-        line.addWidget(self.many_days_chip)
-        line.addStretch(1)
-        body.addLayout(line)
-        self.period_caption = self._caption(lambda: self._toggle_picker("period"))
-        body.addWidget(self.period_caption)
+        self.period_track = self._track("기간", "period", [self.one_day_chip, self.many_days_chip])
+        self._period_layout.addWidget(self.period_track, 0, 0)
+        self.period_caption = self._caption(lambda: self._toggle_picker("period"), period=True)
+        self._period_layout.addWidget(self.period_caption, 0, 1, Qt.AlignLeft)
+        self.period_note = self._note(REPEAT_ONLY_ONE_DAY)
+        self.period_note.setWordWrap(False)
+        self._period_layout.addWidget(self.period_note, 0, 1)
+        body.addLayout(self._period_layout)
         self.period_picker = MiniMonthPicker(self.card)
         self.period_picker.date_picked.connect(
             lambda iso: self._change(replace(self._options, end_date=iso)))
         self.period_picker.month_changed.connect(self._on_month_changed)
         body.addWidget(self.period_picker)
-        self.period_note = self._note(REPEAT_ONLY_ONE_DAY)
-        body.addWidget(self.period_note)
 
-        body = self._row(layout, "반복")
-        grid = QGridLayout()
-        grid.setSpacing(6)
+        body = self._row(layout, "repeat", "반복", "repeat")
         self.repeat_chips = {}
-        for index, (rule, text) in enumerate(REPEAT_CHOICES):
+        for rule, text in REPEAT_CHOICES:
             chip = self._chip(text, lambda r=rule: self._change(rules.with_repeat(self._options, self._start, r)))
-            chip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            grid.addWidget(chip, index // 3, index % 3)
             self.repeat_chips[rule] = chip
-        body.addLayout(grid)
-        self.repeat_caption = QLabel(self.card)
-        self.repeat_caption.setTextFormat(Qt.PlainText)
-        self.repeat_caption.setStyleSheet("color:#334155;font-size:12px;")
-        body.addWidget(self.repeat_caption)
-        self.repeat_note = self._note(PERIOD_NO_REPEAT)
-        body.addWidget(self.repeat_note)
-        self.series_note = self._note("")
-        body.addWidget(self.series_note)
+        self.repeat_track = self._track("반복", "repeat", self.repeat_chips.values(), equal=True)
+        body.addWidget(self.repeat_track)
 
         self.until_row = QWidget(self.card)
         until_layout = QVBoxLayout(self.until_row)
         until_layout.setContentsMargins(0, 0, 0, 0)
-        until_layout.setSpacing(0)
-        body = self._row(until_layout, "끝", parent=self.until_row)
+        until_layout.setSpacing(7)
         line = QHBoxLayout()
-        line.setSpacing(6)
+        line.setSpacing(8)
+        self.repeat_caption = ElidedLabel(parent=self.until_row)
+        self.repeat_caption.setObjectName("scheduleOptionsRepeatCaption")
+        self.repeat_caption.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        line.addWidget(self.repeat_caption, 1)
+        end_label = QLabel("끝", self.until_row)
+        end_label.setObjectName("scheduleOptionsEndLabel")
+        line.addWidget(end_label)
         self.forever_chip = self._chip("계속", lambda: self._change(replace(self._options, repeat_until="")),
                                        parent=self.until_row)
         self.until_chip = self._chip("날짜까지", self._choose_until, parent=self.until_row)
-        line.addWidget(self.forever_chip)
-        line.addWidget(self.until_chip)
-        line.addStretch(1)
-        body.addLayout(line)
+        self.until_track = self._track("반복 끝", "until", [self.forever_chip, self.until_chip])
+        line.addWidget(self.until_track)
+        until_layout.addLayout(line)
         self.until_caption = self._caption(lambda: self._toggle_picker("until"), parent=self.until_row)
-        body.addWidget(self.until_caption)
+        until_layout.addWidget(self.until_caption)
         self.until_picker = MiniMonthPicker(self.until_row)
         self.until_picker.date_picked.connect(
             lambda iso: self._change(replace(self._options, repeat_until=iso)))
         self.until_picker.month_changed.connect(self._on_month_changed)
-        body.addWidget(self.until_picker)
-        layout.addWidget(self.until_row)
-
-        foot = QHBoxLayout()
-        hint = QLabel("Esc · 바깥을 누르면 닫힘", self.card)
-        hint.setObjectName("scheduleOptionsHint")
-        foot.addWidget(hint)
-        foot.addStretch(1)
-        self.done_button = QPushButton("완료", self.card)
-        self.done_button.setObjectName("scheduleOptionsDone")
-        self.done_button.setFixedHeight(28)
-        self.done_button.setCursor(Qt.PointingHandCursor)
-        self.done_button.clicked.connect(self.dismiss)
-        foot.addWidget(self.done_button)
-        layout.addLayout(foot)
+        until_layout.addWidget(self.until_picker)
+        body.addWidget(self.until_row)
+        self.repeat_note = self._note(PERIOD_NO_REPEAT)
+        body.addWidget(self.repeat_note)
+        self.series_note = self._note("")
+        self.series_note.setObjectName("scheduleOptionsSeriesNote")
+        body.addWidget(self.series_note)
+        self.ensurePolished()
         self._render()
 
     # ── 만들기 도우미 ──
-    def _row(self, layout, name: str, parent=None) -> QVBoxLayout:
+    def _row(self, layout, kind: str, name: str, icon: str) -> QVBoxLayout:
         row = QHBoxLayout()
-        row.setSpacing(8)
-        label = QLabel(name, parent or self.card)
-        label.setObjectName("scheduleOptionsRowLabel")
-        label.setFixedWidth(30)
-        label.setFixedHeight(26)
-        row.addWidget(label, 0, Qt.AlignTop)
+        row.setSpacing(10)
+        label = QLabel(self.card)
+        label.setFixedSize(18, 18)
+        label.setAlignment(Qt.AlignCenter)
+        label.setAccessibleName(name)
+        label.setToolTip(name)
+        label.setProperty("icon", icon)
+        self.row_icons[kind] = label
+        icon_column = QVBoxLayout()
+        icon_column.setContentsMargins(0, 5, 0, 0)
+        icon_column.addWidget(label)
+        icon_column.addStretch(1)
+        row.addLayout(icon_column)
         body = QVBoxLayout()
-        body.setSpacing(6)
+        body.setSpacing(7)
         row.addLayout(body, 1)
         layout.addLayout(row)
         return body
+
+    def _track(self, name: str, group: str, chips, *, equal=False, expand=False) -> QFrame:
+        track = QFrame(self.card)
+        track.setObjectName("scheduleOptionsTrack")
+        track.setProperty("group", group)
+        track.setAccessibleName(name)
+        track.setToolTip(name)
+        layout = QHBoxLayout(track)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(2)
+        growing = equal or expand
+        track.setSizePolicy(QSizePolicy.Expanding if growing else QSizePolicy.Fixed, QSizePolicy.Fixed)
+        for index, chip in enumerate(chips):
+            chip.setProperty("group", group)
+            chip.setSizePolicy(QSizePolicy.Expanding if growing else QSizePolicy.Fixed, QSizePolicy.Fixed)
+            if group == "until":
+                chip.setFixedHeight(22)
+            layout.addWidget(chip, 1 if equal else 0)
+            if expand:
+                chip.ensurePolished()
+                layout.setStretch(index, chip.sizeHint().width())
+        return track
 
     def _chip(self, text: str, slot, parent=None) -> QPushButton:
         chip = QPushButton(text, parent or self.card)
         chip.setProperty("segment", True)
         chip.setCheckable(True)
-        chip.setFixedHeight(26)
+        chip.setFixedHeight(24)
         chip.setCursor(Qt.PointingHandCursor)
         chip.setFocusPolicy(Qt.StrongFocus)
         # clicked(bool)의 checked가 기본값 인자를 덮어쓰지 않도록 인자 없이 부른다.
         chip.clicked.connect(lambda checked=False: slot())
         return chip
 
-    def _caption(self, slot, parent=None) -> QPushButton:
-        caption = QPushButton(parent or self.card)
+    def _caption(self, slot, parent=None, *, period=False) -> QPushButton:
+        caption = (_PeriodCaptionButton if period else QPushButton)(parent or self.card)
         caption.setObjectName("scheduleOptionsCaption")
         caption.setCursor(Qt.PointingHandCursor)
         caption.setFlat(True)
@@ -790,14 +880,28 @@ class ScheduleOptionsPopup(QWidget):
             chip.setChecked(options.alarm_before == value)
         for value, chip in self.all_day_alarm_chips.items():
             chip.setChecked(options.alarm_before == value)
+        alarm_text = rules.alarm_caption(rules.parse_date(self._occurrence), options)
+        self.alarm_caption.setText(alarm_text)
+        self.alarm_caption.setVisible(bool(alarm_text))
         self.one_day_chip.setChecked(not period)
         self.many_days_chip.setChecked(period)
         self.many_days_chip.setEnabled(not repeat)
         self.period_note.setVisible(repeat)
         self.period_caption.setVisible(period)
-        if period:
-            self.period_caption.setText(rules.period_caption(self._start, options.end_date) + "  ▾")
         show_period_picker = period and self._picker_for == "period"
+        if period:
+            self.period_caption.setText(
+                rules.period_short_caption(self._start, options.end_date) + ("" if show_period_picker else " ▾"))
+            self.period_caption.setToolTip(rules.period_caption(self._start, options.end_date))
+        # 긴 월·연도 표기는 같은 들여쓰기의 다음 줄로 옮긴다. 글자 폭은 실제 폰트로 잰다.
+        body_width = CARD_WIDTH - 2 - 14 * 2 - 28
+        wrapped = period and (
+            self.period_track.sizeHint().width() + 8 + self.period_caption.sizeHint().width() > body_width)
+        self._period_layout.removeWidget(self.period_caption)
+        if wrapped:
+            self._period_layout.addWidget(self.period_caption, 1, 0, 1, 2, Qt.AlignLeft)
+        else:
+            self._period_layout.addWidget(self.period_caption, 0, 1, Qt.AlignLeft)
         self.period_picker.setVisible(show_period_picker)
         if show_period_picker:
             end = rules.parse_date(options.end_date)
@@ -812,6 +916,7 @@ class ScheduleOptionsPopup(QWidget):
         self.repeat_caption.setVisible(repeat)
         if repeat:
             self.repeat_caption.setText(rules.repeat_caption(self._start, options.repeat_rule))
+            self.repeat_caption.setToolTip(self.repeat_caption.text())
         turned_off = self._was_repeat and not repeat and self._occurrence != self._start
         self.series_note.setVisible(turned_off)
         if turned_off:
@@ -822,13 +927,19 @@ class ScheduleOptionsPopup(QWidget):
         self.until_chip.setChecked(bool(options.repeat_until))
         self.until_caption.setVisible(bool(options.repeat_until))
         if options.repeat_until:
-            self.until_caption.setText(rules.until_caption(options.repeat_until) + "  ▾")
+            self.until_caption.setText(rules.until_caption(options.repeat_until) + " ▾")
         show_until_picker = repeat and bool(options.repeat_until) and self._picker_for == "until"
         self.until_picker.setVisible(show_until_picker)
         if show_until_picker:
             until = rules.parse_date(options.repeat_until)
             self.until_picker.set_state(month=until, lower=self._start_day, upper=None,
                                         range_start=None, selected=until)
+        for kind, active in (("time", timed), ("alarm", options.alarm_before is not None),
+                             ("period", period), ("repeat", repeat)):
+            color = CARD_DISABLED if kind == "repeat" and period else CARD_ACCENT if active else CARD_MUTED
+            label = self.row_icons[kind]
+            label.setProperty("iconColor", color)
+            label.setPixmap(icon_pixmap(label.property("icon"), 16, color, self.devicePixelRatioF()))
 
     def _relayout(self) -> None:
         """카드 크기를 내용에 맞추고, 지난번에 알린 크기와 달라졌으면 size_changed를 낸다.
@@ -837,7 +948,7 @@ class ScheduleOptionsPopup(QWidget):
         자식을 보이는 순간 Qt가 창을 먼저 키우기도 해서, 호출 직전 크기가 아니라
         마지막으로 알린 크기와 비교해야 커진 경우에도 위치를 다시 잡는다.
         """
-        for widget in (self.period_picker, self.until_picker, self.until_row, self.card, self):
+        for widget in (self.period_picker, self.until_picker, self.until_row, self.body, self.card, self):
             layout = widget.layout()
             layout.invalidate()
             layout.activate()

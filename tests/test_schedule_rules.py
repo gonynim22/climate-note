@@ -9,6 +9,32 @@ from schedule_rules import ScheduleOptions
 START = "2026-10-15"  # 목요일
 
 
+@pytest.mark.parametrize("end,expected", [
+    ("2026-10-17", "~ 17일(토) · 3일"),
+    ("2026-11-02", "~ 11월 2일(월) · 19일"),
+    ("2027-01-03", "~ 2027년 1월 3일(일) · 81일"),
+    ("2027-10-14", "~ 2027년 10월 14일(목) · 365일"),
+])
+def test_period_short_caption(end, expected):
+    assert rules.period_short_caption(START, end) == expected
+
+
+@pytest.mark.parametrize("options,expected", [
+    (ScheduleOptions(start_time="15:00", alarm_before=0), "정시, 15:00에 알림"),
+    (ScheduleOptions(start_time="15:00", alarm_before=10), "10분 전, 14:50에 알림"),
+    (ScheduleOptions(start_time="15:00", alarm_before=30), "30분 전, 14:30에 알림"),
+    (ScheduleOptions(start_time="15:00", alarm_before=60), "1시간 전, 14:00에 알림"),
+    (ScheduleOptions(start_time="15:00", alarm_before=1440), "하루 전, 10월 14일(수) 15:00에 알림"),
+    (ScheduleOptions(start_time="00:05", alarm_before=10), "10분 전, 10월 14일(수) 23:55에 알림"),
+    (ScheduleOptions(alarm_before=0), ""),
+    (ScheduleOptions(alarm_before=1440), ""),
+    (ScheduleOptions(start_time="15:00"), ""),
+    (ScheduleOptions(), ""),
+])
+def test_alarm_caption(options, expected):
+    assert rules.alarm_caption(date(2026, 10, 15), options) == expected
+
+
 @pytest.mark.parametrize("text,expected", [
     ("9", "09:00"), ("09", "09:00"), ("14", "14:00"), ("930", "09:30"),
     ("0930", "09:30"), ("1430", "14:30"), ("14:30", "14:30"), (" 7:05 ", "07:05"),

@@ -396,6 +396,18 @@ def time_pill(options: ScheduleOptions) -> str:
     return f"{options.start_time} · {alarm}" if alarm else options.start_time
 
 
+def alarm_caption(day: date, options: ScheduleOptions) -> str:
+    """세부 카드의 시각 알림 설명. 다른 날에 울리면 날짜도 붙인다."""
+    if not options.start_time or options.alarm_before is None:
+        return ""
+    alarm_at = alarm_base(day, options) - timedelta(minutes=options.alarm_before)
+    when = alarm_at.strftime("%H:%M")
+    if alarm_at.date() != day:
+        alarm_day = alarm_at.date()
+        when = f"{alarm_day.month}월 {alarm_day.day}일({KOREAN_WEEKDAYS[alarm_day.weekday()]}) {when}"
+    return f"{alarm_label(options)}, {when}에 알림"
+
+
 def span_days(start: str, options: ScheduleOptions) -> int:
     if not options.end_date:
         return 1
@@ -424,6 +436,17 @@ def period_caption(start: str, end: str) -> str:
     else:
         right = f"{b.month}월 {b.day}일({KOREAN_WEEKDAYS[b.weekday()]})"
     return f"{left} ~ {right} · {(b - a).days + 1}일"
+
+
+def period_short_caption(start: str, end: str) -> str:
+    """세부 카드 기간 글자. 끝날의 달·해는 시작일과 다를 때만 붙인다."""
+    a, b = parse_date(start), parse_date(end)
+    right = f"{b.day}일({KOREAN_WEEKDAYS[b.weekday()]})"
+    if (a.year, a.month) != (b.year, b.month):
+        right = f"{b.month}월 {right}"
+    if a.year != b.year:
+        right = f"{b.year}년 {right}"
+    return f"~ {right} · {(b - a).days + 1}일"
 
 
 def options_summary(start: str, options: ScheduleOptions) -> str:
