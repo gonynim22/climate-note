@@ -113,7 +113,7 @@
 
 ## 기록 관리
 
-- 2026-10-17 **v4.1**(작업 중): 일정 시각·알림·반복·기간. DB v18(일정 표 열 6개 추가, 한 트랜잭션)·Export v3·새 설정 키 `schedule_alarm_seen_at`(Export 제외). EXE `기후노트_v4.1.exe`, Windows `4.1.0.0`. 검증·배치는 [작업 기록](docs/work/2026-10-16-v4.1-schedule-time-repeat-period.md)을 따른다.
+- 2026-10-17 **v4.1**: 일정 시각·알림·반복·기간. DB v18(일정 표 열 6개 추가, 한 트랜잭션)·Export v3·새 설정 키 `schedule_alarm_seen_at`(Export 제외). EXE `기후노트_v4.1.exe`, Windows `4.1.0.0`. 검증·배치는 [작업 기록](docs/work/2026-10-16-v4.1-schedule-time-repeat-period.md)을 따른다. full 20261017-122828-e65b6630d7 2,802개, 100/125/150% quick 각 357개, PowerShell release 20261017-124725-10b03e7f88 2,802개·새 빌드·격리 실행 4개(upgrade 포함) 통과, 실제 v4.0a EXE 업그레이드·차단·되돌리기 리허설 통과, dist/ 배치(SHA-256 2B1859EA…).
 
 - 2026-10-15 **v4.0a**: 백업 검증 임시 DB의 `-wal`/`-shm`이 데이터 폴더·`backups\`에 무제한으로 쌓이던 v3.5 이후 결함을 수정했다(읽기 전용 검증 연결이 만든 짝 파일을 임시 DB와 함께 삭제). 시작 시 `db.cleanup_stale_backup_sidecars()`가 이전 버전의 `.backup-validate-*`/`.auto-snapshot-*` 짝 파일을 짝 `.db` 부재·빈 `-wal`일 때만 지우며 정상 `calendar.db-wal/-shm`·`.cnbak`·`.salt`는 건드리지 않는다. 사용자에게 수동 삭제를 안내하지 않는다. EXE `기후노트_v4.0a.exe`, Windows `4.0.1.0`. DB v17·Export v2·salt·백업 형식·설정 키·Qt/lock 유지. data `20261015-225855-ce489c3a94` 458개, PowerShell release `20261015-230046-b64efa2b55` 2,456개·새 빌드·격리 실행 3개 통과, 구 v4.0 EXE→새 EXE 업그레이드 실기(짝 파일 16→0) 확인, `dist/` 배치(SHA-256 `2750798C…`). [작업 기록](docs/work/2026-10-15-backup-sidecar-cleanup.md)
 
