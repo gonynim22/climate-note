@@ -2,11 +2,12 @@
 
 이 파일은 기존 AGENTS.md의 검증 증빙·미해결 조사 기록을 2026-09-06에 이전한 것입니다. 과거 통과 결과는 현재 소스 검증을 대신하지 않습니다. 라이선스 보류 상태는 그대로 유지합니다.
 
-## v4.2 일정 세부 설정 카드 리디자인 (2026-10-18, 소스 구현)
+## v4.2 일정 세부 설정 카드 리디자인 (2026-10-18)
 
 - 폭 320px의 Azure 머리띠·한 줄 선택 바·아이콘 라벨, 알림 시각 설명·짧은 기간 문구·연결된 달력 띠. 시계 버튼·알약·목록·알림 카드와 기존 저장/수명 동작은 유지한다.
-- DB v18·Export v3·설정 키·salt·저장값 변경 없음. 표시 버전 `v4.2`, 빌드 시 EXE 이름 `기후노트_v4.2.exe`, Windows 버전 `4.2.0.0`.
-- 검사·화면 대조·수동 확인 상태는 [작업 기록](work/2026-10-18-schedule-options-card-redesign.md)에 남긴다. v4.2 EXE 빌드·배포·커밋·push는 수행하지 않았으며 v4.1의 배포 증거와 구분한다.
+- DB v18·Export v3·설정 키·salt·저장값 변경 없음. 표시 버전 `v4.2`, EXE `기후노트_v4.2.exe`, Windows 버전 `4.2.0.0`.
+- 검증·배치: 100/125/150% quick 각 323개, PowerShell release `20261018-004151-9317903930`의 2,828개 테스트·새 빌드·격리 EXE 4개(fresh/existing/blocked/upgrade) 통과. 빌드 입력 `f6f5371`. Qt DLL 15개가 환경/이전 v4.1과 동일하고 Git mingw DLL 혼입은 없다. `dist/기후노트_v4.2.exe` 94,131,561 bytes, SHA-256 `6A6914E0DEA4BEE1CC5D84608675F40C33EA7FE35CAD1BA1DD230CC05CD0C440`.
+- 구현 `330cd34`·버전 테스트 갱신 `f6f5371`은 `git push origin main` 완료, 서버 Gitleaks/Semgrep/OSV-Scanner/Trivy/Syft 검사 통과. 첫 release의 이전 버전 기대값 실패와 수동 미확인 범위는 [작업 기록](work/2026-10-18-schedule-options-card-redesign.md)에 구분한다. GitLab Release는 사용자가 게시하며 이번 작업에서는 생성하지 않았다.
 
 ## v4.1 일정 시각·알림·반복·기간 (2026-10-17)
 

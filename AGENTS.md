@@ -113,7 +113,7 @@
 
 ## 기록 관리
 
-- 2026-10-18 **v4.2**: 일정 세부 설정 카드를 320px Azure 머리띠·한 줄 선택 바·아이콘 라벨로 정리했다. 알림 시각 설명·짧은 기간 문구·연결된 달력 띠를 제공하고, 시계 버튼·알약·일정 목록·알림 카드와 기존 즉시 반영/키보드/팝업 수명 규칙을 유지한다. DB v18·Export v3·설정 키·salt·저장값 변경 없음. EXE 이름 `기후노트_v4.2.exe`, Windows `4.2.0.0`. 카드의 영구 계약은 [UI 계약](docs/UI_PATTERNS.md), 설계·100/125/150% quick 각 323개 및 빌드/커밋/push 상태는 [작업 기록](docs/work/2026-10-18-schedule-options-card-redesign.md)을 따른다. 사용자가 AGENTS 갱신·커밋·빌드·push를 승인했으며 GitLab Release 게시는 사용자가 수행한다.
+- 2026-10-18 **v4.2**: 일정 세부 설정 카드를 320px Azure 머리띠·한 줄 선택 바·아이콘 라벨로 정리했다. 알림 시각 설명·짧은 기간 문구·연결된 달력 띠를 제공하고, 시계 버튼·알약·일정 목록·알림 카드와 기존 즉시 반영/키보드/팝업 수명 규칙을 유지한다. DB v18·Export v3·설정 키·salt·저장값 변경 없음. EXE `기후노트_v4.2.exe`, Windows `4.2.0.0`. 100/125/150% quick 각 323개, PowerShell release `20261018-004151-9317903930`의 2,828개·새 빌드·격리 EXE 4개 시나리오 통과. Qt DLL 15개는 환경/v4.1과 동일하며 mingw 혼입 없음. `dist/` 배치(94,131,561 bytes, SHA-256 `6A6914E0…`), 구현 `330cd34`·버전 검사 갱신 `f6f5371` main push와 서버 보안 검사 5종 통과. 영구 계약은 [UI 계약](docs/UI_PATTERNS.md), 실패·검증·해시·수동 미확인은 [작업 기록](docs/work/2026-10-18-schedule-options-card-redesign.md)을 따른다. GitLab Release 게시는 사용자가 수행한다.
 
 - 2026-10-17 **v4.1**: 일정 시각·알림·반복·기간. DB v18(일정 표 열 6개 추가, 한 트랜잭션)·Export v3·새 설정 키 `schedule_alarm_seen_at`(Export 제외). EXE `기후노트_v4.1.exe`, Windows `4.1.0.0`. 검증·배치는 [작업 기록](docs/work/2026-10-16-v4.1-schedule-time-repeat-period.md)을 따른다. full 20261017-122828-e65b6630d7 2,802개, 100/125/150% quick 각 357개, PowerShell release 20261017-124725-10b03e7f88 2,802개·새 빌드·격리 실행 4개(upgrade 포함) 통과, 실제 v4.0a EXE 업그레이드·차단·되돌리기 리허설 통과, dist/ 배치(SHA-256 2B1859EA…). 2026-10-17 main 병합·`git push origin main` 완료, GitLab Release 게시는 사용자가 수동으로 한다. 9월 미커밋 기록(AGENTS·RELEASE_HISTORY)은 낡거나 공개에 맞지 않는 보안 문장이 섞여 있어 반영하지 않고 로컬 stash로만 보관한다.
 

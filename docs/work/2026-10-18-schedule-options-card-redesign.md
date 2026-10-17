@@ -1,6 +1,6 @@
 # 작업 기록: v4.2 일정 세부 설정 카드 리디자인
 
-작성일: 2026-10-18 / 상태: 소스 구현·UI 검증 완료, 승인된 빌드·커밋·push 진행 중
+작성일: 2026-10-18 / 상태: 구현·검증·EXE 배치·소스 main push 완료
 
 ## 목표와 범위
 
@@ -18,7 +18,7 @@
 - [x] 설계의 관련 quick 검사를 100/125/150% 합성 배율에서 통과.
 - [x] 세 상태 렌더를 기준 시안과 대조하고 차이를 설명.
 - [x] UI 계약과 v4.2 메타데이터 갱신, 수동 확인 결과를 확인함/미확인으로 구분.
-- [ ] 승인 후속: AGENTS 기록·커밋 → PowerShell release 전체 검사/빌드/격리 EXE 검증 → dist 배치 → 결과 기록·커밋 → main push.
+- [x] 승인 후속: AGENTS 기록·소스 커밋 → PowerShell release 전체 검사/빌드/격리 EXE 검증 → dist 배치 → 소스 main push. 최종 결과 기록도 별도 문서 커밋으로 함께 push한다.
 
 ## 결정과 진행
 
@@ -33,6 +33,8 @@
 
 - 2026-10-18 후속 요청: 사용자가 AGENTS.md 업데이트·커밋·빌드·push를 명시적으로 승인했다. GitLab Release는 사용자가 게시한다. 이전의 별도 승인 대기 상태는 이 요청으로 해소되었다. 원격 main을 fetch하여 시작 HEAD와 동일함을 확인했다. 기존 미추적 문서 8개와 이전 v4.1 EXE는 보존하고 이번 작업 파일만 커밋한다.
 - 2026-10-18: 구현·AGENTS·설계·작업 기록을 `330cd34`로 커밋했다. 첫 release에서 2,827개 통과·1개 실패를 확인했다. 실패는 `test_settings_credit_uses_v41_metadata`의 이전 버전 기대값이며 빌드 단계는 시작하지 않았다. 이 검사를 v4.2 표시 기대값으로 갱신하고 전체 release를 다시 실행한다. 제품 코드는 바꾸지 않는다.
+- 2026-10-18: 버전 기대값 수정 `f6f5371` 기준으로 재실행한 release의 2,828개 테스트·새 EXE 빌드·4개 격리 실행이 모두 통과했다. 실행 전후 입력 스냅샷도 동일하다. 확인된 EXE를 `dist/기후노트_v4.2.exe`로 복사하고 해시 일치를 확인했다. 기존 v4.1 EXE는 보존했다.
+- 2026-10-18: `git push origin main`으로 `53239e2..f6f5371` 업로드 완료. 서버의 Gitleaks·Semgrep·OSV-Scanner·Trivy·Syft가 모두 PASS였고, `git ls-remote --heads origin main`이 `f6f537159c14cbfebdae624edaf1b26406421132`임을 확인했다. 이 결과 기록 이후에는 문서만 변경하며 제품/테스트/빌드 입력은 그대로다. GitLab Release·태그는 생성하지 않는다.
 
 ## 검증 증거
 
@@ -47,7 +49,9 @@
 | 기준 시안 대조, 200% 카드 PNG | 통과 | [비교 HTML](../../output/design/schedule-options-redesign-20261017/after/comparison.html) | 기존 `capture_current.py`를 복사한 `capture_after.py`로 생성. 기존 `current/` 보존 |
 | 메인 3크기·팝업 위치 합성 렌더 | 통과 | [20261018-002808-schedule-card-visual](../../output/harness/20261018-002808-schedule-card-visual/summary.md) · [result.json](../../output/harness/20261018-002808-schedule-card-visual/result.json) | 실제 MainCalendarWindow / 실행별 AppData / native foreground hook 비활성. 기본 위·중간/크게 아래, 카드 화면 경계 안에 표시 |
 | data / full 별도 실행 | 미실행 | | 후속 release가 전체 pytest를 포함하므로 중복 실행하지 않음 |
-| 승인 후 release / EXE 빌드 | 미실행 | | PowerShell에서 전체 검사·새 빌드·합성 4개 시나리오 실행 예정 |
+| 최종 release / EXE 빌드 (`f6f5371`) | 통과 | [20261018-004151-9317903930](../../output/harness/20261018-004151-9317903930/summary.md) · [result.json](../../output/harness/20261018-004151-9317903930/result.json) | 2,828 통과·실패/오류/skip 0, 새 빌드, fresh/existing/blocked/upgrade 모두 통과 |
+| EXE Qt·BINARY 출처·직전 크기 비교 | 통과 | [bundle-comparison.json](../../output/harness/20261018-004151-9317903930/bundle-comparison.json) | Qt DLL 15개 환경/v4.1과 바이트 동일, BINARY 64개에서 Git mingw 혼입 0, 크기 +5,163 bytes (+0.0055%) |
+| dist 배치·Windows 버전·SHA-256 | 통과 | [deployment.json](../../output/harness/20261018-004151-9317903930/deployment.json) | 검증 EXE와 배치본 해시 일치, File/ProductVersion 4.2.0.0 |
 | 첫 release (구현 커밋 `330cd34`) | 실패 | [20261018-003423-3fd8385ff4](../../output/harness/20261018-003423-3fd8385ff4/summary.md) · [result.json](../../output/harness/20261018-003423-3fd8385ff4/result.json) | 2,827 통과·1 실패: 설정 표시 테스트의 v4.1 기대값. 빌드/EXE 미실행 |
 
 최종 명령(PowerShell, `QT_SCALE_FACTOR`를 `1`·`1.25`·`1.5`로 각각 설정):
@@ -58,6 +62,14 @@ $env:QT_SCALE_FACTOR="1"
 ```
 
 세 최종 검사의 기준 HEAD는 `53239e2f38d77dd5b3c0656178e594f7fd544bec` + 이 작업의 미커밋 변경이다. 실행 전후 `inputs_before.files == inputs_after.files`이고 세 실행의 입력 목록도 같다. 그 목록을 정렬·공백 없는 JSON으로 직렬화한 SHA-256은 `658d4997cdf06101188ce7942d20e2bf332a4cc40822480b9923be017676610b`이며 파일별 해시는 각 `result.json`에 있다. 공통 경고 1건은 기존 qfluentwidgets의 SciPy deprecated import다.
+
+후속 빌드 검증은 PowerShell에서 `.\.venv\Scripts\python.exe tools/verify.py release`로 실행했다. 최종 release 입력 HEAD는 `f6f537159c14cbfebdae624edaf1b26406421132`이며 `inputs_before == inputs_after`다. quick 이후에는 AGENTS/기록과 설정 버전 테스트만 갱신했고 제품 코드는 동일하다.
+
+- EXE: `dist/기후노트_v4.2.exe`, **94,131,561 bytes**, File/ProductVersion **4.2.0.0**.
+- SHA-256: `6A6914E0DEA4BEE1CC5D84608675F40C33EA7FE35CAD1BA1DD230CC05CD0C440`.
+- 검증 원본: `output/harness/20261018-004151-9317903930/dist/기후노트_v4.2.exe`.
+- 이전 v4.1: `dist/기후노트_v4.1.exe` 보존, 94,126,398 bytes, SHA-256 `2B1859EAC61A692790E77AB813219AACAE25AF7F770A0F6A615F095402DA5535`.
+- 서명은 기존과 같은 NotSigned. 자동 smoke는 Job 종료를 사용하므로 정상 종료 검증이 아니며 `graceful_quit_verified=false`다.
 
 ### 화면 대조 및 수동 확인
 
@@ -72,11 +84,13 @@ $env:QT_SCALE_FACTOR="1"
 | 키보드 Tab/Enter/Space/Esc, 시간 입력·선택·달력·머리띠 닫기 | 자동 검사 통과 / 수동 미확인 | 실제 포커스된 위젯에 키 입력. 사람의 실기 조작으로 확인하지 않음 |
 | Win11 넓은 DWM 테두리 없음 | 미확인 | 기존 `remove_dwm_border` 호출/창 플래그 무변경. QWidget.grab은 DWM 프레임을 찍지 않음 |
 | 실제 혼합 DPI·KVM·Win+D | 미확인 | 합성 배율 및 PNG가 실기 검사를 대신하지 않음 |
-| EXE 최종 화면·정상 종료·배포 | 미확인 | 이번 작업에서 EXE를 만들거나 실행하지 않음 |
+| EXE 신규/기존/차단/업그레이드 실행 | 자동 검사 통과 | 실행별 합성 데이터, 원본 데이터/salt 보존 검사. Job 종료 |
+| EXE 최종 화면·정상 종료 수동 검증 | 미확인 | 자동 smoke로 대신하지 않음 |
+| GitLab Release 게시 | 미실행 | 사용자가 수행 |
 
 ## 미해결과 인계
 
 - 남은 문제 / 수동 확인: 자동 검사 실패 없음. 위 실기 수동 항목은 미확인.
 - 변경한 정본 문서: UI_PATTERNS.md, RELEASE_HISTORY.md. README_detail.md의 현재 소스 버전·빌드 이름 및 v4.1 EXE 증거와의 구분도 반영.
-- 다음 행동: 승인된 EXE 빌드·검증·배치 후 결과를 기록하고 main에 push.
-- 배포·커밋·push 여부: 진행 중. GitLab Release는 사용자 담당.
+- 다음 행동: 사용자의 GitLab Release 게시. 실기 수동 미확인 항목은 위 표에 보존.
+- 배포·커밋·push 여부: 구현 `330cd34`·테스트 `f6f5371` 커밋 및 main push, 검증 EXE dist 배치 완료. 최종 문서 기록을 추가 커밋/push하며 GitLab Release는 사용자 담당.
