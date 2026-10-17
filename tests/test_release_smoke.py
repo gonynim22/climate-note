@@ -187,8 +187,12 @@ def test_upgrade_check_rejects_changed_values_snapshot_salt_and_health():
             smoke._check_upgrade(seeded, tampered(change))
 
 
-def test_original_columns_snapshot_refuses_paths_outside_harness(tmp_path):
-    outside = tmp_path / "calendar.db"
-    outside.write_bytes(b"")
-    with pytest.raises(ValueError):
+def test_original_columns_snapshot_refuses_paths_outside_harness():
+    # tmp_path는 verify.py 실행에서 output/harness 아래(--basetemp)라 '밖' 예시가 될 수 없다.
+    # 경계 검사는 파일을 열기 전에 하므로 만들지 않은 저장소 루트 경로로 확인한다.
+    outside = verify.ROOT / "calendar.db"
+    assert not outside.exists()
+    with pytest.raises(ValueError, match="허용된 하위 경로가 아닙니다"):
         smoke._original_columns_snapshot(outside)
+    with pytest.raises(ValueError, match="허용된 하위 경로가 아닙니다"):
+        smoke._original_columns_snapshot(verify.ROOT / "output" / "harness")
