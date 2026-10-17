@@ -1,4 +1,5 @@
 """v4.1 일정 저장(DB v18 마이그레이션·API·Export v3) 회귀. 합성 데이터만 쓴다."""
+import hashlib
 import json
 import logging
 import sqlite3
@@ -569,3 +570,152 @@ def test_corrupt_option_rows_degrade_on_export_and_whole_file_still_imports(app_
         assert conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 7
     assert [e["options"] for e in db.get_schedules("2026-10-05") if e["content"] == "정상"] == [valid]
     assert [e["content"] for e in db.get_schedules("2026-7-1")] == ["옛 형식 시각"]
+
+
+# ─── 최종 검토 보완(I1·I2·M2·M8) ────────────────────────────────
+class _AutoRollbackOnThirdAlter:
+    """세 번째 열 추가에서 SQLite가 트랜잭션을 스스로 되돌린 뒤(디스크 가득 참 등) 오류를 내는 연결."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self._alters = 0
+
+    def execute(self, sql, *args):
+        if sql.startswith("ALTER TABLE schedules ADD COLUMN"):
+            self._alters += 1
+            if self._alters == 3:
+                self._conn.execute("ROLLBACK")  # SQLite가 자동으로 되돌린 상태를 그대로 만든다.
+                raise sqlite3.OperationalError("database or disk is full")
+        return self._conn.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def test_v18_migration_keeps_real_error_when_sqlite_already_rolled_back(app_dir, monkeypatch):
+    db_file = _seed_v17(app_dir)
+    before = _raw_dump(db_file)
+    real_connect = db._connect
+    monkeypatch.setattr(db, "_connect", lambda *a, **kw: _AutoRollbackOnThirdAlter(real_connect(*a, **kw)))
+
+    with pytest.raises(sqlite3.OperationalError, match="disk is full"):
+        db.migrate()
+
+    monkeypatch.setattr(db, "_connect", real_connect)
+    with db._connection(enable_wal=False, read_only=True) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")] == [
+            "id", "date", "content", "created_at", "color"]
+    assert _raw_dump(db_file) == before
+
+
+def _sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def test_healthy_v17_passes_structure_check_and_migrates(app_dir):
+    import main as app_main
+
+    _seed_v17(app_dir)
+    report = db.inspect_startup_data_health()
+    assert (report.ok, report.code, report.version) == (True, "healthy", 17)
+    assert app_main._initialize_database() is True
+
+
+@pytest.mark.parametrize("damage", [
+    "DROP TABLE schedules",
+    "DROP TABLE memos",
+    "DROP TABLE sticky_notes",
+    "DROP TABLE dday_widgets",
+    "DROP TABLE focus_widgets",
+    "DROP TABLE focus_sessions",
+    "ALTER TABLE memos DROP COLUMN content",
+    "ALTER TABLE focus_sessions DROP COLUMN goal",
+])
+def test_v17_missing_protected_structure_is_refused_before_migration_and_untouched(app_dir, damage):
+    """v4.0a처럼 구조가 어긋난 v17 DB는 마이그레이션 전에 거절하고 한 바이트도 바꾸지 않는다."""
+    import main as app_main
+
+    db_file = _seed_v17(app_dir)
+    conn = sqlite3.connect(db_file)
+    try:
+        conn.execute(damage)
+        conn.commit()
+    finally:
+        conn.close()
+    before_hash = _sha256(db_file)
+
+    report = db.inspect_startup_data_health()
+    assert (report.ok, report.code, report.version) == (False, "schema_invalid", 17)
+    with pytest.raises(db.DataHealthError) as exc_info:
+        app_main._initialize_database()
+    assert exc_info.value.report.code == "schema_invalid"
+
+    assert _sha256(db_file) == before_hash
+    assert sorted(path.name for path in app_dir.glob("calendar.db*")) == ["calendar.db"]
+    assert list(app_dir.glob("backups/*")) == []  # calendar_pre_v18_* 스냅샷도 만들지 않는다.
+    with sqlite3.connect(db_file) as check:
+        assert check.execute("PRAGMA user_version").fetchone()[0] == 17
+
+
+def _schedule_row_count(schedule_id):
+    with db._connection() as conn:
+        return conn.execute("SELECT COUNT(*) FROM schedules WHERE id = ?", (schedule_id,)).fetchone()[0]
+
+
+def test_skipping_last_remaining_day_of_finite_series_deletes_the_row(app_dir):
+    sid = db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(
+        repeat_rule="weekly", repeat_until="2026-10-12"))
+    db.skip_schedule_occurrence(sid, "2026-10-05")
+    assert _schedule_row_count(sid) == 1  # 10-12가 남아 있다.
+    assert [e["occurrence_date"] for e in db.get_occurrences("2026-10-01", "2026-10-31")["2026-10-12"]] == [
+        "2026-10-12"]
+
+    db.skip_schedule_occurrence(sid, "2026-10-12")
+
+    assert _schedule_row_count(sid) == 0  # 어디에도 보이지 않는 빈 껍데기 행을 남기지 않는다.
+    assert db.get_schedules("2026-10-12") == []
+    assert db.search_all("주간 회의") == []
+
+
+def test_skipping_one_day_of_finite_series_with_days_left_only_changes_repeat_skip(app_dir):
+    sid = db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(
+        start_time="10:00", repeat_rule="weekly", repeat_until="2026-10-26", alarm_before=10))
+    db.skip_schedule_occurrence(sid, "2026-10-12")
+    assert _option_columns(sid) == ("10:00", "", "weekly", "2026-10-26", "2026-10-12", 10)
+    assert [e["id"] for e in db.get_schedules("2026-10-19")] == [sid]
+    assert [e["id"] for e in db.get_schedules("2026-10-26")] == [sid]
+
+
+def test_skipping_days_of_infinite_series_never_deletes_the_row(app_dir):
+    sid = db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(repeat_rule="weekly"))
+    for day in ("2026-10-05", "2026-10-12", "2026-10-19"):
+        db.skip_schedule_occurrence(sid, day)
+    assert _schedule_row_count(sid) == 1
+    assert _option_columns(sid)[4] == "2026-10-05,2026-10-12,2026-10-19"
+    assert [e["id"] for e in db.get_schedules("2026-10-26")] == [sid]
+
+
+def test_v17_with_some_v18_columns_already_present_gets_the_rest_and_keeps_values(app_dir):
+    db_file = _seed_v17(app_dir)
+    conn = sqlite3.connect(db_file)
+    try:
+        for name, statement in db.SCHEDULE_V18_COLUMNS[:2]:  # start_time, end_date를 먼저 더해 둔 DB
+            conn.execute(statement)
+        conn.execute("UPDATE schedules SET start_time = '09:30', end_date = '2026-10-17' WHERE date = '2026-10-15'")
+        conn.commit()
+    finally:
+        conn.close()
+    before = _raw_dump(db_file)
+
+    db.migrate()
+
+    with db._connection(enable_wal=False, read_only=True) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS
+        rows = {row["date"]: tuple(row)[1:] for row in conn.execute(
+            "SELECT date, start_time, end_date, repeat_rule, repeat_until, repeat_skip, alarm_before "
+            "FROM schedules")}
+    assert rows["2026-10-15"] == ("09:30", "2026-10-17", "", "", "", None)
+    assert rows["2026-10-01"] == ("", "", "", "", "", None)
+    assert _raw_dump(db_file) == before

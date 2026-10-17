@@ -399,3 +399,52 @@ def test_resume_decides_privacy_lock_before_building_card(qtbot, monkeypatch):
     win.nativeEvent(b"windows_generic_MSG", VoidPtr(ctypes.addressof(msg)))
     assert built == [True]  # 카드는 처음부터 잠금 모양으로 만들어진다.
     assert win._is_locked and win._alarm_card.is_locked_view()
+
+
+def test_snoozed_refire_shows_text_edited_during_snooze(qtbot):
+    """M6: 다시 알림은 저장된 최신 본문·색으로 돌아온다. 이 날만 지운 일정은 돌아오지 않는다."""
+    edited = db.add_schedule("2026-10-15", "옛 본문", "#FFD166",
+                             options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    series = db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(
+        start_time="15:00", repeat_rule="weekly", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 12, 14, 59))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value = datetime(2026, 10, 12, 15, 0, 1)
+    scheduler.check()
+    assert [item.content for item in emitted[0][0]] == ["주간 회의"]
+    scheduler.snooze(emitted[0][0])
+    db.skip_schedule_occurrence(series, "2026-10-12")
+    clock.value = datetime(2026, 10, 12, 15, 5, 2)
+    scheduler.check()
+    assert len(emitted) == 1  # 이 날만 지운 일정은 다시 울리지 않는다.
+
+    clock.value = datetime(2026, 10, 15, 14, 59)
+    scheduler.stop()
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 15, 0, 1)
+    scheduler.check()
+    assert [item.content for item in emitted[-1][0]] == ["옛 본문"]
+    scheduler.snooze(emitted[-1][0])
+    db.update_schedule(edited, content="새 본문", color="#FF6B6B")
+    clock.value += timedelta(minutes=5, seconds=2)
+    scheduler.check()
+    assert [(item.content, item.color) for item in emitted[-1][0]] == [("새 본문", "#FF6B6B")]
+    assert emitted[-1][1] is False
+
+
+def test_card_stripe_uses_users_display_palette_read_once(qtbot, monkeypatch):
+    """M1: 카드 왼쪽 띠는 저장된 슬롯 색이 아니라 사용자가 고른 표시색이다."""
+    db.save_schedule_palette(("#80CFA9", "#FF9F68", "#8FA8FF"))
+    reads = []
+    real_palette = db.get_schedule_palette
+    monkeypatch.setattr(db, "get_schedule_palette", lambda: reads.append(1) or real_palette())
+    win = card_window(qtbot)
+    reads.clear()
+    win._on_schedule_alarms([item(1, "첫째", color="#FFD166"), item(2, "둘째", color="#4CC9F0"),
+                             item(3, "셋째", color="#123456")], False)
+    card = win._alarm_card
+    assert len(reads) == 1
+    assert "border-left:4px solid #80CFA9" in card.frame.styleSheet()
+    assert "#FFD166" not in card.frame.styleSheet()
+    assert [i.color for i in card.items()] == ["#80CFA9", "#FF9F68", "#123456"]  # 팔레트 밖 색은 그대로

@@ -319,3 +319,18 @@ def test_search_shows_repeat_and_period_tail_without_changing_data(qtbot):
     assert cells["2026-10-05"].toolTip() == "주간 회의"
     with db._connection() as conn:
         assert [tuple(r) for r in conn.execute("SELECT * FROM schedules ORDER BY id")] == before
+
+
+def test_skip_on_last_remaining_day_of_finite_series_removes_row_and_refreshes(qtbot):
+    """M2: 끝 날짜가 있는 반복의 마지막 남은 날을 '이 날만 삭제'하면 행도 지워 빈 껍데기를 남기지 않는다."""
+    sid = db.add_schedule("2026-10-05", "주간 회의", options=ScheduleOptions(
+        start_time="10:00", repeat_rule="weekly", repeat_until="2026-10-12"))
+    db.skip_schedule_occurrence(sid, "2026-10-05")
+    win = main_window(qtbot)
+    assert texts(win) == ["주간 회의"]
+    win._on_skip_occurrence(win.schedule_list.item(0))
+    assert win.schedule_list.count() == 0
+    assert db.get_schedules("2026-10-12") == []
+    with db._connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM schedules").fetchone()[0] == 0
+    assert win._selected_date == "2026-10-12"

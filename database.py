@@ -205,6 +205,9 @@ class DataHealthError(RuntimeError):
         self.report = report
 
 
+# 보호 표·열 구조를 검사하는 가장 낮은 DB 버전. v17부터 모든 보호 표가 있으며(v4.0a는 v17에서
+# 검사했다), CURRENT_SCHEMA_VERSION이 올라가도 v17 DB의 검사가 빠지지 않게 고정한다.
+_STRUCTURE_CHECKED_FROM = 17
 _PROTECTED_COLUMNS = (
     ("schedules", "content"),
     ("memos", "content"),
@@ -257,7 +260,7 @@ def inspect_startup_data_health() -> DataHealthReport:
                     "SELECT name FROM sqlite_master WHERE type = 'table'"
                 )
             }
-            if version == CURRENT_SCHEMA_VERSION:
+            if version >= _STRUCTURE_CHECKED_FROM:
                 required = {table for table, _column in _PROTECTED_COLUMNS}
                 if not required.issubset(tables):
                     return DataHealthReport(
@@ -279,7 +282,7 @@ def inspect_startup_data_health() -> DataHealthReport:
                     )
                 }
                 if "id" not in columns or column not in columns:
-                    if version == CURRENT_SCHEMA_VERSION:
+                    if version >= _STRUCTURE_CHECKED_FROM:
                         return DataHealthReport(
                             False, "schema_invalid", version
                         )
@@ -854,7 +857,10 @@ def migrate(*, initial_calendar_scale: str | None = None) -> None:
                 conn.execute("PRAGMA user_version = 18")
                 conn.execute("COMMIT")
             except sqlite3.Error:
-                conn.execute("ROLLBACK")
+                # 디스크 가득 참·I/O 오류 등은 SQLite가 스스로 되돌린다. 그때 ROLLBACK을 또 하면
+                # "no transaction is active"가 진짜 오류를 가리므로, 열려 있을 때만 되돌린다.
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
                 raise
             version = 18
 
@@ -1063,7 +1069,11 @@ def update_schedule(schedule_id: int, content: str = None, color: str = None, *,
 
 
 def skip_schedule_occurrence(schedule_id: int, day: str) -> None:
-    """반복 일정의 그 날 하나만 지운다(건너뛴 날에 더함)."""
+    """반복 일정의 그 날 하나만 지운다(건너뛴 날에 더함).
+
+    끝 날짜가 있는 반복에서 남은 날이 없어지면 보이지 않는 빈 행이 남지 않도록
+    같은 트랜잭션에서 행도 지운다. 끝 날짜가 없는 반복은 행을 그대로 둔다.
+    """
     with _connection() as conn:
         row = conn.execute(_SCHEDULE_SELECT + "WHERE id = ?", (schedule_id,)).fetchone()
         if row is None:
@@ -1075,10 +1085,14 @@ def skip_schedule_occurrence(schedule_id: int, day: str) -> None:
         if not occurrence_dates(row["date"], options, target, target):
             raise ValueError("그 날에는 이 일정이 없습니다.")
         updated = validate_options(row["date"], replace(options, repeat_skip=options.repeat_skip + (day,)))
-        conn.execute(
-            "UPDATE schedules SET repeat_skip = ? WHERE id = ?",
-            (",".join(updated.repeat_skip), schedule_id),
-        )
+        if updated.repeat_until and not occurrence_dates(
+                row["date"], updated, parse_date(row["date"]), parse_date(updated.repeat_until)):
+            conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+        else:
+            conn.execute(
+                "UPDATE schedules SET repeat_skip = ? WHERE id = ?",
+                (",".join(updated.repeat_skip), schedule_id),
+            )
         conn.commit()
 
 
@@ -2472,7 +2486,7 @@ def backup_before_migration() -> bool:
 
     스냅샷을 만들지 못하면 예외를 전파하여 호출자가 마이그레이션을 중단하게
     한다. 기존 스냅샷은 검증된 최신 임시 스냅샷으로만 원자 교체하므로 실패
-    시에도 그대로 남는다. 신규 DB(v0)와 이미 최신인 DB(v17)는 별도
+    시에도 그대로 남는다. 신규 DB(v0)와 이미 최신인 DB는 별도
     스냅샷 없이 정상 진행한다.
     """
     if not DB_FILE.exists():

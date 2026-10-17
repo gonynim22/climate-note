@@ -2,6 +2,7 @@ import sys
 import sqlite3
 import logging
 import calendar
+import dataclasses
 from datetime import date, datetime
 
 _logger = logging.getLogger("app_error")
@@ -3096,6 +3097,13 @@ class MainCalendarWindow(QWidget):
         return self._get_target_screen() or QApplication.primaryScreen()
 
     def _on_schedule_alarms(self, items: list, missed: bool) -> None:
+        try:
+            # 카드 왼쪽 띠는 저장된 슬롯 색이 아니라 사용자가 고른 표시색이다(§4.9). 팔레트는 한 번만 읽는다.
+            palette = db.get_schedule_palette()
+            items = [dataclasses.replace(item, color=db.schedule_display_color(item.color, palette))
+                     for item in items]
+        except (sqlite3.Error, OSError) as exc:
+            _logger.error("알림 카드 표시색 조회 실패: %s", exc)  # 저장된 색 그대로 알린다.
         card = self._alarm_card
         if card is None or not isValid(card):
             card = ScheduleAlarmCard()

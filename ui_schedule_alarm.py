@@ -125,8 +125,9 @@ class ScheduleAlarmScheduler(QObject):
         for key, (item, until) in list(self._snoozed.items()):
             if until <= now:
                 del self._snoozed[key]
-                if self._still_scheduled(item):
-                    again.append(item)
+                fresh_item = self._fresh_item(item)
+                if fresh_item is not None:
+                    again.append(fresh_item)  # 다시 알림 사이에 고친 본문·색이 보이도록 최신 값을 쓴다.
         self._last_check = max(mark, now)
         self._fired = {key: when for key, when in self._fired.items() if when >= now - LOOKBACK}
         due = fresh + again
@@ -159,10 +160,10 @@ class ScheduleAlarmScheduler(QObject):
             _logger.error("일정 알림 확인 실패: %s", exc)
             return []
 
-    def _still_scheduled(self, item) -> bool:
-        """다시 알릴 때 그 일정·날짜·알림 시각이 아직 그대로인지 본다(삭제·변경 반영)."""
+    def _fresh_item(self, item):
+        """다시 알릴 때 그 일정·날짜·알림 시각이 아직 그대로면 저장된 최신 항목을, 아니면 None을 준다(삭제·변경 반영)."""
         found = self._load(item.due - timedelta(seconds=1), item.due)
-        return any(other.key == item.key for other in found)
+        return next((other for other in found if other.key == item.key), None)
 
     def _schedule_next(self, now) -> None:
         if not self._running:

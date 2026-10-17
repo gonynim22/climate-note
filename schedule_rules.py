@@ -470,6 +470,8 @@ def alarm_subtitle(start_time: str, day: date, now: datetime) -> str:
             head = "지금 시작"
         elif minutes < 60:
             head = f"{minutes}분 뒤 시작"
+        elif minutes == 60:
+            head = "1시간 뒤 시작"  # '1시간 전' 알림이 울리는 때(§4.9)
         elif day == now.date() + timedelta(days=1):
             head = f"내일 {start_time} 시작"
         else:

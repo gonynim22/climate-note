@@ -310,6 +310,14 @@ def test_alarm_subtitle():
     assert rules.alarm_subtitle("15:00", D("2026-10-15"), datetime(2026, 10, 15, 15, 3)) == (
         "15:00에 시작함 · 10월 15일 (목)")
     assert rules.alarm_subtitle("15:00", D("2026-10-15"), datetime(2026, 10, 15, 13, 0)) == "15:00 시작 · 10월 15일 (목)"
+    # '1시간 전' 알림이 울리는 때(정확히 60분 전, 몇 초 늦어도)는 '1시간 뒤 시작'(§4.9). 61분부터는 시각을 쓴다.
+    assert rules.alarm_subtitle("15:00", D("2026-10-15"), datetime(2026, 10, 15, 14, 0)) == (
+        "1시간 뒤 시작 · 10월 15일 (목)")
+    assert rules.alarm_subtitle("15:00", D("2026-10-15"), datetime(2026, 10, 15, 14, 0, 1)) == (
+        "1시간 뒤 시작 · 10월 15일 (목)")
+    assert rules.alarm_subtitle("15:00", D("2026-10-15"), datetime(2026, 10, 15, 13, 59)) == "15:00 시작 · 10월 15일 (목)"
+    assert rules.alarm_subtitle("00:30", D("2026-10-16"), datetime(2026, 10, 15, 23, 30)) == (
+        "1시간 뒤 시작 · 10월 16일 (금)")
     assert rules.alarm_subtitle("09:00", D("2026-10-16"), now) == "내일 09:00 시작 · 10월 16일 (금)"
     assert rules.alarm_subtitle("", D("2026-10-15"), now) == "오늘 하루 종일 · 10월 15일 (목)"
     assert rules.alarm_subtitle("", D("2026-10-16"), now) == "내일 하루 종일 · 10월 16일 (금)"
