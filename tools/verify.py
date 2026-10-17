@@ -46,6 +46,7 @@ MANUAL_CHECKS = (
     "Win+D 직후 Explorer/브라우저 전환",
     "음수 좌표/혼합 DPI/KVM 전환",
     "특정 PC 멈춤 재현", "Defender 검사", "라이선스/SBOM/서명 후속 과제",
+    "일정 알림 실제 시각·절전 복귀·PIN 잠금·Win+D·다중 모니터 카드 위치·알림음",
 )
 
 

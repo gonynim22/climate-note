@@ -20,9 +20,10 @@
 
 ---
 
-## Database Schema (v17)
+## Database Schema (v18)
 
 - **schedules / memos**: Encrypted content storage. `schedules` has `color TEXT DEFAULT '#FFD166'` (plaintext, not encrypted).
+- **schedules v18 열(v4.1)**: `start_time`(`HH:MM` 또는 `''`=하루 종일), `end_date`(기간 끝 포함, `''`=하루, 최대 365일), `repeat_rule`(`''`·`daily`·`weekdays`·`weekly`·`monthly`·`yearly`), `repeat_until`(반복 끝 포함, `''`=계속), `repeat_skip`(이 날만 삭제한 날짜, 쉼표·오름차순·500개 이하), `alarm_before`(INTEGER NULL, 기준 시각보다 몇 분 앞). 모두 평문이며 기존 행은 기본값(`''`·NULL)이다. 반복이면 `end_date=''`, 알림은 시각이 있으면 {0,10,30,60,1440}, 하루 종일이면 {0,1440}(기준 09:00). 규칙의 정본은 `schedule_rules.validate_options`다.
 - **sticky_notes**: Persisted floating notes. Default color `DEFAULT_STICKY_COLOR = "#FFFA8E"`. v12→v13 migration adds soft-delete columns `is_deleted INTEGER NOT NULL DEFAULT 0` / `deleted_at TEXT NOT NULL DEFAULT ''` (휴지통). 닫기는 `is_deleted=1`로 휴지통 이동, `get_open_sticky_notes`는 `is_deleted=0`만 조회. 휴지통은 `STICKY_TRASH_LIMIT(=50)`개로 제한.
 - **dday_widgets**: D-Day countdown widgets. `name` encrypted, `target_date` plaintext. Default color `DEFAULT_DDAY_COLOR = "#C4D5FF"`.
 - **focus_widgets**: Persisted focus-mode widgets. `goal` encrypted, mode/position/pin state plaintext. Modes: `25/5`, `50/10`, `75/15`.
@@ -43,11 +44,13 @@
   - `SETTING_CALENDAR_SCREEN = "calendar_screen"` — 명시적 드래그·모니터/모서리 선택 때만 저장하는 v1 JSON(화면 이름·serial·제조사·모델·저장 당시 작업 영역 원점). 기존 `target_screen` 인덱스와 전역 `calendar_x/y`는 유지한다. 키가 없거나 잘못된 경우 기존 인덱스를 사용하며 시작/화면 복구에서 새 행을 만들지 않는다.
   - `SETTING_CALENDAR_MOVE_ENABLED = "calendar_move_enabled"`: 2026-10-11 J안부터 읽지 않는다(평소 고정, 위치 편집은 메모리 상태). 기존 행은 지우거나 바꾸지 않으며 Export v2 설정 왕복에도 그대로 남는다.
   - `SETTING_SCHEDULE_COLOR_1/2/3` — 기존 일정 슬롯 3개의 표시색
+  - `SETTING_SCHEDULE_ALARM_SEEN_AT = "schedule_alarm_seen_at"`(v4.1) — 여기까지의 일정 알림은 처리함(`YYYY-MM-DDTHH:MM:SS`). 카드를 띄울 때와 알림 켜진 일정이 있을 때의 정상 종료 때만 쓰고 Export/Import에서 뺀다. 저장하는 값은 확인한 가장 늦은 시각이라 시계가 조금 되돌려져도 뒤로 가지 않는다. 없으면 '지금'부터 세고, 시작 때는 최대 12시간 전부터만 본다.
 - **v13→v14**: Adds only `app_opacity` and `calendar_scale` settings via `INSERT OR IGNORE`; no table or column changes.
 - **v14→v15**: Adds shortcut slot 6 via `INSERT OR IGNORE`.
 - **v15→v16**: Adds `keep_on_show_desktop` via `INSERT OR IGNORE`.
 - **v16→v17**: Adds only the three schedule display-color settings and `calendar_position_mode` via `INSERT OR IGNORE`. It does not alter a table, schedule row, or ciphertext.
-- **Export/Import Settings**: `app_settings` is included in round-trip backups except `privacy_pin`.
+- **v17→v18(v4.1)**: `BEGIN IMMEDIATE` 안에서 일정 표에 없는 열만 `ALTER TABLE ... ADD COLUMN`으로 더하고 `user_version=18`까지 한 번에 `COMMIT`한다. 중간에 실패하면 `ROLLBACK`으로 열 0개·v17로 돌아간다. 기존 행 값·ID·암호문·`sqlite_sequence`·salt는 읽거나 쓰지 않는다. 시작 순서상 `backups/calendar_pre_v18_v17.db` 검증 스냅샷이 먼저 생긴다. 건강 검사는 `user_version`이 앱보다 크면 `schema_newer`(구버전 EXE가 새 데이터를 만난 경우, 데이터 무변경), v18인데 새 열이 하나라도 없으면 `schema_invalid`로 멈춘다.
+- **Export/Import Settings**: `app_settings` is included in round-trip backups except `privacy_pin` and `schedule_alarm_seen_at` (`EXPORT_EXCLUDED_SETTINGS`). Export v3(v4.1)는 일정마다 세부 설정 6개를 항상 쓰고, Import는 v1·v2(새 열 기본값)와 v3(필드별 형식 검사 + `validate_options`, 하나라도 틀리면 아무것도 쓰지 않음)를 받는다. Export는 저장된 세부 설정이 서로 어긋난 일정 행을 실패시키지 않고(그 행도 내보낸다) Import 검증을 넘는 가장 가까운 값으로 낮춰 쓰며(`_export_options`, DB는 바꾸지 않고 로그만 남김) 그 밖의 열은 그대로다. v4.0a 이하는 v3 파일을 '지원하지 않는 format_version'으로 거절한다.
 - **Schedule Colors**: `SCHEDULE_COLORS = [("#FFD166","노랑"), ("#4CC9F0","파랑"), ("#FF6B6B","빨강")]` remains the canonical storage contract. Settings select three distinct display colors from `SCHEDULE_COLOR_OPTIONS` (10 colors); `schedule_display_color()` resolves a slot at render time. Palette changes never rewrite `schedules.color`, and unknown imported colors pass through unchanged.
 
 ### 스키마 변경 규칙
@@ -89,7 +92,11 @@ build.bat
 | `app_fonts.py` | App font resolution: Malgun Gothic default, installed system font keys, Font Awesome icon font loading |
 | `security.py` | Hardware key derivation (`_derive_fernet_key`), path validation, Fernet encrypt/decrypt (cached), 기존 `.salt` 엄격 읽기와 신규 데이터셋 salt 원자 생성, audit log |
 | `show_desktop_guard.py` | `ShowDesktopKeeper(QObject)` — 감시 창을 Win+D('바탕화면 보기')와 Win+M(모두 최소화)에서 유지하며 평상시에는 **바탕화면 바로 위의 non-topmost 레이어**에 둔다. `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)`로 셸의 실제 바탕화면(`GetShellWindow`, 또는 동일 셸 PID의 `Progman`/`WorkerW`) 진입을 감지하면 `HWND_TOPMOST`로 350ms만 승격한다. 이후 `GetWindow(GW_HWNDPREV)`로 데스크톱 앞의 첫 일반 창을 찾고 `SetWindowPos`로 감시 창들을 그 창과 데스크톱 사이에 삽입한다. 탐색기·브라우저 등 다른 창이 foreground가 되면 pulse를 즉시 취소하고 같은 데스크톱 레이어로 재고정한다. Win+M/실제 최소화는 `WindowStateChange`→`singleShot(0)` 복원. 재부모화 없음. hook callback 강한 참조·`UnhookWinEvent` 해제·64비트 HWND ctypes 선언 필수 |
-| `database.py` | SQLite CRUD + schema migration (v17); `@contextmanager _connection()`과 read-only 건강 검사; 일정 원본 3슬롯과 10색 표시 팔레트; `SETTING_CALENDAR_POSITION_MODE`; WAL-safe `Connection.backup()` snapshot·`.salt`·hash manifest를 묶은 검증형 `.cnbak` 자동백업(당일 정상본 불변, 최근 5일)과 비회전 v3.5/가져오기/초기화 전 보호본; 기존 DB-only 마이그레이션 snapshot 보존; Export v2 단일 read snapshot·엄격 복호화; Import 전체 사전검증·단일 트랜잭션·집중 세션 ID remap·기존 메모/바로가기 보존(`privacy_pin` 제외); 스티키 휴지통; `enforce_widget_limits()`는 집중 1개·D-Day 5개 상한 초과분을 삭제 없이 `is_open=0` 정리 |
+| `database.py` | SQLite CRUD + schema migration (v18, 일정 세부 설정 열); `@contextmanager _connection()`과 read-only 건강 검사; 일정 원본 3슬롯과 10색 표시 팔레트; `SETTING_CALENDAR_POSITION_MODE`; WAL-safe `Connection.backup()` snapshot·`.salt`·hash manifest를 묶은 검증형 `.cnbak` 자동백업(당일 정상본 불변, 최근 5일)과 비회전 v3.5/가져오기/초기화 전 보호본; 기존 DB-only 마이그레이션 snapshot 보존; Export v3 단일 read snapshot·엄격 복호화; Import 전체 사전검증·단일 트랜잭션·집중 세션 ID remap·기존 메모/바로가기 보존(`privacy_pin` 제외); 스티키 휴지통; `enforce_widget_limits()`는 집중 1개·D-Day 5개 상한 초과분을 삭제 없이 `is_open=0` 정리 |
+| `schedule_rules.py` | v4.1 일정 세부 설정 규칙(Qt·DB 없음): `ScheduleOptions`, 시각 입력 해석, `validate_options`, 반복·기간 펼치기(`occurrence_dates`, 월말·윤년 보정), 알림 시각(`alarm_times`, 하루 종일 09:00), 주 단위 막대 조각·차선(`week_segments`), 한국어 설명·알약·툴팁 문구 |
+| `ui_schedule_options.py` | v4.1 시계 버튼·세부 카드(칩·시각 입력·작은 달력, 팝업 안 팝업 없음)·알약 줄, 선 아이콘 그리기·말줄임 라벨. 이모지 팝업과 같은 수명 규칙 |
+| `ui_calendar_spans.py` | v4.1 중간·크게 달력의 여러 날 막대 오버레이(레이아웃 밖, 마우스 통과, 칸 위치를 그릴 때마다 다시 읽음) |
+| `ui_schedule_alarm.py` | v4.1 앱 안 일정 알림: 단발 타이머 엔진(최대 60초, 확인 창 12시간, 시계 역행 보호, '5분 뒤 다시'는 메모리, 다시 알림은 놓친 알림이 아니다)과 화면 오른쪽 아래 12px 안쪽에 붙는 카드(포커스를 빼앗지 않음, PIN 잠금 중 내용 가림) |
 | `holidays.py` | Offline Korean holiday/lunar data (생성물, git 추적). `KOREAN_HOLIDAYS` (2025-2027), `LUNAR_MAPPING` (2025-2050). 함수: `get_holiday`, `is_holiday`, `get_lunar_date`, `holiday_last_year`. **`fetch_data.py`로만 갱신** (임의 계산 금지). |
 | `fetch_data.py` | 공공데이터포털 API로 `holidays.py` 재생성 (실제 API 데이터만, 임의 계산 없음). `verify_holiday_data(hol)` 로 재생성 후 커버리지 검증. 갱신 절차: 백업 → `python fetch_data.py` → `verify_holiday_data` 통과 확인 → 실패 시 백업 복구. |
 | `ui_mini_app_frame.py` | 미니앱 공용 창 틀(2026-10-10 B안)의 어두운 제목줄 `MiniAppTitleBar`(아이콘·이름·닫기, 자체 QSS)와 틀 색 상수·`mini_app_icon_path()`, 앱 파랑 상자에 흰 체크를 직접 그리는 `MiniAppCheckBox`(날짜·시간·문서 변환). 다섯 미니앱 창이 표면 맨 위에 둔다. 선택형 `screen_text`는 이 모듈을 한 방향으로만 가져다 쓴다. |

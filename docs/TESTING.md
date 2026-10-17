@@ -138,6 +138,7 @@ EXE는 시나리오마다 별도 AppData를 사용하고 `CLIMATENOTE_SKIP_START
 1. 신규 설치: 빈 AppData → 응답하는 창 → 현재 schema·SQLite 무결성·32바이트 salt·유효한 일일 `.cnbak`·오류 로그 확인.
 2. 기존 데이터: 현재 저장 계약의 합성 일정·메모·열린/휴지통 스티키·D-Day·집중/세션·바로가기·설정 → 실행 전후 raw/복호화 내용 해시·ID·salt 불변과 최초 보호백업 확인.
 3. 시작 차단: 합성 DB의 salt 손상 → 데이터 보호 오류창만 표시 → 원본 DB·salt·기존 보호백업 해시 불변 확인.
+4. 업그레이드(v4.1): `tests/fixtures/schema_v17.sql`로 만든 v17 합성 데이터 → 새 EXE 시작 → 모든 표의 기존 열 값 해시·salt 불변, 새 열 기본값, v18, `calendar_pre_v18_v17.db`가 원본과 같은지, 그리고 '기후노트 업데이트 안내' 창이 떴는지 확인. 다른 시나리오에서 이 창이 뜨면 실패다.
 
 **격리된 EXE 창이 잠시 표시된다.** 각 시나리오는 60초 안에 창 응답과 백업 상태를 확인한다.
 Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 허용하고, 실패/중단 시에도
@@ -165,6 +166,7 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 | 음수 좌표·혼합 DPI·가로/세로 모니터·KVM 전환 | 미확인 | |
 | 특정 PC 설정/휴지통 멈춤 | 미확인 | |
 | Defender 검사 | 미확인 | |
+| 일정 알림(실제 시각·절전 복귀·PIN 잠금·Win+D·다중 모니터 카드 위치·알림음) | 미확인 | |
 | 라이선스·SBOM·Qt 고지·서명 후속 과제 | 미확인 | [보류 기록](RELEASE_HISTORY.md) |
 
 최종 배포 판단 / 근거: `<별도 기입>`
@@ -200,6 +202,7 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 - **디자인 점검 11·15~21번**: `test_ui_calendar_move.py`(11번은 2026-10-11 J안 위치 편집으로 대체), `test_ui_calendar_cells.py`(중간·크게 숫자 왼쪽 위·오늘 원·고른 날 연한 회색(2026-10-11 되돌림)·요일 글자), `test_ui_right_column.py`(D-Day 이름 11px·한 줄 추가 칸·배경 버튼 아이콘), `test_ui_create_dialogs.py`(창 안 제목·D-day 미리보기·한국어 일요일 시작 달력·컨트롤 창 안), `test_ui_settings_data.py`(PIN 칸·저장 경로 한 줄·폴더 이름 남기는 말줄임), `test_ui_mini_apps.py`(주머니 이름 첫 줄 높이), `test_ui_mini_app_spacing.py`(날짜·시간 줄이 늘어나지 않음·문서 변환 빈 목록 안내·상태별 버튼). 문서 변환 좁은 화면 시험은 실패·완료 항목이 있어 버튼이 모두 보이는 상태로 잰다.
 - **데이터 UI 수명**: `test_ui_data_lifecycle.py`는 실제 합성 `.enc` 가져오기 후 편집기·집중 타이머 유지, 최신 저장 실패/보호백업 실패 차단, 초기화 전 플로팅/미니 패널 타이머 폐기와 ID 재사용, PIN 잠금·보조 창·예약된 표시와 잠금 화면이 기본/크게 모드에서 창 전체를 불투명 배경으로 덮는지(픽셀)를 검사한다. `data`와 `full`에 포함한다. 이 검사는 실제 Windows 잠금/절전·Win+D 수동 확인을 대체하지 않는다.
 - **일정 이모지**: `test_ui_schedule_emoji.py`는 16개 선택지·접두 치환 Undo·인라인 팝업 포커스·저장 실패 보류·잠금/트레이/초기화 뒤 콜백 무효화·모드별 표시/검색을 검사한다. `quick --tests tests/test_ui_schedule_emoji.py tests/test_edge_cases.py` 또는 `full`로 실행한다. `test_edge_cases.py`의 PIN `.enc` 왕복 검사는 기존 행·암호문·색상·설정·salt 보존을 포함한다. 하네스 실행 시 합성 UI PNG를 실행 폴더에 남기며, 이는 실제 한글 IME와 혼합 DPI/KVM 검증을 대신하지 않는다.
+- **일정 시각·알림·반복·기간(v4.1)**: 순수 규칙 `test_schedule_rules.py`(시각 해석·검증·펼치기·월말/윤년·알림 시각·차선·문구), 저장 `test_schedule_storage.py`(v17 고정 DDL에서 마이그레이션 값 불변·멱등·중간 실패 되돌림·`schema_newer`·구 키 암호문·API·Export v3/Import v1~v3·반복 1,000개 시간 상한, data 프로필), 화면 `test_ui_schedule_options.py`·`test_ui_schedule_input.py`·`test_ui_schedule_list.py`·`test_ui_calendar_spans.py`·`test_ui_schedule_alarm.py`(가짜 시계). 100/125/150%는 `QT_SCALE_FACTOR`로 `quick --tests`를 따로 실행한다. 실제 시계의 알림·절전 복귀·PIN 잠금 중 카드·Win+D·다중 모니터 카드 위치·알림음은 수동 확인이다.
 - **컬러 글리프 경계**: `test_emoji_rendering.py`는 스마일·다트·책·시계의 원본 ARGB 비트맵과 `QPainter` 텍스트 렌더의 경계를 비교한다. Qt 6.10.2에서 5건 실패하고 6.11.2에서 통과하는 Windows 글리프 캐시 회귀 검사다. 위 일정 UI 검사와 함께 `quick --tests`에 추가하거나 `full`/`release`로 실행하며 원본·렌더 PNG를 실행 폴더에 보존한다.
 - **격리 전략**: `app_dir` 픽스처가 `security.APP_DIR`, `SALT_FILE`, `database.DB_FILE` 등을 `monkeypatch`로 `tmp_path`에 패치하고 Fernet 캐시 초기화. 테스트 간 DB/암호화 키 완전 격리.
 - **스트레스 커버**: 1년×3색상 1,095개 일정, 365회 메모 upsert, 10KB 메모, Export/Import 왕복, 100회 추가/삭제 사이클, 백업 회전, VACUUM 무결성

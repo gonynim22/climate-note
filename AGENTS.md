@@ -47,6 +47,7 @@
 - 암호화 변경: 기존 데이터 복호화 → 재암호화 경로 제공. 자동 삭제 금지.
 - 설정 변경: 기존 `app_settings` 키 삭제 금지. 새 키 추가 + 기본값 fallback 처리.
 - 데이터 변경 기능 추가 시: `tests/`에 왕복 검증 테스트 필수.
+- v4.1부터 DB는 v18, 내보내기 형식은 v3다. 아래 이전 항목의 'DB v17·Export v2 유지'는 그 기능이 형식을 바꾸지 않았다는 당시 기록이다. v18 마이그레이션은 일정 표에 열 6개만 한 트랜잭션으로 더하고 기존 값은 읽거나 쓰지 않는다. v4.0a 이하 EXE는 v18 DB를 보면 데이터를 바꾸지 않고 시작을 멈춘다(되돌리기는 `backups/calendar_pre_v18_v17.db`, 그 뒤 입력분 제외).
 
 ## 반드시 보존할 계약
 
@@ -76,6 +77,7 @@
 - 일정 canonical 3슬롯과 체크박스 HTML/문자 표식은 저장 호환 계약이다. 표시색·벡터 디자인 때문에 저장값을 일괄 변경하지 않는다.
 - 일정 이모지는 기존 `schedules.content`의 `이모지 + ASCII 공백 한 칸` 접두 문자열로 저장한다. `ui_schedule_emoji.py`의 알려진 표식 하나만 명시적 선택으로 교체·제거하며 본문 Unicode·색상·DB v17·Export v2·salt를 유지한다. 별도 컬럼·설정 키·기존 행 일괄 갱신은 추가하지 않는다.
 - 일정 인라인 편집은 입력창·이모지 버튼·팝업을 하나의 편집 영역으로 다룬다. 저장 실패 시 편집 원본을 유지하고 날짜/월/검색 이동·목록 재생성·데이터 작업·정상 종료를 보류한다. 잠금·트레이 숨김·초기화 때 팝업과 예약된 포커스 복원을 취소한다. 키보드 검사는 실제 포커스된 버튼으로 입력하며 상세 동작은 [UI 계약](docs/UI_PATTERNS.md)을 따른다.
+- 일정 시각·알림·반복·기간(v4.1): 세부 설정은 스마일 옆 시계 버튼의 카드에서 고르며 카드 안에서는 다른 팝업을 띄우지 않는다. 저장은 `schedules`의 평문 열 `start_time`·`end_date`·`repeat_rule`·`repeat_until`·`repeat_skip`·`alarm_before`이고 본문 암호화·salt는 그대로다. 규칙(검증·펼치기·알림 시각·막대 차선·문구)은 Qt·DB 없는 `schedule_rules.py` 한 곳에 두고 DB 쓰기·가져오기·화면이 같은 `validate_options`를 쓴다. 화면은 나타나는 일정(`get_schedules`·`get_occurrences`)을 쓰고 원본 행 함수(`get_all_schedule_*`·`get_schedules_for_month`)는 지우지 않는다. 알림은 앱이 켜져 있을 때만 카드로 알리며 `schedule_alarm_seen_at`은 카드를 띄울 때와 알림 켜진 일정이 있을 때의 정상 종료 때만 쓰며 뒤로 가지 않는다(알림 없는 DB는 시작·종료로 바뀌지 않는다). 예전 형식 DB를 올린 실행에서만 메인 창이 뜬 뒤 '기후노트 업데이트 안내' 창을 한 번 띄우며 아무것도 저장하지 않는다(이미 배포된 v4.0a의 차단 창 문구는 바꿀 수 없어서). 상세는 [설계](docs/superpowers/specs/2026-10-16-schedule-time-repeat-period-design.md)·[UI 계약](docs/UI_PATTERNS.md)·[아키텍처](docs/ARCHITECTURE.md)를 따른다.
 - 미니앱 버튼은 사이드바 최상단 64×48px, 기존 바로가기 배열/DB ID 1~6과 64px 버튼은 유지한다. 80px 사이드바에서 짧은 화면은 목록만 스크롤한다. 주머니는 DB 접근/새 설정 없는 개발자 제공 앱용 실행 타일 팝업이며 열림 상태를 저장하지 않는다. 흰 카드·옅은 테두리·그림자로 경계를 구분하고(머리부 색 띠 없음, 제목과 앱 개수 표시) 그림자 여백 클릭도 닫기로 처리하며 원래 버튼에 재전달하지 않는다. 준비 중 칸은 클릭·키보드 실행·Tab 이동을 막고 실제 앱 추가 시 순서대로 대체한다. 일정 편집 저장 실패 시 열기를 보류하고, 잠금/트레이/사이드바 숨김/크기·화면 변경/초기화/종료 때 팝업과 예약 포커스를 취소한다. 단위 환산기·날짜·시간 계산기·금액·숫자 표기 도우미·문서 형식 변환 4개와 선택형 화면 글자 따기를 제공하며 사용자 앱 등록·외부 코드 로더는 범위 밖이다.
 - 화면 글자 따기(v3.9)는 다섯 번째이자 첫 **선택형 미니앱**이다. `screen_text/` 폴더와 `optional_mini_apps.py` 등록 한 줄로만 연결되며 [걷어내기 절차](docs/SCREEN_TEXT.md)로 원래 빌드로 돌아간다. 소형 OCR 모델(Apache-2.0)과 onnxruntime 1.30.0을 PC 안에서만 쓰고, MANIFEST SHA-256 확인·텔레메트리 끔·캡처 이미지 메모리 전용·임시 파일 없음·차단 시 우회 금지를 유지한다. DB v17·Export v2·salt·설정 키·바로가기 6슬롯은 유지한다. 주머니는 앱 개수에 따라 2줄 280/3줄 390px이다. 아이콘은 예외적으로 `screen_text/icon.svg`(주황 `#FF9A4D→#D9480F`)다. 상세는 [계약](docs/SCREEN_TEXT.md)과 [작업 기록](docs/work/2026-10-08-screen-text-capture.md)을 따른다.
 - **미니앱 아이콘**: `resources/icons/mini_apps/<앱 id>.svg` 한 파일이다. 48×48 viewBox의 둥근 사각(rx 12.5) 전체에 앱별 선형 그라데이션(왼쪽 위 밝음 → 오른쪽 아래 진함, `userSpaceOnUse`)과 안쪽 1px 흰 테두리(불투명도 0.22)를 둔다. 도형은 24px 격자에 그린 뒤 가운데 0.6배(`translate(9.6 9.6) scale(1.2)`)에 흰 선 2.1·둥근 끝·둥근 이음으로 놓는다. 보조 면은 흰색 30%, 겹쳐 가리는 면은 흰색이며 그 안의 선은 앱의 진한 색을 쓴다.
@@ -110,6 +112,8 @@
 - **환경 드리프트 시 실패하는 검사**: `tests/test_packaging.py::test_requirements_lock_matches_verified_direct_dependencies`. `requirements-lock.txt`는 v3.5 기준에서 v3.7 컬러 이모지 수정용 Qt 계열 4개를 6.11.2로 갱신했고, 2026-10-05 push 보안 검사 1단계에서 `defusedxml`을 추가하고 EXE에 들어가지 않는 pillow·Pygments·pytest·python-dotenv·setuptools를 취약점 해소 최소 버전으로 올린 환경 기록이다. 같은 날 2단계에서 `cryptography`만 50.0.0으로 갱신했으며, 46.0.4 고정 벡터·DB/백업/PIN 파일의 양방향 호환 검증과 EXE 전수 대조는 [2단계 기록](docs/work/2026-10-05-push-security-scan-step2.md)을 따른다. 검증 근거는 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)과 [보안 검사 1단계 기록](docs/work/2026-10-05-push-security-scan-step1.md)에 남긴다. 2026-10-08 화면 글자 따기에서 `onnxruntime==1.30.0`(하위 `flatbuffers`·`protobuf`)을 직접 의존성으로 추가했다(로컬 OSV 0건, [작업 기록](docs/work/2026-10-08-screen-text-capture.md)). 로컬 venv 버전이 lock과 다르면 실패하며 lock을 임의로 갱신하지 않는다. 의존성 업그레이드는 lock 갱신 + 전체 재검증 + EXE 재빌드 + 검증 스냅샷 갱신을 한 묶음으로 처리한다. `pip install -r requirements-lock.txt`로 맞추면 통과한다.
 
 ## 기록 관리
+
+- 2026-10-17 **v4.1**(작업 중): 일정 시각·알림·반복·기간. DB v18(일정 표 열 6개 추가, 한 트랜잭션)·Export v3·새 설정 키 `schedule_alarm_seen_at`(Export 제외). EXE `기후노트_v4.1.exe`, Windows `4.1.0.0`. 검증·배치는 [작업 기록](docs/work/2026-10-16-v4.1-schedule-time-repeat-period.md)을 따른다.
 
 - 2026-10-15 **v4.0a**: 백업 검증 임시 DB의 `-wal`/`-shm`이 데이터 폴더·`backups\`에 무제한으로 쌓이던 v3.5 이후 결함을 수정했다(읽기 전용 검증 연결이 만든 짝 파일을 임시 DB와 함께 삭제). 시작 시 `db.cleanup_stale_backup_sidecars()`가 이전 버전의 `.backup-validate-*`/`.auto-snapshot-*` 짝 파일을 짝 `.db` 부재·빈 `-wal`일 때만 지우며 정상 `calendar.db-wal/-shm`·`.cnbak`·`.salt`는 건드리지 않는다. 사용자에게 수동 삭제를 안내하지 않는다. EXE `기후노트_v4.0a.exe`, Windows `4.0.1.0`. DB v17·Export v2·salt·백업 형식·설정 키·Qt/lock 유지. data `20261015-225855-ce489c3a94` 458개, PowerShell release `20261015-230046-b64efa2b55` 2,456개·새 빌드·격리 실행 3개 통과, 구 v4.0 EXE→새 EXE 업그레이드 실기(짝 파일 16→0) 확인, `dist/` 배치(SHA-256 `2750798C…`). [작업 기록](docs/work/2026-10-15-backup-sidecar-cleanup.md)
 
