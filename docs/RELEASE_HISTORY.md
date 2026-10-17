@@ -4,7 +4,7 @@
 
 ## v4.1 일정 시각·알림·반복·기간 (2026-10-17)
 
-- 일정에 시작 시각·여러 날 기간·반복(매일·평일·매주·매월·매년, 끝 날짜·이 날만 삭제)·앱 안 알림을 더한다. 시안 `output/design/schedule-features-20261015/index.html`, 설계 `docs/superpowers/specs/2026-10-16-schedule-time-repeat-period-design.md`.
+- 일정에 시작 시각·여러 날 기간·반복(매일·평일·매주·매월·매년, 끝 날짜·이 날만 삭제)·앱 안 알림을 더한다. 시안 `output/design/schedule-features-20261015/index.html`(로컬 시안, Git 제외), 설계 `docs/superpowers/specs/2026-10-16-schedule-time-repeat-period-design.md`.
 - DB v18은 일정 표에 열 6개만 한 트랜잭션으로 더하고 기존 값은 바꾸지 않는다. Export v3, 새 설정 키 `schedule_alarm_seen_at`(Export 제외). v4.0a 이하 EXE는 v18 데이터를 보면 데이터를 바꾸지 않고 '데이터 보호를 위해 실행을 중단했습니다'(구조 또는 무결성 확인 실패 문구) 창으로 시작을 멈춘다. 이 문구는 바꿀 수 없으므로 v4.1은 예전 형식 DB를 올린 실행에서 한 번 '기후노트 업데이트 안내' 창으로 미리 알린다. 되돌리려면 `backups/calendar_pre_v18_v17.db`를 쓴다(그 뒤 입력분 제외, 절차는 README_detail).
 - 표시 버전 `v4.1`, EXE `기후노트_v4.1.exe`, Windows `4.1.0.0`. 검증·빌드 결과는 [작업 기록](work/2026-10-16-v4.1-schedule-time-repeat-period.md)을 따른다.
 

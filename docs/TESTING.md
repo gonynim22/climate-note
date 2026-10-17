@@ -30,7 +30,7 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 | `quick` | 리소스·시작 경로·공휴일·실행기·핵심 DB/UI 소규모 회귀 | 일상 개발 + `--tests`로 관련 검사 추가 |
 | `data` | DB·암호화·건강 검사·백업·Import/Export·스티키 저장·메인 UI·스트레스 | 데이터 또는 저장/보기 전환 변경 |
 | `full` | 전체 pytest 1회 | 공통 실행기·격리 변경, 기능 마무리 |
-| `release` | 전체 pytest 1회 → 새 EXE 빌드 → 격리 실행 3개 시나리오 | 배포 산출물 검증 |
+| `release` | 전체 pytest 1회 → 새 EXE 빌드 → 격리 실행 4개 시나리오(신규·기존·차단·업그레이드) | 배포 산출물 검증 |
 
 `data`는 저장 계약 검사가 들어 있는 `test_ui.py`도 포함하므로 짧은 단위 테스트 묶음이 아니다.
 정확한 대상은 `tools/verify.py`의 `QUICK_TESTS`·`DATA_TESTS`가 정본이다.
@@ -203,6 +203,7 @@ Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 �
 - **데이터 UI 수명**: `test_ui_data_lifecycle.py`는 실제 합성 `.enc` 가져오기 후 편집기·집중 타이머 유지, 최신 저장 실패/보호백업 실패 차단, 초기화 전 플로팅/미니 패널 타이머 폐기와 ID 재사용, PIN 잠금·보조 창·예약된 표시와 잠금 화면이 기본/크게 모드에서 창 전체를 불투명 배경으로 덮는지(픽셀)를 검사한다. `data`와 `full`에 포함한다. 이 검사는 실제 Windows 잠금/절전·Win+D 수동 확인을 대체하지 않는다.
 - **일정 이모지**: `test_ui_schedule_emoji.py`는 16개 선택지·접두 치환 Undo·인라인 팝업 포커스·저장 실패 보류·잠금/트레이/초기화 뒤 콜백 무효화·모드별 표시/검색을 검사한다. `quick --tests tests/test_ui_schedule_emoji.py tests/test_edge_cases.py` 또는 `full`로 실행한다. `test_edge_cases.py`의 PIN `.enc` 왕복 검사는 기존 행·암호문·색상·설정·salt 보존을 포함한다. 하네스 실행 시 합성 UI PNG를 실행 폴더에 남기며, 이는 실제 한글 IME와 혼합 DPI/KVM 검증을 대신하지 않는다.
 - **일정 시각·알림·반복·기간(v4.1)**: 순수 규칙 `test_schedule_rules.py`(시각 해석·검증·펼치기·월말/윤년·알림 시각·차선·문구), 저장 `test_schedule_storage.py`(v17 고정 DDL에서 마이그레이션 값 불변·멱등·중간 실패 되돌림·`schema_newer`·구 키 암호문·API·Export v3/Import v1~v3·반복 1,000개 시간 상한, data 프로필), 화면 `test_ui_schedule_options.py`·`test_ui_schedule_input.py`·`test_ui_schedule_list.py`·`test_ui_calendar_spans.py`·`test_ui_schedule_alarm.py`(가짜 시계). 100/125/150%는 `QT_SCALE_FACTOR`로 `quick --tests`를 따로 실행한다. 실제 시계의 알림·절전 복귀·PIN 잠금 중 카드·Win+D·다중 모니터 카드 위치·알림음은 수동 확인이다.
+- **업데이트 안내(v4.1)**: `test_upgrade_notice.py`는 예전 형식(v17) DB를 올린 시작에서만 `on_upgrade`가 원래 버전으로 한 번 불리고 새 설치·이미 새 형식에서는 불리지 않는지, 안내 본문(이전 버전 차단 창 문구·이전 EXE와 바로가기 삭제·`backups` 사본), 부모 없는 맨 위 모달 `Dialog`가 [확인]만 두고 화면 안에 들어가며 DB 내용을 바꾸지 않는지, `smoke_release.py`가 같은 창 제목을 찾는지를 검사한다.
 - **컬러 글리프 경계**: `test_emoji_rendering.py`는 스마일·다트·책·시계의 원본 ARGB 비트맵과 `QPainter` 텍스트 렌더의 경계를 비교한다. Qt 6.10.2에서 5건 실패하고 6.11.2에서 통과하는 Windows 글리프 캐시 회귀 검사다. 위 일정 UI 검사와 함께 `quick --tests`에 추가하거나 `full`/`release`로 실행하며 원본·렌더 PNG를 실행 폴더에 보존한다.
 - **격리 전략**: `app_dir` 픽스처가 `security.APP_DIR`, `SALT_FILE`, `database.DB_FILE` 등을 `monkeypatch`로 `tmp_path`에 패치하고 Fernet 캐시 초기화. 테스트 간 DB/암호화 키 완전 격리.
 - **스트레스 커버**: 1년×3색상 1,095개 일정, 365회 메모 upsert, 10KB 메모, Export/Import 왕복, 100회 추가/삭제 사이클, 백업 회전, VACUUM 무결성
