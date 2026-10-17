@@ -253,8 +253,10 @@ def _data_worker(action, data_root, result_path):
         for color, _ in db.SCHEDULE_COLORS:
             db.add_schedule(day, "하네스 합성 일정 " + color, color)
         db.save_memo(day, "하네스 합성 메모")
-        opened = db.create_sticky_note()
-        db.update_sticky_note(opened, content="하네스 열린 스티키")
+        # 닫힌 스티키로 둔다. 열린 스티키는 앱이 시작 뒤 창 크기를 5mm 격자에 맞춰 다시 저장하므로
+        # (300×400→306×396 등, v4.0부터 같은 동작) '기존 데이터 불변' 비교가 시점에 따라 흔들린다.
+        kept = db.create_sticky_note()
+        db.update_sticky_note(kept, content="하네스 닫힌 스티키", is_open=0)
         trashed = db.create_sticky_note()
         db.update_sticky_note(trashed, content="하네스 휴지통 스티키")
         db.trash_sticky_note(trashed)
