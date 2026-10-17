@@ -32,6 +32,7 @@
 영구 UI 계약은 [UI_PATTERNS.md](../UI_PATTERNS.md)에 반영한다.
 
 - 2026-10-18 후속 요청: 사용자가 AGENTS.md 업데이트·커밋·빌드·push를 명시적으로 승인했다. GitLab Release는 사용자가 게시한다. 이전의 별도 승인 대기 상태는 이 요청으로 해소되었다. 원격 main을 fetch하여 시작 HEAD와 동일함을 확인했다. 기존 미추적 문서 8개와 이전 v4.1 EXE는 보존하고 이번 작업 파일만 커밋한다.
+- 2026-10-18: 구현·AGENTS·설계·작업 기록을 `330cd34`로 커밋했다. 첫 release에서 2,827개 통과·1개 실패를 확인했다. 실패는 `test_settings_credit_uses_v41_metadata`의 이전 버전 기대값이며 빌드 단계는 시작하지 않았다. 이 검사를 v4.2 표시 기대값으로 갱신하고 전체 release를 다시 실행한다. 제품 코드는 바꾸지 않는다.
 
 ## 검증 증거
 
@@ -47,6 +48,7 @@
 | 메인 3크기·팝업 위치 합성 렌더 | 통과 | [20261018-002808-schedule-card-visual](../../output/harness/20261018-002808-schedule-card-visual/summary.md) · [result.json](../../output/harness/20261018-002808-schedule-card-visual/result.json) | 실제 MainCalendarWindow / 실행별 AppData / native foreground hook 비활성. 기본 위·중간/크게 아래, 카드 화면 경계 안에 표시 |
 | data / full 별도 실행 | 미실행 | | 후속 release가 전체 pytest를 포함하므로 중복 실행하지 않음 |
 | 승인 후 release / EXE 빌드 | 미실행 | | PowerShell에서 전체 검사·새 빌드·합성 4개 시나리오 실행 예정 |
+| 첫 release (구현 커밋 `330cd34`) | 실패 | [20261018-003423-3fd8385ff4](../../output/harness/20261018-003423-3fd8385ff4/summary.md) · [result.json](../../output/harness/20261018-003423-3fd8385ff4/result.json) | 2,827 통과·1 실패: 설정 표시 테스트의 v4.1 기대값. 빌드/EXE 미실행 |
 
 최종 명령(PowerShell, `QT_SCALE_FACTOR`를 `1`·`1.25`·`1.5`로 각각 설정):
 
