@@ -358,7 +358,7 @@ def test_v35_first_start_preserves_existing_rows_ciphertext_and_salt(app_dir):
     ))) == 1
 
 
-def test_v35_repeated_start_preserves_all_v34_user_data_exactly(app_dir):
+def test_repeated_start_preserves_all_v34_data_except_pin_verifier(app_dir):
     import main as app_main
 
     db.add_schedule("2026-08-15", "v3.4 일정", "#4CC9F0")
@@ -400,9 +400,16 @@ def test_v35_repeated_start_preserves_all_v34_user_data_exactly(app_dir):
         before_salt = salt_file.read()
 
     app_main._initialize_database()
+    upgraded_pin = db.get_setting(db.SETTING_PRIVACY_PIN)
+    previous_pin = dict(before["app_settings"])[db.SETTING_PRIVACY_PIN]
+    assert upgraded_pin != previous_pin and security.verify_privacy_pin(previous_pin, upgraded_pin)
     app_main._initialize_database()
 
-    assert _raw_snapshot() == before
+    after = _raw_snapshot()
+    assert dict(after["app_settings"])[db.SETTING_PRIVACY_PIN] == upgraded_pin
+    after["app_settings"] = [(key, previous_pin if key == db.SETTING_PRIVACY_PIN else value)
+                             for key, value in after["app_settings"]]
+    assert after == before
     with open(security.SALT_FILE, "rb") as salt_file:
         assert salt_file.read() == before_salt
     assert db.inspect_startup_data_health().ok is True

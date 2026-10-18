@@ -4,7 +4,7 @@ import math
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 
-from unit_converter import BASIS_SUMMARIES, CATEGORY_BY_ID, ConversionConditions, GASES, format_number, parse_number
+from unit_converter import BASIS_SUMMARIES, CATEGORY_BY_ID, ConversionConditions, GASES, format_number, parse_number, crosses_concentration_basis
 from ui_converter_combo import ConverterCombo
 
 
@@ -137,12 +137,14 @@ class ConversionConditionsPanel(QWidget):
 
     def set_category(self, category_id):
         self.category_id = category_id
+        self._requires_conditions = False
         self.toggle.setChecked(False)
         self._mass_selected = False
         self._refresh()
 
     def set_units(self, from_id, to_id):
         category = CATEGORY_BY_ID[self.category_id]
+        self._requires_conditions = crosses_concentration_basis(self.category_id, from_id, to_id)
         self._mass_selected = self.category_id == "gas_fraction" and any(
             category.unit(uid).kind == "mass_concentration" for uid in (from_id, to_id))
         self._refresh()
@@ -198,8 +200,15 @@ class ConversionConditionsPanel(QWidget):
         return value
 
     def conditions(self):
+        def number(edit, label, **checks):
+            try:
+                return self._number(edit, label, **checks)
+            except ValueError:
+                if self._requires_conditions:
+                    raise
+                return None  # 같은 기준 환산은 조건 없이 가능. 입력칸 원문은 그대로 유지한다.
         if self.category_id == "water":
-            return ConversionConditions(density_kg_l=self._number(self.density_input, "용액 밀도", positive=True),
+            return ConversionConditions(density_kg_l=number(self.density_input, "용액 밀도", positive=True),
                                         water_approximation=self.water_approximation)
         if self.category_id == "temp":
             return ConversionConditions(temperature_difference=self.temperature_mode.currentIndex() == 1)
@@ -207,25 +216,25 @@ class ConversionConditionsPanel(QWidget):
             gas_id = self.gas_picker.currentData()
             mass = GASES[gas_id][1] if gas_id in GASES else None
             if gas_id == "custom":
-                mass = self._number(self.molar_mass_input, "몰질량", positive=True)
+                mass = number(self.molar_mass_input, "몰질량", positive=True)
             return ConversionConditions(molar_mass=mass, gas_id=gas_id,
-                temperature_c=self._number(self.gas_temperature_input, "기체 온도", minimum=-273.15),
-                pressure_kpa=self._number(self.gas_pressure_input, "절대압", positive=True))
+                temperature_c=number(self.gas_temperature_input, "기체 온도", minimum=-273.15),
+                pressure_kpa=number(self.gas_pressure_input, "절대압", positive=True))
         return ConversionConditions()
 
     def restore(self, conditions):
         self._updating = True
         try:
             if self.category_id == "water":
-                self.density_input.setText(repr(conditions.density_kg_l))
+                self.density_input.setText("" if conditions.density_kg_l is None else repr(conditions.density_kg_l))
                 self.water_approximation = conditions.water_approximation
             elif self.category_id == "temp":
                 self.temperature_mode.setCurrentIndex(int(conditions.temperature_difference))
             elif self.category_id == "gas_fraction":
                 self.gas_picker.setCurrentIndex(max(0, self.gas_picker.findData(conditions.gas_id)))
                 self.molar_mass_input.setText("" if conditions.molar_mass is None else repr(conditions.molar_mass))
-                self.gas_temperature_input.setText(repr(conditions.temperature_c))
-                self.gas_pressure_input.setText(repr(conditions.pressure_kpa))
+                self.gas_temperature_input.setText("" if conditions.temperature_c is None else repr(conditions.temperature_c))
+                self.gas_pressure_input.setText("" if conditions.pressure_kpa is None else repr(conditions.pressure_kpa))
         finally:
             self._updating = False
         self._refresh()

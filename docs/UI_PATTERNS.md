@@ -12,6 +12,9 @@
 
 ## Calendar
 
+- **v4.3 저장·크기 전환**: 스티키 주기 저장은 현재 보기의 변경된 원본만 저장한다. 성공 후 변경 상태를 해제하고 실패 시 유지·재시도하며 상태줄에 실패를 남긴다. large에서는 숨은 플로팅 본문으로 저장하지 않는다. 크기 전환의 스티키 인계가 실패하면 전체 레이아웃·D-Day/집중 패널·현재 적용 크기와 설정 선택을 이전 상태로 유지한다. 설정 복원 실패는 로그를 남기고 메모리의 현재 크기를 유지한다. 화면 갱신 중 예외가 나도 `setUpdatesEnabled(True)`를 복원한다. 새 스티키 상한 10개는 가시성이 아니라 등록된 열린 노트 수로 센다.
+- **v4.3 잠금 PIN**: 설정창은 기존 PIN/검증값을 입력칸에 미리 채우지 않는다. 새 PIN 저장 성공 후 입력을 비운다. 잠금 오버레이는 5회 실패 뒤 30초, 이후 실패마다 대기 시간을 늘려 최대 300초를 적용한다. 성공 시 횟수를 초기화하고 숨김/재표시로 대기를 초기화하지 않는다. 대기는 메모리 전용이며 앱 재시작 또는 DB 파일 접근까지 막는 보안 경계는 아니다.
+
 - **망 전환/KVM 위치 복원(v3.8 후속)**: 기본·중간·크게 모두 자동 화면 보정을 임시 표시로 취급한다. 원래 저장 좌표를 덮어쓰지 않으며 대상 화면이 돌아오면 복원한다. 위치 고정 상태(위치 편집 중이 아닐 때)도 같은 복원 규칙을 따른다. 명시적 이동·모니터/모서리 선택 때만 화면 식별 정보와 위치를 함께 저장한다. 설정의 모니터 목록이 열린 동안 연결 순서가 바뀌어도 표시된 장치를 선택하며 사라진 항목과 저장 실패는 이전 선택을 유지한다. 가로↔세로 모니터 선택 시 크기도 목적지 기준으로 다시 계산한다. 새 설정 없는 기존 사용자는 인덱스를 세션 내에서만 기억하고 자동 설정 쓰기를 하지 않는다. 구체적인 식별·저장 계약은 [아키텍처](ARCHITECTURE.md)의 KVM 계약을 따른다.
 
 - **위치 편집 단추 (2026-10-11 J안, v3.7b 이동 토글 대체)**: 검색 → 십자 화살표 → 더보기 순서로 32px 버튼 3개와 4px 간격을 둔다. 좌우 헤더 그룹은 104px, 연월 그룹은 148px라 기본 380px에서도 중앙 정렬과 전체 클릭 영역을 유지한다. 십자 화살표는 다른 머리줄 아이콘처럼 바탕을 채우지 않은 흰 선이며 상태를 표시하지 않고 위치 편집을 시작한다(이전 ON 점·OFF 사선 토글은 '점이 무슨 뜻인지 모르겠다'는 사용자 의견으로 폐기). 편집 중에는 검색·십자 화살표·더보기를 숨기고 같은 104px 묶음 오른쪽 끝에 '완료' 알약(52×32, 13px 굵게, 테두리 `#93C5FD`)을 둔다. Tab → Space/Enter로 시작하면 포커스가 '완료'로, '완료'에서 끝내면 십자 화살표로 돌아온다. 두 단추 모두 마우스 클릭으로 일정 입력 포커스를 빼앗지 않는다. 화면·문서에서는 '십자 화살표'라고 부른다.
@@ -43,7 +46,7 @@
 - Organized as a no-scroll (800x560) layout of five **section panels** in two columns: 화면 표시, 위젯·도구 (left); 데이터, 보안, 시스템 (right). No large in-window "설정" title. Each panel is a `CardWidget` with a `StrongBodyLabel` header (objectName `panelHeader`) on a light `#F6F6F6` strip (`panelHeaderBar`) built by `_make_panel`; header color/weight are fixed via `setTextColor(#1A1A1E)` + `setFont(Bold)` (not QSS) so theme re-application can't wash them out. The panel body does not darken on hover. Each setting is a `_add_row(body, label, control)` row with label-left / control-right on a unified right rail; the 화면 위치 row (`_position_row`) is min-height 60. Footer credit (`author_label`) is single-line (`wordWrap(False)`). Monitor combo width 210.
 - **Calendar size** uses `CalendarSizePicker` (not a combo): three same-size monitor illustrations whose blue app block area grows for `compact`/`medium`/`large` (anchored bottom-right, the app's default corner). Pure `QFrame` + QSS, no external image assets; selection highlight via a `selected` style property. Emits `scaleChanged(str)` → `_on_scale_changed(scale)` → saves `SETTING_CALENDAR_SCALE`.
 - **Schedule colors** use `ScheduleColorPicker`: three compact swatches map to the three canonical storage slots. Each opens a 10-color `RoundMenu`; colors already used by another slot are disabled. Saving changes only `app_settings`, then immediately repaints the app.
-- PIN validated via `_validate_pin(pin)` helper — used by 데이터 Export/Import only. 내보내기·가져오기 PIN 칸은 110px 왼쪽 정렬·안내 `PIN 4자리`로 입력칸처럼 보인다. '저장 경로' 행은 폴더 버튼을 유지하고 그 왼쪽에 실제 저장 폴더를 190px 한 줄로 보인다(넘치면 드라이브와 마지막 폴더 이름을 남기고 가운데를 `…`로 줄임, 툴팁 전체 경로)(2026-10-10 디자인 점검 18번).
+- 화면 잠금 PIN은 `_validate_pin`, 이동 파일 암호는 `_validate_transfer_password`로 구분한다. v4.3 내보내기·가져오기 입력칸은 110px 왼쪽 정렬·최대 128자로, 각각 `암호 12자 이상`/`암호 / 이전 PIN`을 안내한다. 새 파일은 12자 이상, 이전 파일 가져오기는 4자리 숫자 PIN도 허용한다. '저장 경로' 행은 폴더 버튼을 유지하고 그 왼쪽에 실제 저장 폴더를 190px 한 줄로 보인다(넘치면 드라이브와 마지막 폴더 이름을 남기고 가운데를 `…`로 줄임, 툴팁 전체 경로).
 - **데이터 초기화(Factory Reset)** uses no PIN (usability decision): soft-danger red button (`factoryResetButton`) → confirm `MessageBox` only. 앱 종료 (`quitAppButton`, dark) first checks `prepare_for_quit()` through its callback. Only a successful save allows closing Settings and calling `QApplication.quit()`.
 
 ---

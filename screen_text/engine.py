@@ -20,6 +20,9 @@ UNCLIP_RATIO = 1.5         # DB 방식 상자 확장 비율
 MIN_BOX_AREA = 6           # 확률 맵에서 이보다 작은 요소는 잡음
 REC_HEIGHT = 48            # 한국어 인식 모델 입력 높이 (모델 입력 [N, 3, 48, W])
 REC_BATCH = 6              # 폭이 비슷한 상자끼리 묶는 개수
+MAX_REC_WIDTH = 4096       # 종횡비 이상 상자는 압축하지 않고 영역 재선택 안내
+MAX_REC_BOXES = 512
+MAX_REC_BATCH_WIDTH = 8192 # 한 배치의 패딩 폭 합계 상한
 MAX_SIDE = 4000            # 입력 이미지 긴 변 상한 (넘으면 줄인다)
 UPSCALE = 1.0              # 작은 글씨 확대 배율 (Task 4 측정으로 확정)
 CHARSET_SIZE = 11945
@@ -33,6 +36,10 @@ class ModelIntegrityError(RuntimeError):
 
 class RecognitionCancelled(Exception):
     """사용자 동작이나 수명 처리로 인식이 취소됐다."""
+
+
+class RecognitionLimitError(ValueError):
+    """한 번에 안전하게 읽을 수 있는 영역 크기를 넘었다."""
 
 
 def model_dir() -> Path:
@@ -102,7 +109,7 @@ def resize_bilinear(image, width, height):
     return top * (1 - wy) + bottom * wy
 
 
-def label_components(mask):
+def label_components(mask, cancelled=lambda: False):
     """행 단위 run을 8연결로 묶는다. 반환: [(x0, y0, x1, y1, [(y, xs, xe), ...])] (포함 좌표)."""
     parent, runs, previous = [], [], []
 
@@ -113,6 +120,8 @@ def label_components(mask):
         return index
 
     for y in range(mask.shape[0]):
+        if cancelled():
+            raise RecognitionCancelled
         row = mask[y]
         if not row.any():
             previous = []
@@ -181,13 +190,15 @@ class OcrEngine:
 
     def recognize(self, image, cancelled=lambda: False):
         """RGB 배열(H, W, 3)의 글자 상자를 원본 좌표로 돌려준다. 취소되면 RecognitionCancelled."""
+        if cancelled():
+            raise RecognitionCancelled
         height, width = image.shape[:2]
         scale = min(UPSCALE, MAX_SIDE / max(width, height))
         work = image
         if scale != 1.0:
             size = (max(1, round(width * scale)), max(1, round(height * scale)))
             work = np.clip(resize_bilinear(image, *size), 0, 255).astype(np.uint8)
-        boxes = self._detect(work)
+        boxes = self._detect(work, cancelled)
         if cancelled():
             raise RecognitionCancelled
         results = self._read(work, boxes, cancelled)
@@ -200,17 +211,21 @@ class OcrEngine:
                                    text, score))
         return out
 
-    def _detect(self, image):
+    def _detect(self, image, cancelled=lambda: False):
+        if cancelled():
+            raise RecognitionCancelled
         height, width = image.shape[:2]
         ratio = min(1.0, DET_LIMIT / max(height, width))
         new_h = max(32, int(round(height * ratio / 32)) * 32)
         new_w = max(32, int(round(width * ratio / 32)) * 32)
         tensor = resize_bilinear(image, new_w, new_h)[:, :, ::-1] / 255.0  # 모델은 BGR 순서로 학습됐다
         tensor = ((tensor - DET_MEAN) / DET_STD).transpose(2, 0, 1)[None].astype(np.float32)
+        if cancelled():
+            raise RecognitionCancelled
         prob = self._det.run(None, {"x": tensor})[0][0, 0]
         scale_x, scale_y = width / new_w, height / new_h
         boxes = []
-        for x0, y0, x1, y1, runs in label_components(prob > DET_THRESHOLD):
+        for x0, y0, x1, y1, runs in label_components(prob > DET_THRESHOLD, cancelled):
             if (x1 - x0 + 1) * (y1 - y0 + 1) < MIN_BOX_AREA:
                 continue
             score = float(np.mean(np.concatenate([prob[y, a:b + 1] for y, a, b in runs])))
@@ -224,23 +239,44 @@ class OcrEngine:
         return boxes
 
     def _read(self, image, boxes, cancelled):
-        crops = []
+        if cancelled():
+            raise RecognitionCancelled
+        if len(boxes) > MAX_REC_BOXES:
+            raise RecognitionLimitError
+        widths = []
         for x0, y0, x1, y1 in boxes:
             crop = image[y0:y1, x0:x1]
             crop_width = max(8, int(np.ceil(REC_HEIGHT * crop.shape[1] / max(1, crop.shape[0]))))
-            crops.append(resize_bilinear(crop, crop_width, REC_HEIGHT)[:, :, ::-1])
-        results = [("", 0.0)] * len(crops)
-        order = sorted(range(len(crops)), key=lambda i: crops[i].shape[1])
-        for start in range(0, len(order), REC_BATCH):
+            if crop_width > MAX_REC_WIDTH:
+                raise RecognitionLimitError
+            widths.append(crop_width)
+        results = [("", 0.0)] * len(boxes)
+        order = sorted(range(len(boxes)), key=lambda i: widths[i])
+        start = 0
+        while start < len(order):
             if cancelled():
                 raise RecognitionCancelled
-            ids = order[start:start + REC_BATCH]
-            widest = max(crops[i].shape[1] for i in ids)
+            end = start + 1
+            while (end < min(start + REC_BATCH, len(order))
+                   and widths[order[end]] * (end - start + 1) <= MAX_REC_BATCH_WIDTH):
+                end += 1
+            ids = order[start:end]
+            widest = widths[ids[-1]]
             batch = np.zeros((len(ids), 3, REC_HEIGHT, widest), dtype=np.float32)
             for slot, i in enumerate(ids):
-                batch[slot, :, :, : crops[i].shape[1]] = ((crops[i] / 255.0 - 0.5) / 0.5).transpose(2, 0, 1)
+                if cancelled():
+                    raise RecognitionCancelled
+                x0, y0, x1, y1 = boxes[i]
+                crop = resize_bilinear(image[y0:y1, x0:x1], widths[i], REC_HEIGHT)[:, :, ::-1]
+                batch[slot, :, :, : widths[i]] = ((crop / 255.0 - 0.5) / 0.5).transpose(2, 0, 1)
+            if cancelled():
+                raise RecognitionCancelled
             probs = self._rec.run(None, {"x": batch})[0]
             for slot, i in enumerate(ids):
-                steps = max(1, int(np.ceil(probs.shape[1] * crops[i].shape[1] / widest)))
+                if cancelled():
+                    raise RecognitionCancelled
+                steps = max(1, int(np.ceil(probs.shape[1] * widths[i] / widest)))
                 results[i] = ctc_decode(probs[slot, :steps], self._charset)
+            del probs, batch
+            start = end
         return results

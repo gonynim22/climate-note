@@ -1,7 +1,7 @@
 """픽셀만 사용하는 고정 전처리 후보. 모델/정답/Qt는 import하지 않는다."""
 
 
-def detect_aspect(module, engine, image):
+def detect_aspect(module, engine, image, cancelled=lambda: False):
     import numpy as np
     height, width = image.shape[:2]
     ratio = min(1., module.DET_LIMIT / max(height, width))
@@ -14,7 +14,7 @@ def detect_aspect(module, engine, image):
     tensor = tensor.transpose(2, 0, 1)[None].astype(np.float32)
     prob = engine._det.run(None, {"x": tensor})[0][0, 0][:scaled_h, :scaled_w]
     boxes = []
-    for x0, y0, x1, y1, runs in module.label_components(prob > module.DET_THRESHOLD):
+    for x0, y0, x1, y1, runs in module.label_components(prob > module.DET_THRESHOLD, cancelled):
         if (x1-x0+1) * (y1-y0+1) < module.MIN_BOX_AREA:
             continue
         score = float(np.mean(np.concatenate([prob[y, a:b+1] for y, a, b in runs])))

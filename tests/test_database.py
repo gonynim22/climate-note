@@ -1308,13 +1308,15 @@ class TestExportImport:
         existing_id = db.create_focus_widget("기존 집중", "50/10")
         db.import_all_data(exported)
 
-        widgets = {w["id"]: w["goal"] for w in db.get_open_focus_widgets()}
+        assert [w["id"] for w in db.get_open_focus_widgets()] == [existing_id]
+        widgets = {w["source_id"]: w for w in json.loads(db.export_all_data())["focus_widgets"]}
         imported = next(
             s for s in db.get_focus_sessions()
             if s["goal"] == "가져올 집중"
         )
         assert existing_id == 1
-        assert widgets[imported["widget_id"]] == "가져올 집중"
+        assert widgets[imported["widget_id"]]["goal"] == "가져올 집중"
+        assert widgets[imported["widget_id"]]["is_open"] == 0
         assert imported["widget_id"] != existing_id
 
     @pytest.mark.parametrize("source_ids", ([1, 1], [0]))
@@ -1548,7 +1550,9 @@ class TestExportImport:
         assert db.get_setting(db.SETTING_APP_OPACITY) == "40"
         assert db.get_setting(db.SETTING_CALENDAR_SCALE) == "large"
         assert db.get_setting(db.SETTING_SHOW_LUNAR) == "1"
-        assert db.get_setting(db.SETTING_PRIVACY_PIN) == "0000"
+        pin = db.get_setting(db.SETTING_PRIVACY_PIN)
+        assert pin != "0000" and security.verify_privacy_pin("0000", pin)
+        assert not security.verify_privacy_pin("1234", pin)
 
     def test_import_without_settings_section_no_error(self, app_dir):
         old_json = json.dumps({

@@ -51,6 +51,8 @@
 
 ## 반드시 보존할 계약
 
+- v4.3 잠금 PIN은 4자리 입력을 유지하고 독립 salt의 PBKDF2 검증값으로 저장한다. 기존 평문 PIN은 시작 건강 검사와 비회전 보호백업 성공 후에만 승격한다. 설정에 기존 PIN을 표시하지 않으며 반복 실패 대기는 숨김/재표시로 해제하지 않는다. 승격된 잠금은 구 EXE에서 해제할 수 없다. 본문 암호화·원본 salt·DB v18·Export v3는 유지하며 상세 계약은 [아키텍처](docs/ARCHITECTURE.md)·[UI 계약](docs/UI_PATTERNS.md)을 따른다.
+
 - 최초 크기 선택(v3.8d 후속)은 건강 검사 `fresh`에서만 데스크 뷰(2026-10-05 리디자인)로 기본/중간/크게를 표시한다. 미리보기는 `ui_main` 크기 규칙을 1920×1080 화면에 적용한 실제 비율 벡터 그림이고, 화면은 시스템 테마와 무관하게 밝게 그리며, 폭 580 미만 또는 높이 370 미만은 위 크기 버튼과 아래 미리보기의 한 열 배치다. 확정 전 DB/salt/백업 미생성, X/Esc/종료 후 재표시, 확정 시 신규 DB의 기존 `calendar_scale` seed와 첫 백업/메인 반영을 유지한다. 기존 사용자·키 누락/잘못된 값·Factory Reset은 기존 경로를 유지하며 손상 데이터는 보호 오류로 차단한다. 별도 완료 키/우회 진입/재표시 예약은 없다. DB v17·Export v2·버전·Qt/lock·HWP worker 선분기를 유지한다. 상세 계약과 검증은 [UI 계약](docs/UI_PATTERNS.md), [아키텍처](docs/ARCHITECTURE.md), [작업 기록](docs/work/2026-10-04-first-run-size-setup-plan.md), [디자인 기록](docs/work/2026-10-05-first-run-desk-view-redesign.md)을 따른다.
 
 - 문서 형식 변환(v3.8d 후속)은 네 번째 미니앱이며 HWP → HWPX만 제공한다. 설치된 한글과 공식 HWPX 변환기 CLI를 각각 확인하고, HWP 5 사본을 고유 Windows Job/별도 프로세스에서 변환한다. 작업 진입점은 DB/보안/트레이 import 전에 분기하며 onefile 자식도 같은 Job 가입을 확인한다. 보호 입력 거부·출력 CRC/XML 검사·동명 비덮어쓰기와 원본/기존 결과 보존을 유지한다. 파일 선택과 드롭은 같은 경로, 숨김/잠금/초기화/종료는 소유 작업과 비동기 파일창을 취소한다. 목록/상태는 메모리 전용이고 DB v17·Export v2·salt·설정·6슬롯은 유지한다. pywin32는 기존 lock의 311을 직접 의존성으로 명시하며 Qt/lock 버전을 바꾸지 않는다. 상세 계약은 [문서 변환](docs/DOCUMENT_CONVERSION.md), 현재 검증/빌드/커밋은 [구현 기록](docs/work/2026-10-03-hwp-document-converter.md)을 따른다.
@@ -66,10 +68,10 @@
 - DB 연결은 `database._connection()`, 파일은 `with open`, 민감 본문 암호화는 `security.py`를 사용한다. `bare except`와 이유·처리 없는 `except/pass`는 금지한다.
 - 시작 전 read-only 건강 검사와 보호백업 실패 시 원본을 유지하고 시작을 중단한다. 암호문이 있는 데이터셋의 salt를 새로 만들지 않는다.
 - 자동백업은 WAL-safe DB snapshot·원본 salt·검증 manifest의 `.cnbak`이다. 당일 정상본은 덮어쓰지 않고 정상 일일 묶음만 5일 보존한다. 구형 DB 백업·마이그레이션 전·가져오기 전·초기화 전 보호본은 회전 삭제하지 않는다.
-- PC 이동은 PIN `.enc`를 사용한다. Import는 전체 사전검증 후 한 트랜잭션으로 병합하며 기존 메모·사용 중인 바로가기를 보존하고 집중 세션 ID를 remap한다. `privacy_pin`은 Export/Import에서 제외한다.
+- PC 이동은 암호화 `.enc`를 사용한다. v4.3부터 새 내보내기는 12~128자 암호를 요구하며 기존 4자리 PIN 파일 가져오기는 유지한다. Import는 전체 사전검증 후 한 트랜잭션으로 병합하며 기존 메모·사용 중인 바로가기를 보존하고 집중 세션 ID를 remap한다. 표시 상한을 넘는 새 위젯은 본문·세션을 보존한 닫힌 상태로 저장한다. `privacy_pin`은 Export/Import에서 제외한다.
 - 스티키 종료·휴지통 이동·보기 전환은 최신 원본 저장 성공 후 진행한다. `large`에서는 미니 패널이 최신 원본이며, 숨긴 플로팅 내용으로 역덮어쓰지 않는다. 저장 실패는 종료/전환 보류와 재시도로 처리한다.
 - 스티키 파일 링크는 기존 암호화 HTML의 버전 있는 내부 href에 경로·연결 환경·개별 ID·원래 밑줄만 보존한다. DB v17·Export v2·salt·설정 키·기존 메모를 일괄 변환하지 않는다. B+C 파일 라벨(옅은 배경·둥근 테두리·파일 종류 배지)과 끊김 점선/주의 아이콘은 화면 전용이며 본문·복사·Undo·저장을 바꾸지 않는다. 체크박스와 링크는 하나의 표시용 highlighter를 공유하고, 배지나 경고 문자를 문서에 삽입하지 않는다. 다른 PC는 같은 경로가 있어도 재선택 전에는 열지 않는다. 비동기 검사·파일창·메뉴는 문서 변경/잠금/숨김/폐기 때 무효화하며 외부 파일 열기는 명시적 동작과 현재 UI 수명 확인 후에만 수행한다. 상세 범위는 [UI 계약](docs/UI_PATTERNS.md)과 [데이터 계약](docs/ARCHITECTURE.md)을 따른다.
-- Export도 PIN 확인 후 `_prepare_data_change()`로 진행 중 일정·현재 모드 최신 스티키 저장을 확정한 뒤 snapshot을 읽는다. 저장 실패 시 파일 선택·출력 생성/교체를 시작하지 않는다.
+- Export도 이동 파일 암호 확인 후 `_prepare_data_change()`로 진행 중 일정·현재 모드 최신 스티키 저장을 확정한 뒤 snapshot을 읽는다. 저장 실패 시 파일 선택·출력 생성/교체를 시작하지 않는다.
 - 스티키 연결 버튼은 체인 모양의 번들 `link.svg`를 사용하며 주변 서식 QPushButton과 같은 테두리·배경·크기와 `NoFocus`를 유지한다. 선택한 텍스트 범위는 파일창을 열기 전에 복사해 고정하고, 선택 파일명으로 문구를 대체하지 않는다. 플로팅·large 패널의 실제 마우스 드래그→버튼→파일창 수락/취소·Undo를 검증한다.
 - 가져오기는 진행 중인 일정 편집 저장 → 최신 스티키 저장 성공 후 보호백업·병합한다. 이미 열린 같은 ID의 편집기·집중 타이머는 재사용하고 `large` 패널 목록도 갱신한다.
 - 초기화는 최신 저장 → 보호백업 성공 → 이전 플로팅·패널의 모든 타이머 정지와 가드 해제·객체 폐기 → DB/salt 초기화 순서다. 초기화 시도 후 실패해도 현재 DB에서 UI를 복원하며, 폐기한 객체가 새 DB에 쓰거나 다시 표시되지 않게 한다.
@@ -112,6 +114,8 @@
 - **환경 드리프트 시 실패하는 검사**: `tests/test_packaging.py::test_requirements_lock_matches_verified_direct_dependencies`. `requirements-lock.txt`는 v3.5 기준에서 v3.7 컬러 이모지 수정용 Qt 계열 4개를 6.11.2로 갱신했고, 2026-10-05 push 보안 검사 1단계에서 `defusedxml`을 추가하고 EXE에 들어가지 않는 pillow·Pygments·pytest·python-dotenv·setuptools를 취약점 해소 최소 버전으로 올린 환경 기록이다. 같은 날 2단계에서 `cryptography`만 50.0.0으로 갱신했으며, 46.0.4 고정 벡터·DB/백업/PIN 파일의 양방향 호환 검증과 EXE 전수 대조는 [2단계 기록](docs/work/2026-10-05-push-security-scan-step2.md)을 따른다. 검증 근거는 [글리프 잘림 작업 기록](docs/work/2026-09-10-schedule-emoji-glyph-clipping.md)과 [보안 검사 1단계 기록](docs/work/2026-10-05-push-security-scan-step1.md)에 남긴다. 2026-10-08 화면 글자 따기에서 `onnxruntime==1.30.0`(하위 `flatbuffers`·`protobuf`)을 직접 의존성으로 추가했다(로컬 OSV 0건, [작업 기록](docs/work/2026-10-08-screen-text-capture.md)). 로컬 venv 버전이 lock과 다르면 실패하며 lock을 임의로 갱신하지 않는다. 의존성 업그레이드는 lock 갱신 + 전체 재검증 + EXE 재빌드 + 검증 스냅샷 갱신을 한 묶음으로 처리한다. `pip install -r requirements-lock.txt`로 맞추면 통과한다.
 
 ## 기록 관리
+
+- 2026-10-18 **v4.3**: 교차검증 우선 항목의 스티키 저장 실패·크기 전환 보류, 반복 경계·조기 종료, PIN 검증값·입력 대기·긴 내보내기 암호, OCR 자원·취소, 환산 조건·가져오기 위젯 상한을 보완한다. DB v18·Export v3·본문 암호화·원본 salt·의존성은 유지한다. `privacy_pin` 기존 값은 보호백업 후 검증값으로 바뀌며 구 EXE는 이를 검증하지 못한다. 새 내보내기는 12자 이상, 기존 4자리 PIN 파일 읽기는 유지한다. 영구 계약은 [아키텍처](docs/ARCHITECTURE.md)·[UI 계약](docs/UI_PATTERNS.md)·[화면 글자 따기](docs/SCREEN_TEXT.md)·[단위 계약](docs/UNIT_CONVERSION.md), 소스 full `20261018-185354-1ba7470217` 2,857개 통과. 후속 요청으로 커밋·PowerShell 빌드 검증·main push를 진행하며 GitLab Release 게시는 사용자가 수행한다. 실제 검사·미실행·빌드 결과는 [작업 기록](docs/work/2026-10-18-v4.3-priority-fixes.md)을 따른다.
 
 - 2026-10-18 **v4.2**: 일정 세부 설정 카드를 320px Azure 머리띠·한 줄 선택 바·아이콘 라벨로 정리했다. 알림 시각 설명·짧은 기간 문구·연결된 달력 띠를 제공하고, 시계 버튼·알약·일정 목록·알림 카드와 기존 즉시 반영/키보드/팝업 수명 규칙을 유지한다. DB v18·Export v3·설정 키·salt·저장값 변경 없음. EXE `기후노트_v4.2.exe`, Windows `4.2.0.0`. 100/125/150% quick 각 323개, PowerShell release `20261018-004151-9317903930`의 2,828개·새 빌드·격리 EXE 4개 시나리오 통과. Qt DLL 15개는 환경/v4.1과 동일하며 mingw 혼입 없음. `dist/` 배치(94,131,561 bytes, SHA-256 `6A6914E0…`), 구현 `330cd34`·버전 검사 갱신 `f6f5371` main push와 서버 보안 검사 5종 통과. 영구 계약은 [UI 계약](docs/UI_PATTERNS.md), 실패·검증·해시·수동 미확인은 [작업 기록](docs/work/2026-10-18-schedule-options-card-redesign.md)을 따른다. GitLab Release 게시는 사용자가 수행한다.
 

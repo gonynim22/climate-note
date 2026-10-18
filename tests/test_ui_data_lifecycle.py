@@ -342,7 +342,7 @@ def test_export_flushes_latest_link_or_preserves_existing_backup(qtbot, app_dir,
     latest = editor.text_edit.toHtml()
     win._on_settings()
     settings = win._settings_window
-    settings.export_pin.setText('1234')
+    settings.export_pin.setText('synthetic-password-1234')
     target = app_dir / 'export.enc'
     target.write_bytes(b'existing-backup')
     dialogs = []
@@ -362,7 +362,7 @@ def test_export_flushes_latest_link_or_preserves_existing_backup(qtbot, app_dir,
         assert not dialogs and target.read_bytes() == b'existing-backup'
         assert editor.text_edit.toHtml() == latest and editor._save_timer.isActive()
     else:
-        payload = json.loads(security.decrypt_with_pin(target.read_bytes(), '1234'))
+        payload = json.loads(security.decrypt_with_pin(target.read_bytes(), 'synthetic-password-1234'))
         exported = next(n for n in payload['sticky_notes'] if n['content'] == latest)
         assert 'climatenote-file:' in exported['content']
         assert payload['format_version'] == 3

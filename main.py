@@ -26,6 +26,7 @@ from qfluentwidgets import setTheme, setThemeColor, Theme, InfoBar, InfoBarPosit
 from app_fonts import apply_app_font, load_app_fonts, load_icon_fonts, load_ui_fonts
 from app_paths import resource_root
 import database as db
+import security
 from security import audit, APP_DIR
 
 
@@ -152,6 +153,10 @@ def _initialize_database(choose_initial_scale: Callable[[], str | None] | None =
     db.backup_before_v35()
     db.backup_before_migration()
     db.migrate(initial_calendar_scale=initial_scale)
+    if security.is_legacy_privacy_pin(db.get_setting(db.SETTING_PRIVACY_PIN, "")):
+        if health.code != "fresh":
+            db.backup_before_operation("privacy_pin")
+        db.upgrade_privacy_pin()
     db.backup_database()
     # v4.0까지의 백업 검증이 데이터 폴더에 남긴 임시 짝 파일 정리 (실패해도 시작 계속)
     db.cleanup_stale_backup_sidecars()

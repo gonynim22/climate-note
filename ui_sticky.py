@@ -892,9 +892,12 @@ class StickyNoteWindow(QWidget):
         try:
             content = self.text_edit.toHtml()
             db.update_sticky_note(self.note_id, content=content)
+            self.text_edit.document().setModified(False)
             return True
         except (sqlite3.Error, OSError, ValueError) as e:
             _logger.error("스티키 노트 자동 저장 실패 (id=%s): %s", self.note_id, e)
+            self.text_edit.document().setModified(True)
+            self._save_timer.start(2000)
             return False
 
     # ─── 드래그 이동 ────────────────────────────────────────────

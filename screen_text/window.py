@@ -34,6 +34,7 @@ MESSAGES = {
     "empty": "고른 영역에서 글자를 찾지 못했습니다.",
     "model": "인식 모델을 확인하지 못했습니다.",
     "failed": "글자를 읽지 못했습니다. 다시 시도해 주세요.",
+    "limit": "한 번에 읽기에는 영역이 너무 크거나 가늘고 깁니다. 영역을 나누어 다시 골라 주세요.",
 }
 STYLE = """
     QWidget { color:#253447; }
@@ -449,14 +450,19 @@ class ScreenTextWindow(QWidget):
 
     def _engine_for_work(self, event):
         """모델 만들기는 느려서 잠금 밖에서 한다. 잠금을 쥔 채면 창 닫기(모델 내리기)가 멈춘다."""
+        from screen_text.engine import RecognitionCancelled
+        if event.is_set():
+            raise RecognitionCancelled
         with self._engine_lock:
             engine = self._engine
         if engine is not None:
             return engine
+        if event.is_set():
+            raise RecognitionCancelled
         built = self._engine_factory()
         with self._engine_lock:
             if event.is_set():
-                return built  # 그 사이 취소·닫힘: 이번 실행에만 쓰고 보관하지 않는다
+                raise RecognitionCancelled  # 그 사이 닫힘: 보관·검출 없이 버린다
             if self._engine is None:
                 self._engine = built
             return self._engine
@@ -464,7 +470,7 @@ class ScreenTextWindow(QWidget):
     def _work(self, generation, buffer, event):
         """작업 스레드. Qt 위젯을 만지지 않고 신호로만 결과를 보낸다."""
         try:
-            from screen_text.engine import ModelIntegrityError, RecognitionCancelled, rgb_from_buffer
+            from screen_text.engine import ModelIntegrityError, RecognitionCancelled, RecognitionLimitError, rgb_from_buffer
         except ImportError as error:  # except 절이 쓸 이름이 없으므로 따로 처리한다
             _logger.error("화면 글자 인식 모듈 불러오기 실패: %s", type(error).__name__)
             _emit(self._bridge.failed, generation, "model")
@@ -472,6 +478,9 @@ class ScreenTextWindow(QWidget):
         try:
             boxes = self._engine_for_work(event).recognize(rgb_from_buffer(*buffer), event.is_set)
         except RecognitionCancelled:
+            return
+        except RecognitionLimitError:
+            _emit(self._bridge.failed, generation, "limit")
             return
         except ModelIntegrityError:
             _emit(self._bridge.failed, generation, "model")

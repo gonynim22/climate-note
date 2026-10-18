@@ -133,6 +133,12 @@ def test_boxes_are_in_original_image_coordinates(qapp, ocr):
     assert next(b for b in boxes if b.text == "대전").x < 170
 
 
+def test_long_line_remains_readable_with_bounded_batches(qapp, ocr):
+    sentence = "환경 점검 결과 알림 " * 4
+    found = ocr.recognize(render([sentence], 16, width=1000))
+    assert "".join(item.text.replace(" ", "") for item in found) == sentence.replace(" ", "")
+
+
 def test_large_image_is_downscaled_and_mapped_back(qapp, ocr):
     font = QFont("Malgun Gothic")
     font.setPixelSize(80)

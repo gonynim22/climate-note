@@ -6,7 +6,7 @@ Job handle이 닫히면 그 launcher와 자식 EXE만 종료된다. 앱 모듈 i
 """
 
 import argparse
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import ctypes
 from ctypes import wintypes as W
 from datetime import date
@@ -249,6 +249,7 @@ def _data_worker(action, data_root, result_path):
         if db.DB_FILE.exists():
             raise ValueError("새 합성 데이터 폴더만 초기화할 수 있습니다.")
         db.migrate()
+        db.upgrade_privacy_pin()  # 현재 버전 기존 데이터 시나리오는 승격이 끝난 상태로 시작.
         day = date.today().isoformat()
         for color, _ in db.SCHEDULE_COLORS:
             db.add_schedule(day, "하네스 합성 일정 " + color, color)
@@ -323,7 +324,20 @@ def _data_worker(action, data_root, result_path):
         health = db.inspect_startup_data_health()
         if not health.ok:
             raise ValueError(f"업그레이드 뒤 데이터 건강 검사 실패: {health.code}")
-        result = _original_columns_snapshot(db.DB_FILE)
+        if health.version != db.CURRENT_SCHEMA_VERSION:
+            raise ValueError("업그레이드 뒤 DB 버전이 최신이 아닙니다.")
+        snapshot = db.APP_DIR / "backups" / "calendar_pre_v18_v17.db"
+        if not snapshot.is_file():
+            raise ValueError("마이그레이션 전 스냅샷이 없습니다.")
+        with closing(sqlite3.connect(f"{snapshot.as_uri()}?mode=ro", uri=True)) as original:
+            previous_pin = original.execute(
+                "SELECT value FROM app_settings WHERE key='privacy_pin'").fetchone()[0]
+        stored_pin = db.get_setting(db.SETTING_PRIVACY_PIN)
+        if security.is_legacy_privacy_pin(stored_pin) or not security.verify_privacy_pin(previous_pin, stored_pin):
+            raise ValueError("기존 PIN의 검증값 승격을 확인하지 못했습니다.")
+        # 검증한 PIN 값만 이전 값으로 정규화한다. 나머지 모든 열/설정은 원문 해시 대조.
+        result = _original_columns_snapshot(db.DB_FILE, privacy_pin=previous_pin)
+        result["privacy_pin_upgraded"] = True
         if result["version"] != db.CURRENT_SCHEMA_VERSION:
             raise ValueError("업그레이드 뒤 DB 버전이 최신이 아닙니다.")
         with db._connection(read_only=True, enable_wal=False) as conn:
@@ -369,7 +383,7 @@ V18_COLUMNS = ("start_time", "end_date", "repeat_rule", "repeat_until", "repeat_
 V17_FIXTURE = ROOT / "tests" / "fixtures" / "schema_v17.sql"
 
 
-def _original_columns_snapshot(path):
+def _original_columns_snapshot(path, *, privacy_pin=None):
     """모든 표의 v17 열 값 해시(v18 새 열 제외)와 user_version."""
     boundary = inside(ROOT / "output" / "harness", ROOT)
     resolved = inside(path, boundary)
@@ -383,6 +397,10 @@ def _original_columns_snapshot(path):
             columns = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")
                        if row[1] not in V18_COLUMNS]
             rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY rowid").fetchall()
+            if table == "app_settings" and privacy_pin is not None:
+                key_index, value_index = columns.index("key"), columns.index("value")
+                rows = [tuple(privacy_pin if row[key_index] == "privacy_pin" and i == value_index else value
+                              for i, value in enumerate(row)) for row in rows]
             hashes[table] = hashlib.sha256(
                 json.dumps(rows, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
         version = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -395,6 +413,8 @@ def _check_upgrade(seeded, after):
     """업그레이드 뒤 값·스냅샷·salt·무결성·오류 로그가 시작 전과 같은지 검사한다."""
     if after["tables"] != seeded["tables"]:
         raise ValueError("업그레이드가 기존 값을 바꿨습니다.")
+    if after.get("privacy_pin_upgraded") is not True:
+        raise ValueError("기존 PIN의 검증값 승격을 확인하지 못했습니다.")
     if after["pre_snapshot"] != {"tables": seeded["tables"], "version": 17}:
         raise ValueError("마이그레이션 전 스냅샷이 원본과 다릅니다.")
     if after["salt_sha256"] != seeded["salt_sha256"]:

@@ -135,7 +135,7 @@ def test_adapter_records_inputs_and_worker_metadata_without_ground_truth(tmp_pat
     class Session:
         def run(self,_,feed): return [np.array([[[.01,.98,.01]]],dtype=np.float32)]
     engine=object.__new__(module.OcrEngine);engine._charset=['a','b'];engine._rec=Session()
-    engine._detect=lambda image:[[0,0,20,10]]
+    engine._detect=lambda image, cancelled=lambda: False:[[0,0,20,10]]
     info={'id':'product','input_height':48,'input_channels':3,'model_bytes':1,'charset_size':2}
     monkeypatch.setattr(recognizers,'create_engine',lambda name,threads:(engine,entry(),info))
     adapter=ProductEngine(recognizer='product',input_profile='pad-2')

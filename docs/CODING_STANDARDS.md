@@ -81,6 +81,7 @@ def get_hash_from_pwd(pw):
 - SHA-256은 키 재료 생성 보조 용도로만 사용하며, 패스워드 직접 저장에는 절대 사용하지 않음
 - 새로운 해시 처리 코드 작성 시 반드시 `secrets.token_bytes(32)` 이상의 Salt 포함
 - PIN 저장 시: 평문 저장 금지. 반드시 Salt + PBKDF2HMAC 또는 Fernet 암호화 사용
+  - v4.3은 독립 random salt + 버전 있는 PBKDF2 검증값과 상수 시간 비교를 사용한다. 기존 평문 PIN은 보호백업 성공 후 승격하며 기존 백업을 삭제하지 않는다. 신규 이동 파일은 12자 이상 암호를 사용하고, 구 4자리 PIN 파일 읽기는 유지한다. 저장/호환 계약은 [아키텍처](ARCHITECTURE.md), 잠금 입력 대기는 [UI 계약](UI_PATTERNS.md)을 따른다.
 
 ---
 

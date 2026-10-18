@@ -146,7 +146,7 @@ def test_shared_detector_reader_restores_on_success_failure_cancel(monkeypatch, 
     from tools.screen_text_lab.disagreement_benchmark import recognize_pair
     engine = object.__new__(module.OcrEngine)
     calls = []
-    engine._detect = lambda rgb: calls.append('detect') or [(0, 0, 20, 10)]
+    engine._detect = lambda rgb, cancelled=lambda: False: calls.append('detect') or [(0, 0, 20, 10)]
     original = lambda rgb, boxes, cancel: [('커및', .99)]
     engine._read = original
     def second(module, owner, rgb, boxes, cancel, entry, profile):
@@ -266,7 +266,7 @@ def test_benchmark_worker_isolated_and_prediction_only(tmp_path, monkeypatch):
     monkeypatch.setattr(verify, 'ROOT', tmp_path)
     monkeypatch.setenv('CLIMATENOTE_TEST_APPDATA', str(directory / 'appdata'))
     engine = object.__new__(module.OcrEngine)
-    engine._detect = lambda rgb: [(0, 0, 20, 10)]
+    engine._detect = lambda rgb, cancelled=lambda: False: [(0, 0, 20, 10)]
     engine._read = lambda rgb, boxes, cancel: [('ab', .99)]
     monkeypatch.setattr(module, 'OcrEngine', lambda threads: engine)
     monkeypatch.setattr(recognizers, 'read_regions', lambda *args: [('ax', .98)])

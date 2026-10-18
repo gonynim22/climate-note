@@ -20,6 +20,7 @@
 - 글자 탭의 불확실 표시는 칸마다 따로 위치 커서로 추적한다. 칸 끝에서 공백·마침표·Enter를 입력해도 표시 범위는 늘지 않으며, 칸의 글자를 실제로 고쳐야 표시가 풀린다.
 
 ## 엔진
+- v4.3 자원 제한: 인식용 상자는 최대 512개, 높이 48px로 환산한 폭은 최대 4096px, 배치의 `최대 폭 × 상자 수`는 8192 이하(상자 수 최대 6)다. 모든 crop을 먼저 만들지 않고 현재 배치만 변환한다. 상한 초과 시 문장을 압축하거나 일부만 성공 처리하지 않고 영역을 나눠 선택하도록 안내하며 이전 결과를 보존한다. 모델 생성 전·검출 전·연결요소 행 처리·인식 배치 사이에 취소를 확인한다. 이미 실행 중인 ONNX 호출을 강제 중단하지는 않는다. 모델/사전/해시는 변경하지 않는다.
 - 모델·사전·런타임 고지 목록은 `screen_text/licenses/components.json`에 두고 설정 → 라이선스에서 원문을 읽는다. PaddleOCR 원저작권을 보존한 `models/LICENSE`, 원 모델/변환본/고정 리비전/변경 여부를 구분한 `licenses/MODEL-ATTRIBUTION.txt`, ONNX Runtime/NumPy 원문을 함께 번들한다. 폴더가 없으면 목록과 원문도 함께 제외한다. 고지 정비로 모델·사전·MANIFEST 해시나 인식 동작을 바꾸지 않는다.
 - PP-OCRv3 mobile det + korean PP-OCRv5 mobile rec ONNX(Apache-2.0), onnxruntime CPU, numpy만 사용한다. 모델은 `screen_text/models/MANIFEST.json`의 크기·SHA-256이 맞을 때만 불러온다.
 - 2026-10-11 사용자 결정: 검증한 표 구성 개선을 적용하고 현재 소형 인식 모델을 유지한다. 추가 학습 후보는 실제 자료의 새 오독으로 미채택했으며 추가 학습을 보류한다. 실험 도구·자료·후보 모델은 제품에 포함하지 않는다. 적용/EXE 검증은 [빌드 기록](work/2026-10-11-screen-text-table-build.md), 미채택 근거는 [학습 기록](work/2026-10-11-screen-text-diverse-training.md)을 따른다.

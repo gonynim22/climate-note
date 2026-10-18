@@ -59,8 +59,8 @@ class ScheduleOptions:
         return self == ScheduleOptions()
 
     @classmethod
-    def from_row(cls, row) -> "ScheduleOptions":
-        """DB 행(sqlite3.Row·dict)을 관대하게 읽는다. 규칙에 어긋난 값은 기본값처럼 다룬다."""
+    def from_row(cls, row, *, normalize_relations=True) -> "ScheduleOptions":
+        """DB 행을 관대하게 읽는다. Export는 별도 후보 정책을 위해 필드 간 정리를 미룬다."""
         def text(name: str) -> str:
             value = row[name]
             return value if isinstance(value, str) else ""
@@ -83,11 +83,20 @@ class ScheduleOptions:
         row_date = valid_date(text("date")) if "date" in row.keys() else ""
         if end_date and row_date and end_date <= row_date:
             end_date = ""
+        rule = rule if rule in REPEAT_RULES else ""
+        until = valid_date(text("repeat_until"))
+        if normalize_relations:
+            if until and row_date and until < row_date:
+                rule, until = "", ""
+            if rule:
+                end_date = ""
+            else:
+                until = ""
         return cls(
             start_time=start_time,
             end_date=end_date,
-            repeat_rule=rule if rule in REPEAT_RULES else "",
-            repeat_until=valid_date(text("repeat_until")),
+            repeat_rule=rule,
+            repeat_until=until,
             repeat_skip=tuple(day for day in text("repeat_skip").split(",") if valid_date(day)),
             alarm_before=alarm if type(alarm) is int and alarm in allowed else None,
         )
@@ -150,52 +159,67 @@ def _clamped(year: int, month: int, day: int) -> date:
 
 def occurrence_dates(start: str, options: ScheduleOptions, first: date, last: date) -> list[date]:
     """[first, last] 안에서 일정이 나타나는 날짜(오름차순)."""
+    return list(iter_occurrence_dates(start, options, first, last))
+
+
+def iter_occurrence_dates(start: str, options: ScheduleOptions, first: date, last: date):
+    """날짜 상한을 넘지 않고 순서대로 생성한다. 존재 확인은 첫 항목에서 멈출 수 있다."""
     if last < first:
-        return []
+        return
     begin = parse_date(start)
     if options.end_date:
         end = parse_date(options.end_date)
         low, high = max(begin, first), min(end, last)
-        return [low + timedelta(days=i) for i in range((high - low).days + 1)] if low <= high else []
+        for i in range(max(0, (high - low).days + 1)):
+            yield low + timedelta(days=i)
+        return
     rule = options.repeat_rule
     if not rule:
-        return [begin] if first <= begin <= last else []
+        if first <= begin <= last:
+            yield begin
+        return
     stop = min(last, parse_date(options.repeat_until)) if options.repeat_until else last
     low = max(begin, first)
     if low > stop:
-        return []
-    result: list[date] = []
+        return
+    skips = set(options.repeat_skip)
     if rule in ("daily", "weekdays"):
         day = low
         while day <= stop:
-            if rule == "daily" or day.weekday() < 5:
-                result.append(day)
+            if (rule == "daily" or day.weekday() < 5) and day.isoformat() not in skips:
+                yield day
+            if day == stop:
+                break
             day += timedelta(days=1)
     elif rule == "weekly":
-        day = low + timedelta(days=(begin.weekday() - low.weekday()) % 7)
+        offset = (begin.weekday() - low.weekday()) % 7
+        if offset > (stop - low).days:
+            return
+        day = low + timedelta(days=offset)
         while day <= stop:
-            result.append(day)
+            if day.isoformat() not in skips:
+                yield day
+            if (stop - day).days < 7:
+                break
             day += timedelta(days=7)
     elif rule == "monthly":
         year, month = low.year, low.month
-        while True:
+        while (year, month) <= (stop.year, stop.month):
             day = _clamped(year, month, begin.day)
             if day > stop:
                 break
-            if day >= low:
-                result.append(day)
+            if day >= low and day.isoformat() not in skips:
+                yield day
             year, month = (year + 1, 1) if month == 12 else (year, month + 1)
     elif rule == "yearly":
         year = low.year
-        while True:
+        while year <= stop.year:
             day = _clamped(year, begin.month, begin.day)
             if day > stop:
                 break
-            if day >= low:
-                result.append(day)
+            if day >= low and day.isoformat() not in skips:
+                yield day
             year += 1
-    skips = set(options.repeat_skip)
-    return [day for day in result if day.isoformat() not in skips]
 
 
 def occurs_on(start: str, options: ScheduleOptions, day: date) -> bool:
@@ -220,15 +244,18 @@ def alarm_times(start: str, options: ScheduleOptions, after: datetime, until: da
     if options.alarm_before is None or until <= after:
         return []
     shift = timedelta(minutes=options.alarm_before)
-    first = (after + shift).date() - timedelta(days=1)
-    last = (until + shift).date() + timedelta(days=1)
+    first = date.fromordinal(max(date.min.toordinal(), after.date().toordinal() - 1))
+    last = date.fromordinal(min(date.max.toordinal(), until.date().toordinal() + 2))
     days_found = occurrence_dates(start, options, first, last)
     if options.end_date:
         begin = parse_date(start)
         days_found = [day for day in days_found if day == begin]
     result = []
     for day in days_found:
-        due = alarm_base(day, options) - shift
+        base = alarm_base(day, options)
+        if base - datetime.min < shift:
+            continue
+        due = base - shift
         if after < due <= until:
             result.append((day, due))
     return result

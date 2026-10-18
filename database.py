@@ -10,13 +10,13 @@ import zipfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet, InvalidToken
 import security
 from app_info import APP_VERSION
 from schedule_rules import (
-    AlarmItem, ScheduleOptions, alarm_times, occurrence_dates, occurrence_sort_key,
+    AlarmItem, ScheduleOptions, alarm_times, occurrence_dates, occurrence_sort_key, iter_occurrence_dates,
     parse_date, validate_options,
 )
 from security import APP_DIR, encrypt, decrypt, legacy_decrypt, audit, validate_app_path
@@ -1085,8 +1085,8 @@ def skip_schedule_occurrence(schedule_id: int, day: str) -> None:
         if not occurrence_dates(row["date"], options, target, target):
             raise ValueError("그 날에는 이 일정이 없습니다.")
         updated = validate_options(row["date"], replace(options, repeat_skip=options.repeat_skip + (day,)))
-        if updated.repeat_until and not occurrence_dates(
-                row["date"], updated, parse_date(row["date"]), parse_date(updated.repeat_until)):
+        if updated.repeat_until and next(iter_occurrence_dates(
+                row["date"], updated, parse_date(row["date"]), parse_date(updated.repeat_until)), None) is None:
             conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
         else:
             conn.execute(
@@ -1100,8 +1100,8 @@ def get_alarm_occurrences(after: datetime, until: datetime) -> list[AlarmItem]:
     """after < 알림 ≤ until 인 알림을 알림 시각·ID 순으로 반환한다."""
     if until <= after:
         return []
-    first = (after.date() - timedelta(days=1)).isoformat()
-    last = (until.date() + timedelta(days=2)).isoformat()
+    first = date.fromordinal(max(date.min.toordinal(), after.date().toordinal() - 1)).isoformat()
+    last = date.fromordinal(min(date.max.toordinal(), until.date().toordinal() + 2)).isoformat()
     with _connection() as conn:
         rows = _candidate_rows(conn, first, last, _ALARM_ONLY)
     items = []
@@ -1568,11 +1568,11 @@ def get_focus_sessions() -> list[dict]:
 def _export_options(row) -> ScheduleOptions:
     """내보낼 일정 세부 설정. 저장값이 서로 어긋나 가져오기 검증을 넘지 못하면 덜 해치는 쪽으로 낮춘다.
 
-    from_row는 필드마다 따로 정리하므로 여러 필드에 걸친 규칙(기간+반복, 반복 없는 끝 날짜 등)은
-    검사하지 못한다. 그런 행 하나가 백업 파일 전체를 가져올 수 없게 만들지 않도록, 가져오기와
+    표시용 fallback과 별개로 필드마다 정리한 뒤 여러 필드에 걸친 규칙을 검사한다.
+    그런 행 하나가 백업 파일 전체를 가져올 수 없게 만들지 않도록, 가져오기와
     같은 validate_options를 통과하는 첫 후보를 쓴다. DB는 바꾸지 않는다.
     """
-    options = ScheduleOptions.from_row(row)
+    options = ScheduleOptions.from_row(row, normalize_relations=False)
     candidates = (
         options,
         replace(options, repeat_skip=()),
@@ -1945,7 +1945,7 @@ def _validate_import_payload(data) -> dict:
     return validated
 
 
-def import_all_data(json_str: str) -> None:
+def import_all_data(json_str: str) -> dict[str, int]:
     """검증된 JSON을 기존 DB에 병합하고 privacy_pin 외 설정도 복원.
 
     날짜가 같은 메모는 현재 DB 값을 우선한다. 안정적인 원본 식별자가 없는
@@ -1955,6 +1955,24 @@ def import_all_data(json_str: str) -> None:
     data = _validate_import_payload(json.loads(json_str))
     with _connection() as conn:
         now = _now_str()
+        # 기존 위젯을 우선한다. 초과한 새 행도 삭제하지 않고 닫힌 상태로 보관한다.
+        limits = {"sticky_notes": 10, "dday_widgets": 5, "focus_widgets": 1}
+        counts = {
+            table: conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE is_open=1"  # 고정된 내부 표 이름
+                + (" AND is_deleted=0" if table == "sticky_notes" else "")
+            ).fetchone()[0] for table in limits
+        }
+        limited = {table: 0 for table in limits}
+
+        def imported_open(table, requested, deleted=False):
+            if not requested or deleted:
+                return requested
+            if counts[table] >= limits[table]:
+                limited[table] += 1
+                return 0
+            counts[table] += 1
+            return 1
 
         for s in data.get("schedules", []):
             options = _import_options(s) if data["format_version"] >= 3 else ScheduleOptions()
@@ -1986,7 +2004,7 @@ def import_all_data(json_str: str) -> None:
                     color, is_deleted, deleted_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (n["type"], encrypt(n.get("content", "")), n["x_pos"], n["y_pos"],
-                 n["width"], n["height"], n["is_open"], n["is_pinned"],
+                  n["width"], n["height"], imported_open("sticky_notes", n["is_open"], n.get("is_deleted", 0)), n["is_pinned"],
                  n.get("color", DEFAULT_STICKY_COLOR),
                  n.get("is_deleted", 0), n.get("deleted_at", ""))
             )
@@ -1998,7 +2016,7 @@ def import_all_data(json_str: str) -> None:
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (encrypt(d.get("name", "")), d["target_date"],
                  d.get("x_pos", 100), d.get("y_pos", 100),
-                 d.get("is_open", 1), d.get("color", DEFAULT_DDAY_COLOR))
+                  imported_open("dday_widgets", d.get("is_open", 1)), d.get("color", DEFAULT_DDAY_COLOR))
             )
 
         focus_id_map: dict[int, int] = {}
@@ -2015,7 +2033,7 @@ def import_all_data(json_str: str) -> None:
                     f.get("focus_minutes", default_focus),
                     f.get("break_minutes", default_break),
                     f.get("x_pos", 160), f.get("y_pos", 160),
-                    f.get("is_open", 1), f.get("is_pinned", 0),
+                    imported_open("focus_widgets", f.get("is_open", 1)), f.get("is_pinned", 0),
                     f.get("created_at", now),
                 )
             )
@@ -2080,6 +2098,9 @@ def import_all_data(json_str: str) -> None:
         conn.commit()
 
 
+    return limited
+
+
 # ─── Shortcuts CRUD ──────────────────────────────────────────
 def get_shortcuts() -> list[dict]:
     with _connection() as conn:
@@ -2114,6 +2135,19 @@ def save_settings(values: dict[str, str]) -> None:
             values.items(),
         )
         conn.commit()
+
+
+def upgrade_privacy_pin() -> bool:
+    """기존 PIN만 같은 키의 검증값으로 옮긴다. 다른 설정·본문·salt는 바꾸지 않는다."""
+    with _connection() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key=?", (SETTING_PRIVACY_PIN,)).fetchone()
+        if row is None or not security.is_legacy_privacy_pin(row[0]):
+            return False
+        hashed = security.hash_privacy_pin(row[0])
+        conn.execute("UPDATE app_settings SET value=? WHERE key=? AND value=?",
+                     (hashed, SETTING_PRIVACY_PIN, row[0]))
+        conn.commit()
+    return True
 
 
 # ─── Maintenance & Backup ─────────────────────────────────────
@@ -2431,7 +2465,7 @@ def backup_before_v35() -> bool:
 
 def backup_before_operation(operation: str) -> bool:
     """가져오기·초기화 전에 회전하지 않는 현재 상태 묶음을 만든다."""
-    if operation not in {"import", "reset"}:
+    if operation not in {"import", "reset", "privacy_pin"}:
         raise ValueError("지원하지 않는 보호 백업 작업입니다.")
     if not DB_FILE.exists():
         return True
@@ -2596,3 +2630,4 @@ def reset_database() -> None:
     if DB_FILE.exists():
         DB_FILE.unlink()
     migrate(initial_calendar_scale=DEFAULT_CALENDAR_SCALE)
+    upgrade_privacy_pin()

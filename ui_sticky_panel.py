@@ -107,14 +107,17 @@ class StickyMiniCard(QWidget):
             return False
         try:
             db.update_sticky_note(self.note_id, content=self.text_edit.toHtml())
+            self.text_edit.document().setModified(False)
             return True
         except (sqlite3.Error, OSError, ValueError) as e:
             _logger.error("미니 스티키 저장 실패 (id=%s): %s", self.note_id, e)
+            self.text_edit.document().setModified(True)
+            self._save_timer.start(2000)
             return False
 
     def flush_pending_save(self) -> bool:
         """디바운스 중인 편집만 즉시 저장한다."""
-        if not self._save_timer.isActive():
+        if not self._save_timer.isActive() and not self.text_edit.document().isModified():
             return True
         self._save_timer.stop()
         if self._auto_save():

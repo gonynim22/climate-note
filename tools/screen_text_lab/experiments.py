@@ -83,7 +83,7 @@ def observe_engine(module, engine, candidate, capture_boxes=False):
             saved_methods[name] = engine.__dict__.get(name, missing)
             if name == "_detect" and settings.get("detect") == "aspect":
                 from .preprocessing import detect_aspect
-                original = lambda image: detect_aspect(module, engine, image)
+                original = lambda image, cancelled=lambda: False: detect_aspect(module, engine, image, cancelled)
             if name == "_read" and "read" in settings:
                 from .preprocessing import read_padded, read_selective
                 if settings["read"] == "selective":

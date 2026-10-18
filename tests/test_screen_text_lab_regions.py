@@ -94,7 +94,7 @@ def test_adapter_keeps_baseline_prediction_and_time_separate_from_extra_calls(tm
     from PIL import Image
     from screen_text.engine import OcrEngine
     engine = object.__new__(OcrEngine)
-    engine._detect = lambda image: [[0, 1, 10, 12], [15, 1, 29, 12]]
+    engine._detect = lambda image, cancelled=lambda: False: [[0, 1, 10, 12], [15, 1, 29, 12]]
     calls = []
     def read(image, boxes, cancelled):
         calls.append(copy.deepcopy(boxes))

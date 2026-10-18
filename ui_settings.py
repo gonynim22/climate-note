@@ -8,6 +8,7 @@ import tempfile
 import winreg
 from pathlib import Path
 from datetime import datetime
+from cryptography.fernet import InvalidToken
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog, QLineEdit, QApplication,
@@ -36,6 +37,7 @@ from screen_placement import decode_screen, describe_screen, encode_screen, matc
 import database as db
 from security import (
     encrypt_with_pin, decrypt_with_pin, audit, APP_DIR, reset_salt,
+    hash_privacy_pin, MIN_EXPORT_PASSWORD_LENGTH,
 )
 
 # ─── 시안 A 디자인 토큰 ────────────────────────────────────────
@@ -253,12 +255,13 @@ class CalendarSizePicker(QWidget):
         for value, opt in self._options.items():
             opt.set_selected(value == self._current)
 
-    def select(self, value: str) -> None:
+    def select(self, value: str, *, emit: bool = True) -> None:
         if value not in self._options:
             return
         self._current = value
         self._apply_highlight()
-        self.scaleChanged.emit(value)
+        if emit:
+            self.scaleChanged.emit(value)
 
     def current_scale(self) -> str:
         return self._current
@@ -551,13 +554,15 @@ class SettingsWindow(QWidget):
             "PushButton#outlineBtn:pressed{background:#DCE8FF;}")
         return btn
 
-    def _pin_edit(self) -> LineEdit:
+    def _pin_edit(self, *, importing=False) -> LineEdit:
         # 좁은 가운데 정렬 'PIN'은 버튼처럼 보여 입력칸 모양으로 넓힌다(디자인 점검 18번).
         edit = LineEdit(self)
-        edit.setPlaceholderText("PIN 4자리")
+        edit.setPlaceholderText("암호 / 이전 PIN" if importing else "암호 12자 이상")
         edit.setEchoMode(QLineEdit.Password)
-        edit.setMaxLength(4)
+        edit.setMaxLength(128)
         edit.setFixedWidth(110)
+        edit.setToolTip("파일을 만들 때 사용한 암호 또는 이전 파일의 4자리 PIN" if importing
+                        else "12자 이상의 긴 암호를 입력하세요. 새 파일은 v4.3 이상에서 가져올 수 있습니다.")
         edit.setStyleSheet("LineEdit{font-size:13px;}")  # 타입 스코프(컨텍스트 메뉴 전파 방지)
         return edit
 
@@ -573,6 +578,14 @@ class SettingsWindow(QWidget):
             )
             return False
         return True
+
+    def _validate_transfer_password(self, password: str, *, importing=False) -> bool:
+        legacy = importing and len(password) == 4 and password.isdigit()
+        if legacy or (MIN_EXPORT_PASSWORD_LENGTH <= len(password) <= 128 and password.strip()):
+            return True
+        InfoBar.warning(title="암호 확인", content=("12자 이상의 암호 또는 이전 파일의 4자리 PIN을 입력해 주세요."
+                        if importing else "내보내기 파일을 보호할 12자 이상의 긴 암호를 입력해 주세요."), parent=self)
+        return False
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
@@ -728,7 +741,7 @@ class SettingsWindow(QWidget):
         import_row = QHBoxLayout(import_control)
         import_row.setContentsMargins(0, 0, 0, 0)
         import_row.setSpacing(8)
-        self.import_pin = self._pin_edit()
+        self.import_pin = self._pin_edit(importing=True)
         import_row.addWidget(self.import_pin)
         import_button = self._outline_blue_button("실행")
         import_button.clicked.connect(self._on_import)
@@ -766,8 +779,9 @@ class SettingsWindow(QWidget):
         pin_layout.setContentsMargins(0, 0, 0, 0)
         pin_layout.setSpacing(6)
         self.privacy_pin_edit = LineEdit(self)
-        self.privacy_pin_edit.setPlaceholderText("PIN")
-        self.privacy_pin_edit.setText(db.get_setting(db.SETTING_PRIVACY_PIN, "0000"))
+        self.privacy_pin_edit.setPlaceholderText("새 PIN")
+        self.privacy_pin_edit.setEchoMode(QLineEdit.Password)
+        self.privacy_pin_edit.setToolTip("초기 PIN은 0000입니다. 새 4자리 PIN을 입력하고 저장하세요. 기존 PIN은 표시하지 않습니다.")
         self.privacy_pin_edit.setMaxLength(4)
         self.privacy_pin_edit.setFixedWidth(60)
         self.privacy_pin_edit.setAlignment(Qt.AlignCenter)
@@ -902,9 +916,15 @@ class SettingsWindow(QWidget):
     def _on_scale_changed(self, scale: str):
         if not scale:
             return
-        db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
-        if self.on_scale_changed:
-            self.on_scale_changed()
+        previous = db.get_setting(db.SETTING_CALENDAR_SCALE, db.DEFAULT_CALENDAR_SCALE)
+        try:
+            db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
+            if self.on_scale_changed and self.on_scale_changed() is False:
+                self.scale_picker.select(previous, emit=False)
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            self.scale_picker.select(previous, emit=False)
+            audit("캘린더 크기 변경", f"실패: {type(exc).__name__}")
+            InfoBar.error(title="크기 변경 보류", content="설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.", parent=self)
 
     def _on_schedule_colors_changed(self, colors) -> None:
         try:
@@ -987,8 +1007,8 @@ class SettingsWindow(QWidget):
     def _on_export(self):
         if not self.isEnabled():
             return
-        pin = self.export_pin.text().strip()
-        if not self._validate_pin(pin):
+        pin = self.export_pin.text()
+        if not self._validate_transfer_password(pin):
             return
         if not self._prepare_data_change():
             return
@@ -1057,8 +1077,8 @@ class SettingsWindow(QWidget):
     def _on_import(self):
         if not self.isEnabled():
             return
-        pin = self.import_pin.text().strip()
-        if not self._validate_pin(pin):
+        pin = self.import_pin.text()
+        if not self._validate_transfer_password(pin, importing=True):
             return
 
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1076,7 +1096,7 @@ class SettingsWindow(QWidget):
             if not self._prepare_data_change():
                 return
             db.backup_before_operation("import")
-            db.import_all_data(json_bytes.decode("utf-8"))
+            limited = db.import_all_data(json_bytes.decode("utf-8")) or {}
             imported_palette = db.get_schedule_palette()
             self._saved_schedule_colors = imported_palette
             self.schedule_color_picker.set_colors(imported_palette)
@@ -1086,6 +1106,8 @@ class SettingsWindow(QWidget):
                 content=(
                     "데이터를 병합했습니다. 같은 파일을 반복해서 가져오면 "
                     "일정·위젯이 중복될 수 있습니다."
+                    + (f" 표시 상한을 넘은 새 위젯 {sum(limited.values())}개는 데이터를 보존하고 닫힌 상태로 가져왔습니다."
+                       if any(limited.values()) else "")
                 ),
                 parent=self,
                 position=InfoBarPosition.TOP,
@@ -1095,13 +1117,13 @@ class SettingsWindow(QWidget):
             if self.on_import_callback:
                 self.on_import_callback()
         except (
-            OSError, ValueError, TypeError, sqlite3.Error, KeyError,
+            OSError, ValueError, TypeError, sqlite3.Error, KeyError, InvalidToken,
             AttributeError, db.DataHealthError,
         ) as e:
             audit("데이터 가져오기", f"실패: {e}")
             InfoBar.error(
                 title="가져오기 실패",
-                content="PIN이 틀렸거나 파일이 손상되었거나 데이터 병합에 실패했습니다.",
+                content="암호가 틀렸거나 파일이 손상되었거나 데이터 병합에 실패했습니다.",
                 parent=self,
                 position=InfoBarPosition.TOP,
                 duration=3000,
@@ -1160,7 +1182,13 @@ class SettingsWindow(QWidget):
         pin = self.privacy_pin_edit.text().strip()
         if not self._validate_pin(pin):
             return
-        db.save_setting(db.SETTING_PRIVACY_PIN, pin)
+        try:
+            db.save_setting(db.SETTING_PRIVACY_PIN, hash_privacy_pin(pin))
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            audit("잠금 PIN 변경", f"실패: {type(exc).__name__}")
+            InfoBar.error(title="저장 실패", content="PIN을 저장하지 못했습니다. 다시 시도해 주세요.", parent=self)
+            return
+        self.privacy_pin_edit.clear()
         InfoBar.success(title="저장됨", content="잠금 PIN이 변경되었습니다.", parent=self)
 
     def _on_privacy_lock_toggled(self, checked: bool):

@@ -80,7 +80,7 @@ def fake_adapter():
             return [np.eye(3,dtype=np.float32)[[[1,1,0,1,2,2,0,2], [2,2,0,2,0,0,0,0]]]]
     engine = object.__new__(OcrEngine)
     engine._rec,engine._charset = Session(), ['#','s']
-    engine._detect = lambda image: [[20,0,40,10],[0,0,10,10]]
+    engine._detect = lambda image, cancelled=lambda: False: [[20,0,40,10],[0,0,10,10]]
     adapter = object.__new__(ProductEngine)
     adapter.engine, adapter.candidate = engine, 'baseline'
     case = {'case_id':'ctc','source_group_id':'ctc','source_kind':'synthetic','split':'dev',

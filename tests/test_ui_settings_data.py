@@ -17,9 +17,9 @@ def test_pin_fields_look_like_inputs(qtbot, app_dir):
     win = _window(qtbot)
     for edit in (win.export_pin, win.import_pin):
         assert edit.width() >= 100
-        assert edit.placeholderText() == "PIN 4자리"
+        assert edit.placeholderText() in {"암호 12자 이상", "암호 / 이전 PIN"}
         assert not edit.alignment() & Qt.AlignHCenter
-        assert edit.maxLength() == 4
+        assert edit.maxLength() == 128
 
 
 def test_storage_path_shown_next_to_folder_button(qtbot, app_dir):

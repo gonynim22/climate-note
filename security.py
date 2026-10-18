@@ -2,6 +2,7 @@
 import os
 import uuid
 import hashlib
+import hmac
 import logging
 import base64
 import tempfile
@@ -213,8 +214,43 @@ def legacy_decrypt(ciphertext: str) -> str:
 
 
 # ─── PIN 기반 Export/Import 암복호화 ──────────────────────────
+MIN_EXPORT_PASSWORD_LENGTH = 12
+_PRIVACY_PIN_PREFIX = "pin$1$"
+
+
+def is_legacy_privacy_pin(value: str) -> bool:
+    return isinstance(value, str) and len(value) == 4 and value.isdigit()
+
+
+def hash_privacy_pin(pin: str) -> str:
+    """화면 잠금 PIN의 버전 있는 검증값. 데이터 암호화 salt와 독립적이다."""
+    if not is_legacy_privacy_pin(pin):
+        raise ValueError("4자리 숫자 PIN을 입력해 주세요.")
+    salt = os.urandom(32)
+    digest = _derive_fernet_key(pin, salt).decode("ascii")
+    return f"{_PRIVACY_PIN_PREFIX}{salt.hex()}${digest}"
+
+
+def verify_privacy_pin(pin: str, stored: str) -> bool:
+    """기존 평문과 v1 검증값을 읽는다. 손상 형식은 잠금을 해제하지 않는다."""
+    if not is_legacy_privacy_pin(pin):
+        return False
+    if is_legacy_privacy_pin(stored):
+        return hmac.compare_digest(pin.encode("utf-8"), stored.encode("utf-8"))
+    if not isinstance(stored, str) or not stored.startswith(_PRIVACY_PIN_PREFIX):
+        return False
+    try:
+        salt_hex, digest = stored[len(_PRIVACY_PIN_PREFIX):].split("$")
+        salt = bytes.fromhex(salt_hex)
+        if len(salt) != 32 or len(digest) != 44:
+            return False
+        return hmac.compare_digest(_derive_fernet_key(pin, salt), digest.encode("ascii"))
+    except (ValueError, UnicodeError):
+        return False
+
+
 def _derive_pin_key(pin: str, salt: bytes | None = None) -> bytes:
-    """4자리 PIN으로부터 Fernet 키 파생"""
+    """암호 문자열로부터 키 파생. 구 4자리 PIN 파일과 동일한 암호 형식을 유지한다."""
     if salt is None:
         salt = _load_or_create_salt()
     return _derive_fernet_key(pin, salt)

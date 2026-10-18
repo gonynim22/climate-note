@@ -70,7 +70,7 @@ def _raw_dump(db_file):
         conn.close()
 
 
-def test_first_start_on_v17_adds_columns_without_touching_existing_values(app_dir):
+def test_first_start_on_v17_preserves_values_and_upgrades_only_pin(app_dir):
     import main as app_main
 
     db_file = _seed_v17(app_dir)
@@ -79,7 +79,13 @@ def test_first_start_on_v17_adds_columns_without_touching_existing_values(app_di
 
     assert app_main._initialize_database() is True
 
-    assert _raw_dump(db_file) == before
+    after = _raw_dump(db_file)
+    previous_pin = dict(before["app_settings"])[db.SETTING_PRIVACY_PIN]
+    stored_pin = dict(after["app_settings"])[db.SETTING_PRIVACY_PIN]
+    assert stored_pin != previous_pin and security.verify_privacy_pin(previous_pin, stored_pin)
+    after["app_settings"] = [(key, previous_pin if key == db.SETTING_PRIVACY_PIN else value)
+                             for key, value in after["app_settings"]]
+    assert after == before
     assert security.SALT_FILE.read_bytes() == salt
     with db._connection(enable_wal=False, read_only=True) as conn:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 18

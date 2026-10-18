@@ -3,6 +3,8 @@ import sqlite3
 import logging
 import calendar
 import dataclasses
+import time
+from security import verify_privacy_pin
 from datetime import date, datetime
 
 _logger = logging.getLogger("app_error")
@@ -912,6 +914,8 @@ class LockOverlay(QWidget):
     def __init__(self, parent: QWidget):
         super().__init__(parent)
         self.setObjectName("lockOverlay")
+        self._pin_failures = 0
+        self._pin_retry_at = 0.0
         # QWidget 하위 클래스는 이 속성이 없으면 QSS 배경을 칠하지 않아 내용이 비친다.
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet("""
@@ -955,14 +959,33 @@ class LockOverlay(QWidget):
         layout.addWidget(unlock_btn, 0, Qt.AlignCenter)
 
     def _check_pin(self):
+        remaining = self._pin_retry_at - time.monotonic()
+        if remaining > 0:
+            self.error_lbl.setText(f"잠시 기다린 뒤 다시 입력해 주세요. ({int(remaining) + 1}초)")
+            self.pin_input.clear()
+            return
         entered = self.pin_input.text()
-        correct = db.get_setting(db.SETTING_PRIVACY_PIN, "0000")
-        if entered == correct:
-            self.unlocked.emit()
+        try:
+            correct = db.get_setting(db.SETTING_PRIVACY_PIN, "0000")
+            accepted = verify_privacy_pin(entered, correct)
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            _logger.error("잠금 PIN 확인 실패: %s", type(exc).__name__)
+            self.error_lbl.setText("PIN을 확인할 수 없습니다. 다시 시도해 주세요.")
+            self.pin_input.clear()
+            return
+        if accepted:
+            self._pin_failures = 0
+            self._pin_retry_at = 0.0
             self.pin_input.clear()
             self.error_lbl.setText("")
+            self.unlocked.emit()
         else:
+            self._pin_failures += 1
             self.error_lbl.setText("PIN이 올바르지 않습니다.")
+            if self._pin_failures >= 5:
+                delay = min(300, 30 * (2 ** min(self._pin_failures - 5, 4)))
+                self._pin_retry_at = time.monotonic() + delay
+                self.error_lbl.setText(f"입력이 반복해서 틀렸습니다. {delay}초 뒤 다시 시도해 주세요.")
             self.pin_input.clear()
 
     def showEvent(self, event):
@@ -1608,36 +1631,38 @@ class MainCalendarWindow(QWidget):
 
         # 시각적 업데이트 중단 (최소화)
         self.setUpdatesEnabled(False)
+        try:
         
-        header_section = self.right_content.findChild(QWidget, "headerSection")
-        calendar_section = self.right_content.findChild(QWidget, "calendarSection")
+            header_section = self.right_content.findChild(QWidget, "headerSection")
+            calendar_section = self.right_content.findChild(QWidget, "calendarSection")
         
-        new_width = 460 if show_sidebar else 380
+            new_width = 460 if show_sidebar else 380
         
-        # 1. 스타일 상태 업데이트 (setStyleSheet 대신 프로퍼티 변경으로 성능 최적화)
-        if header_section:
-            header_section.setProperty("sidebarActive", "true" if show_sidebar else "false")
-            header_section.style().unpolish(header_section)
-            header_section.style().polish(header_section)
+            # 1. 스타일 상태 업데이트 (setStyleSheet 대신 프로퍼티 변경으로 성능 최적화)
+            if header_section:
+                header_section.setProperty("sidebarActive", "true" if show_sidebar else "false")
+                header_section.style().unpolish(header_section)
+                header_section.style().polish(header_section)
             
-        if calendar_section:
-            calendar_section.setProperty("sidebarActive", "true" if show_sidebar else "false")
-            calendar_section.style().unpolish(calendar_section)
-            calendar_section.style().polish(calendar_section)
+            if calendar_section:
+                calendar_section.setProperty("sidebarActive", "true" if show_sidebar else "false")
+                calendar_section.style().unpolish(calendar_section)
+                calendar_section.style().polish(calendar_section)
 
-        # 2. 사이드바 가시성 조절
-        self.sidebar.setVisible(show_sidebar)
+            # 2. 사이드바 가시성 조절
+            self.sidebar.setVisible(show_sidebar)
         
-        # 3. 제약 조건 업데이트
-        self.setMinimumSize(new_width, 500)
-        self.setMaximumWidth(new_width)
+            # 3. 제약 조건 업데이트
+            self.setMinimumSize(new_width, 500)
+            self.setMaximumWidth(new_width)
         
-        # 4. 위치 및 크기 한 번에 적용 (setGeometry)
-        screen = self._get_target_screen()
-        if screen:
-            self._apply_calendar_geometry(new_width, self.height(), screen)
+            # 4. 위치 및 크기 한 번에 적용 (setGeometry)
+            screen = self._get_target_screen()
+            if screen:
+                self._apply_calendar_geometry(new_width, self.height(), screen)
             
-        self.setUpdatesEnabled(True)
+        finally:
+            self.setUpdatesEnabled(True)
         self.update()
 
     # ─── 전체 투명도 ─────────────────────────────────────────────
@@ -1707,6 +1732,8 @@ class MainCalendarWindow(QWidget):
 
     # ─── 캘린더 스케일 ───────────────────────────────────────────
     def _current_calendar_scale(self) -> str:
+        if hasattr(self, "_applied_calendar_scale"):
+            return self._applied_calendar_scale
         scale = db.get_setting(db.SETTING_CALENDAR_SCALE, db.DEFAULT_CALENDAR_SCALE)
         return scale if scale in db.CALENDAR_SCALES else db.DEFAULT_CALENDAR_SCALE
 
@@ -1825,16 +1852,35 @@ class MainCalendarWindow(QWidget):
                 self._expanded_row.setVisible(False)
             main_layout.setStretchFactor(self.right_content, 0)
 
-    def _apply_calendar_scale(self):
+    def _apply_calendar_scale(self) -> bool:
+        """저장 인계가 끝난 뒤에만 전체 배치를 바꾸고, 실패하면 이전 크기를 유지한다."""
+        scale = db.get_setting(db.SETTING_CALENDAR_SCALE, db.DEFAULT_CALENDAR_SCALE)
+        if scale not in db.CALENDAR_SCALES:
+            scale = db.DEFAULT_CALENDAR_SCALE
+        previous = getattr(self, "_applied_calendar_scale", db.DEFAULT_CALENDAR_SCALE)
+        if not self._apply_sticky_side_panel(scale == "large"):
+            self._applied_calendar_scale = previous
+            try:
+                db.save_setting(db.SETTING_CALENDAR_SCALE, previous)
+            except (sqlite3.Error, OSError, ValueError) as exc:
+                _logger.error("크기 전환 보류 후 설정 복원 실패: %s", exc)
+            return False
+        self.setUpdatesEnabled(False)
+        try:
+            self._applied_calendar_scale = scale
+            self._apply_calendar_scale_layout(scale)
+        finally:
+            self.setUpdatesEnabled(True)
+        return True
+
+    def _apply_calendar_scale_layout(self, scale):
         """저장된 compact/medium/large 설정을 즉시 반영."""
         self._close_mini_apps()
         self._close_schedule_emoji_popups()
         self._finish_calendar_move_edit()
-        scale = self._current_calendar_scale()
         expanded = scale != "compact"
         screen = self._get_target_screen()
 
-        self.setUpdatesEnabled(False)
         if expanded:
             sidebar_visible = True
         else:
@@ -1873,7 +1919,6 @@ class MainCalendarWindow(QWidget):
                 self.setMinimumSize(min(width, 600), 500)
             self._apply_calendar_geometry(width, height, screen)
 
-        self.setUpdatesEnabled(True)
         self.update()
         self._refresh_calendar()
 
@@ -3223,25 +3268,24 @@ class MainCalendarWindow(QWidget):
 
     # ─── 주기적 자동 저장 ─────────────────────────────────────────
     def _periodic_save(self):
-        """30초마다 열린 모든 스티키 노트 자동 저장"""
-        saved = False
-        error_occurred = False
-        for win in list(self._sticky_windows.values()):
+        """현재 보기의 변경된 원본만 재시도하고, 실패를 상태줄에 남긴다."""
+        failed = self._sticky_in_panel_mode and self._sticky_side_panel is None
+        sources = (list(self._sticky_side_panel._cards) if self._sticky_in_panel_mode
+                   and self._sticky_side_panel is not None else
+                   [] if failed else list(self._sticky_windows.values()))
+        for source in sources:
             try:
-                if win.isVisible():
-                    win.save()
-                    saved = True
-            except (RuntimeError, OSError, ValueError):
-                error_occurred = True
-
-        if saved:
-            self.status_label.setText("자동 저장 중...")
-            QTimer.singleShot(3000, lambda: self.status_label.setText(""))
-        
-        if error_occurred:
-            self.status_label.setText("자동 저장 기능 비활성화")
+                if source.text_edit.document().isModified() and not source.save():
+                    failed = True
+            except (RuntimeError, sqlite3.Error, OSError, ValueError) as exc:
+                _logger.error("주기 스티키 저장 실패: %s", exc)
+                failed = True
+        message = "스티키 자동 저장 실패 · 다시 시도 중"
+        if failed:
+            self.status_label.setText(message)
             self.status_label.setStyleSheet("color: #DC3545;")
-            QTimer.singleShot(5000, self._reset_status_label)
+        elif self.status_label.text() == message:
+            self._reset_status_label()
 
     def _reset_status_label(self):
         self.status_label.setText("")
@@ -3268,7 +3312,7 @@ class MainCalendarWindow(QWidget):
             return
         from ui_sticky import StickyNoteWindow
         # 최대 10개 제한
-        open_count = len([w for w in self._sticky_windows.values() if w.isVisible()])
+        open_count = len(self._sticky_windows)
         if open_count >= 10:
             InfoBar.warning(
                 title="노트 제한",

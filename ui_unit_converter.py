@@ -447,7 +447,9 @@ class UnitConverterWindow(QWidget):
             rendered = result_text(entry.category_id, source.id, target.id, result, entry.conditions)
             text = f"{format_number(entry.value)} {source.symbol} → {rendered} {target.symbol}"
             if entry.category_id == "water":
-                text += " · 물 기준" if entry.conditions.water_approximation else f" · 밀도 {format_number(entry.conditions.density_kg_l)}"
+                density = entry.conditions.density_kg_l
+                text += (" · 조건 불필요" if density is None else " · 물 기준"
+                         if entry.conditions.water_approximation else f" · 밀도 {format_number(density)}")
             elif entry.category_id == "gas_fraction" and entry.conditions.molar_mass is not None:
                 text += f" · {entry.conditions.gas_id or '기체'}"
             elif entry.conditions.temperature_difference:

@@ -152,6 +152,7 @@ def test_upgrade_tooling_detects_kept_values_and_snapshot():
     smoke.data_step("upgrade_source", data_root, directory / "upgrade.json")
     after = smoke.data_step("inspect_upgrade", data_root, directory / "after.json")
     assert after["version"] == 18
+    assert after["privacy_pin_upgraded"] is True
     assert after["tables"] == before["tables"]
     assert after["pre_snapshot"]["tables"] == before["tables"]
     assert after["pre_snapshot"]["version"] == 17
@@ -166,7 +167,8 @@ def test_upgrade_check_rejects_changed_values_snapshot_salt_and_health():
               "salt_sha256": "c" * 64}
     good = {"tables": dict(seeded["tables"]), "version": 18,
             "pre_snapshot": {"tables": dict(seeded["tables"]), "version": 17},
-            "salt_sha256": seeded["salt_sha256"], "integrity": ["ok"], "error_log_bytes": 0}
+            "salt_sha256": seeded["salt_sha256"], "integrity": ["ok"], "error_log_bytes": 0,
+            "privacy_pin_upgraded": True}
     smoke._check_upgrade(seeded, good)
 
     def tampered(change):
@@ -175,6 +177,7 @@ def test_upgrade_check_rejects_changed_values_snapshot_salt_and_health():
         return after
 
     cases = (
+        (lambda a: a.update(privacy_pin_upgraded=False), "PIN"),
         (lambda a: a["tables"].update(memos="0" * 64), "기존 값을 바꿨습니다"),
         (lambda a: a["pre_snapshot"]["tables"].update(schedules="0" * 64), "스냅샷이 원본과 다릅니다"),
         (lambda a: a["pre_snapshot"].update(version=16), "스냅샷이 원본과 다릅니다"),
