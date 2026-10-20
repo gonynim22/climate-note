@@ -319,3 +319,190 @@ def test_select_fails_when_existing_year_loses_core_or_disappears(case):
         fetch_data.select_holiday_years(fetched, {2025, 2026, 2027})
     assert exc.value.environment is False
     assert "2026" in str(exc.value)
+
+
+# ── 파일 쓰기·비교·갱신 진입점 ──
+from pathlib import Path
+
+
+def _current_by_year():
+    years = {}
+    for date, name in holidays.KOREAN_HOLIDAYS.items():
+        years.setdefault(int(date[:4]), {})[date] = name
+    return years
+
+
+def _synthetic_2028():
+    return {d.replace("2027-", "2028-", 1): n
+            for d, n in holidays.KOREAN_HOLIDAYS.items() if d.startswith("2027-")}
+
+
+def _copy_module(tmp_path):
+    target = tmp_path / "holidays.py"
+    target.write_bytes(Path(holidays.__file__).read_bytes())
+    return target
+
+
+def _leftovers(tmp_path):
+    return [p.name for p in tmp_path.iterdir() if p.name != "holidays.py"]
+
+
+def test_render_reproduces_current_module_exactly():
+    text = fetch_data.render_holidays_module(holidays.KOREAN_HOLIDAYS, holidays.LUNAR_MAPPING)
+    assert text == Path(holidays.__file__).read_text(encoding="utf-8")
+
+
+def test_render_escapes_names_round_trip(tmp_path):
+    hol = dict(holidays.KOREAN_HOLIDAYS)
+    hol["2027-12-25"] = 'a"b\c\nd'
+    path = tmp_path / "holidays.py"
+    path.write_text(fetch_data.render_holidays_module(hol, holidays.LUNAR_MAPPING), encoding="utf-8")
+    got_hol, got_lunar = fetch_data.read_holidays_module(path)
+    assert got_hol == hol
+    assert got_lunar == holidays.LUNAR_MAPPING
+
+
+def test_write_replaces_after_verify_and_backs_up(tmp_path):
+    target = _copy_module(tmp_path)
+    old_bytes = target.read_bytes()
+    new_hol = {**holidays.KOREAN_HOLIDAYS, **_synthetic_2028()}
+    backup = fetch_data.write_holidays_module(target, new_hol, holidays.LUNAR_MAPPING, tmp_path / "bak")
+    assert backup.read_bytes() == old_bytes
+    got_hol, got_lunar = fetch_data.read_holidays_module(target)
+    assert got_hol == new_hol and any(d.startswith("2028-") for d in got_hol)
+    assert got_lunar == holidays.LUNAR_MAPPING
+    assert not list(tmp_path.glob("*.tmp"))
+    assert sorted(_leftovers(tmp_path)) == ["bak"]
+
+
+def test_write_keeps_original_when_verify_fails(tmp_path):
+    target = _copy_module(tmp_path)
+    old_bytes = target.read_bytes()
+    bad = {d: n for d, n in holidays.KOREAN_HOLIDAYS.items() if d != "2026-10-09"}
+    with pytest.raises(fetch_data.FetchError) as info:
+        fetch_data.write_holidays_module(target, bad, holidays.LUNAR_MAPPING, tmp_path / "bak")
+    assert info.value.environment is False
+    assert target.read_bytes() == old_bytes
+    assert _leftovers(tmp_path) == []
+
+
+def test_write_keeps_original_when_replace_fails(tmp_path, monkeypatch):
+    target = _copy_module(tmp_path)
+    old_bytes = target.read_bytes()
+
+    def failing_replace(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(fetch_data.os, "replace", failing_replace)
+    new_hol = {**holidays.KOREAN_HOLIDAYS, **_synthetic_2028()}
+    with pytest.raises(OSError):
+        fetch_data.write_holidays_module(target, new_hol, holidays.LUNAR_MAPPING, tmp_path / "bak")
+    assert target.read_bytes() == old_bytes
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_diff_holidays_classifies_added_removed_renamed():
+    diff = fetch_data.diff_holidays({"a": "1", "b": "2", "c": "3"}, {"a": "1", "b": "X", "d": "4"})
+    assert diff.added == {"d": "4"}
+    assert diff.removed == {"c": "3"}
+    assert diff.renamed == {"b": ("2", "X")}
+
+
+def _fake_fetch(monkeypatch, by_year, seen=None):
+    def fake(years):
+        if seen is not None:
+            seen.append(sorted(years))
+        return by_year
+
+    monkeypatch.setattr(fetch_data, "fetch_holiday_years", fake)
+
+
+def _modified(change):
+    by_year = {y: dict(v) for y, v in _current_by_year().items()}
+    change(by_year)
+    return by_year
+
+
+@pytest.mark.parametrize("case", ["same", "added", "removed", "renamed"])
+def test_refresh_statuses(tmp_path, monkeypatch, case):
+    target = _copy_module(tmp_path)
+    old_bytes = target.read_bytes()
+    backup_dir = tmp_path / "bak"
+
+    def change(by_year):
+        if case == "added":
+            by_year[2028] = _synthetic_2028()
+        elif case == "removed":
+            del by_year[2026]["2026-10-05"]
+        elif case == "renamed":
+            by_year[2025]["2025-05-05"] = "어린이날·부처님오신날"
+
+    _fake_fetch(monkeypatch, _modified(change))
+    result = fetch_data.refresh_holidays(target, backup_dir=backup_dir)
+    if case == "same":
+        assert result.status == "up_to_date"
+        assert target.read_bytes() == old_bytes and result.backup is None
+    elif case == "added":
+        assert result.status == "updated"
+        got_hol, got_lunar = fetch_data.read_holidays_module(target)
+        assert any(d.startswith("2028-") for d in got_hol)
+        assert got_lunar == holidays.LUNAR_MAPPING
+        assert result.backup.parent == backup_dir and result.backup.exists()
+        assert result.years == (2025, 2028)
+    elif case == "removed":
+        assert result.status == "blocked"
+        assert target.read_bytes() == old_bytes
+        assert result.diff.removed == {"2026-10-05": "대체공휴일(개천절)"}
+    else:
+        assert result.status == "blocked"
+        assert target.read_bytes() == old_bytes
+        assert "2025-05-05" in result.diff.renamed
+    assert result.checked_at[:2] == "20" and "T" in result.checked_at
+
+
+def test_refresh_reports_excluded_new_year(tmp_path, monkeypatch):
+    target = _copy_module(tmp_path)
+    old_bytes = target.read_bytes()
+    _fake_fetch(monkeypatch, _modified(lambda b: b.__setitem__(2028, {"2028-06-03": "선거일"})))
+    result = fetch_data.refresh_holidays(target, backup_dir=tmp_path / "bak")
+    assert result.status == "up_to_date"
+    assert result.excluded_years == [2028]
+    assert target.read_bytes() == old_bytes
+
+
+def test_refresh_always_refetches_existing_years(tmp_path, monkeypatch):
+    target = _copy_module(tmp_path)
+    seen = []
+    _fake_fetch(monkeypatch, _current_by_year(), seen)
+    fetch_data.refresh_holidays(target, backup_dir=tmp_path / "bak", years=range(2028, 2030))
+    assert {2025, 2026, 2027} <= set(seen[0])
+
+
+def test_main_returns_one_and_keeps_file_on_failure(tmp_path, monkeypatch, capsys):
+    target = _copy_module(tmp_path)
+    old_bytes = target.read_bytes()
+    monkeypatch.setattr(fetch_data, "HOLIDAYS_PATH", target)
+    monkeypatch.setattr(fetch_data, "ROOT", tmp_path)
+    monkeypatch.setattr(fetch_data, "API_KEY", "k")
+
+    def failing(years):
+        raise fetch_data.FetchError("음력 요청 실패 (URLError)", environment=True)
+
+    monkeypatch.setattr(fetch_data, "fetch_lunar_years", failing)
+    assert fetch_data.main() == 1
+    assert target.read_bytes() == old_bytes
+    out = capsys.readouterr().out
+    assert "http" not in out and "serviceKey" not in out
+    assert not (tmp_path / "output").exists()
+
+
+def test_main_missing_key_returns_one(tmp_path, monkeypatch):
+    target = _copy_module(tmp_path)
+    monkeypatch.setattr(fetch_data, "HOLIDAYS_PATH", target)
+    monkeypatch.setattr(fetch_data, "ROOT", tmp_path)
+    monkeypatch.setattr(fetch_data, "API_KEY", "")
+    calls = []
+    monkeypatch.setattr(fetch_data, "fetch_lunar_years", lambda y: calls.append(y))
+    monkeypatch.setattr(fetch_data, "fetch_holiday_years", lambda y: calls.append(y))
+    assert fetch_data.main() == 1
+    assert calls == []

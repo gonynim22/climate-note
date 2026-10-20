@@ -4,15 +4,22 @@ fetch_data.py - 공공데이터포털 API에서 음력/공휴일 데이터 수�
 * 미래 연도를 임의 계산해 채우지 않는다.
 """
 import http.client
+import json
 import os
 import re
+import runpy
+import shutil
 import ssl
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as ET
@@ -201,69 +208,9 @@ def verify_holiday_data(hol) -> tuple[bool, str]:
     return True, f"OK (공휴일 {len(kh)}건, 음력 {len(lm)}건)"
 
 
-def main():
-    START_YEAR, END_YEAR = 2025, 2050
-    print(f"=== 데이터 수집 ({START_YEAR}~{END_YEAR}) ===")
-    
-    if not API_KEY:
-        print("ERROR: API KEY IS MISSING")
-        return
+HOLIDAYS_PATH = ROOT / "holidays.py"
 
-    # 1. 음력 데이터 전체 수집
-    lunar_mapping = {}
-    print("▶ 음력 API 호출 중 (2025~2050)...")
-    for year in range(START_YEAR, END_YEAR + 1):
-        for month in range(1, 13):
-            for r in fetch_lunar_month(year, month):
-                lunar_mapping[r["date"]] = r["lunar"]
-        print(f"  {year}년 음력 완료")
-        time.sleep(0.1)
-
-    # 2. 공휴일 데이터 수집 (API가 제공하는 연도만)
-    holidays = {}
-    print("\n▶ 공휴일 API 호출 중...")
-    for year in range(START_YEAR, END_YEAR + 1):
-        year_holidays = {}
-        api_count = 0
-        for month in range(1, 13):
-            res = fetch_holidays(year, month)
-            api_count += len(res)
-            for r in res:
-                year_holidays[r["date"]] = r["name"]
-            if month % 4 == 0: time.sleep(0.1)
-            
-        if api_count > 0:
-            print(f"  {year}년: API 데이터 사용 ({api_count}건)")
-            holidays.update(year_holidays)
-        else:
-            print(f"  {year}년: API 데이터 없음 (생략)")
-
-    # 3. 저장
-    output_path = Path(__file__).parent / "holidays.py"
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("# holidays.py - 오프라인 한국 공휴일/음력 데이터 (2025-2050)\n")
-        f.write("# 자동 생성됨 (fetch_data.py)\n")
-        f.write("from datetime import date\n\n")
-        
-        f.write("KOREAN_HOLIDAYS = {\n")
-        curr_y = None
-        for k in sorted(holidays.keys()):
-            if k[:4] != curr_y:
-                curr_y = k[:4]
-                f.write(f"\n    # {curr_y}\n")
-            f.write(f'    "{k}": "{holidays[k]}",\n')
-        f.write("}\n\n")
-
-        f.write("LUNAR_MAPPING = {\n")
-        curr_y = None
-        for k in sorted(lunar_mapping.keys()):
-            if k[:4] != curr_y:
-                curr_y = k[:4]
-                f.write(f"\n    # {curr_y}\n")
-            f.write(f'    "{k}": "{lunar_mapping[k]}",\n')
-        f.write("}\n\n")
-
-        f.write('''def get_lunar_date(date_str: str) -> str:
+_MODULE_FUNCTIONS = '''def get_lunar_date(date_str: str) -> str:
     return LUNAR_MAPPING.get(date_str, "")
 
 def get_holiday(date_str: str) -> str:
@@ -277,9 +224,171 @@ def holiday_last_year() -> int:
     if not KOREAN_HOLIDAYS:
         return 0
     return max(int(k[:4]) for k in KOREAN_HOLIDAYS)
-''')
+'''
 
-    print(f"\n[완료] 공휴일: {len(holidays)}건, 음력: {len(lunar_mapping)}건")
+
+def _render_dict(name: str, data: Mapping[str, str]) -> str:
+    lines = [f"{name} = {{"]
+    current_year = None
+    for key in sorted(data):
+        if key[:4] != current_year:
+            current_year = key[:4]
+            lines.append(f"\n    # {current_year}")
+        lines.append(f"    {json.dumps(key, ensure_ascii=False)}: {json.dumps(data[key], ensure_ascii=False)},")
+    lines.append("}\n\n")
+    return "\n".join(lines)
+
+
+def render_holidays_module(holidays: Mapping[str, str], lunar: Mapping[str, str]) -> str:
+    """holidays.py 전체 내용을 만든다 (줄바꿈은 \\n, 파일에 쓸 때 플랫폼 기본값으로 바뀜)."""
+    return ("# holidays.py - 오프라인 한국 공휴일/음력 데이터 (2025-2050)\n"
+            "# 자동 생성됨 (fetch_data.py)\n"
+            "from datetime import date\n\n"
+            + _render_dict("KOREAN_HOLIDAYS", holidays)
+            + _render_dict("LUNAR_MAPPING", lunar)
+            + _MODULE_FUNCTIONS)
+
+
+def read_holidays_module(path: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """holidays.py를 실행해 (KOREAN_HOLIDAYS, LUNAR_MAPPING)을 읽는다."""
+    namespace = runpy.run_path(str(path))
+    return dict(namespace["KOREAN_HOLIDAYS"]), dict(namespace["LUNAR_MAPPING"])
+
+
+def write_holidays_module(path: Path, holidays: Mapping[str, str], lunar: Mapping[str, str],
+                          backup_dir: Path) -> Path:
+    """임시 파일에 쓰고 다시 읽어 검증한 뒤, 백업하고 교체한다. 백업 파일 경로를 돌려준다."""
+    path = Path(path)
+    pending = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as stream:
+            pending = Path(stream.name)
+            stream.write(render_holidays_module(holidays, lunar))
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            read_hol, read_lunar = read_holidays_module(pending)
+        except (SyntaxError, KeyError, ValueError, OSError) as e:
+            raise FetchError(f"생성 파일을 읽을 수 없습니다 ({type(e).__name__})", environment=False) from None
+        if read_hol != dict(holidays) or read_lunar != dict(lunar):
+            raise FetchError("생성 파일 내용이 입력과 다릅니다", environment=False)
+        ok, message = verify_holiday_data(SimpleNamespace(KOREAN_HOLIDAYS=read_hol, LUNAR_MAPPING=read_lunar))
+        if not ok:
+            raise FetchError(f"생성 데이터 검증 실패: {message}", environment=False)
+        backup_dir = Path(backup_dir)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup = backup_dir / path.name
+        shutil.copy2(path, backup)
+        os.replace(pending, path)
+        return backup
+    finally:
+        if pending is not None and pending.exists():
+            pending.unlink()  # 이 호출이 만든 임시 파일만 정리한다.
+
+
+@dataclass(frozen=True)
+class HolidayDiff:
+    added: dict[str, str]
+    removed: dict[str, str]
+    renamed: dict[str, tuple[str, str]]  # 날짜 -> (이전, 새)
+
+
+def diff_holidays(old: Mapping[str, str], new: Mapping[str, str]) -> HolidayDiff:
+    """날짜 기준으로 추가·삭제·이름 변경을 나눈다."""
+    return HolidayDiff(
+        added={d: new[d] for d in new if d not in old},
+        removed={d: old[d] for d in old if d not in new},
+        renamed={d: (old[d], new[d]) for d in old if d in new and old[d] != new[d]},
+    )
+
+
+@dataclass(frozen=True)
+class RefreshResult:
+    status: str  # "up_to_date" | "updated" | "blocked"
+    diff: HolidayDiff
+    excluded_years: list[int]
+    checked_at: str
+    years: tuple[int, int]
+    backup: Path | None
+
+
+def _default_backup_dir() -> Path:
+    return ROOT / "output" / "holiday-refresh" / datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def refresh_holidays(path: Path = HOLIDAYS_PATH, backup_dir: Path | None = None,
+                     years: Iterable[int] = HOLIDAY_YEARS) -> RefreshResult:
+    """공휴일만 다시 받아 비교한다. 추가만 있으면 교체하고, 삭제·변경이 있으면 쓰지 않는다."""
+    years = list(years)
+    old_holidays, old_lunar = read_holidays_module(path)
+    existing_years = {int(date[:4]) for date in old_holidays}
+    fetched = fetch_holiday_years(sorted(set(years) | existing_years))
+    new_holidays, excluded = select_holiday_years(fetched, existing_years)
+    diff = diff_holidays(old_holidays, new_holidays)
+    checked_at = datetime.now().isoformat(timespec="seconds")
+    span = (min(fetched), max(fetched)) if fetched else (min(years), max(years))
+    backup = None
+    if diff.removed or diff.renamed:
+        status = "blocked"
+    elif diff.added:
+        backup = write_holidays_module(path, new_holidays, old_lunar, backup_dir or _default_backup_dir())
+        status = "updated"
+    else:
+        status = "up_to_date"
+    return RefreshResult(status, diff, excluded, checked_at, span, backup)
+
+
+def fetch_lunar_years(years: Iterable[int]) -> dict[str, str]:
+    """연도별 1~12월 음력을 받는다. 실패는 FetchError 그대로 올린다."""
+    lunar: dict[str, str] = {}
+    for year in years:
+        for month in range(1, 13):
+            for r in fetch_lunar_month(year, month):
+                lunar[r["date"]] = r["lunar"]
+        print(f"  {year}년 음력 완료")
+        _pause()
+    return lunar
+
+
+def _print_diff(diff: HolidayDiff, excluded: list[int]) -> None:
+    for date, name in sorted(diff.added.items()):
+        print(f"  추가 {date} {name}")
+    for date, name in sorted(diff.removed.items()):
+        print(f"  삭제 {date} {name}")
+    for date, (before, after) in sorted(diff.renamed.items()):
+        print(f"  변경 {date} {before} -> {after}")
+    if excluded:
+        print(f"  제외 연도(핵심 공휴일 부족): {', '.join(map(str, excluded))}")
+    if not (diff.added or diff.removed or diff.renamed):
+        print("  공휴일 변경 없음")
+
+
+def main() -> int:
+    """음력·공휴일을 모두 다시 받아 holidays.py를 재생성한다 (삭제·변경도 받아들이는 수동 경로)."""
+    print(f"=== 데이터 수집 ({HOLIDAY_YEARS[0]}~{HOLIDAY_YEARS[-1]}) ===")
+    if not API_KEY:
+        print("ERROR: LUNAR_API_KEY가 없습니다 (.env 확인)")
+        return 1
+    try:
+        old_holidays, _ = read_holidays_module(HOLIDAYS_PATH)
+        existing_years = {int(date[:4]) for date in old_holidays}
+        print("▶ 음력 API 호출 중...")
+        lunar = fetch_lunar_years(HOLIDAY_YEARS)
+        print("\n▶ 공휴일 API 호출 중...")
+        fetched = fetch_holiday_years(sorted(set(HOLIDAY_YEARS) | existing_years))
+        holidays, excluded = select_holiday_years(fetched, existing_years)
+        print("\n▶ 기존 holidays.py와 비교")
+        _print_diff(diff_holidays(old_holidays, holidays), excluded)
+        backup = write_holidays_module(HOLIDAYS_PATH, holidays, lunar, _default_backup_dir())
+    except FetchError as e:
+        print(f"ERROR: {e}")
+        return 1
+    print(f"\n[완료] 공휴일: {len(holidays)}건, 음력: {len(lunar)}건 (백업: {backup})")
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
