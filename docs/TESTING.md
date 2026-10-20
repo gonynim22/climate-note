@@ -30,13 +30,15 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 | `quick` | 리소스·시작 경로·공휴일·실행기·핵심 DB/UI 소규모 회귀 | 일상 개발 + `--tests`로 관련 검사 추가 |
 | `data` | DB·암호화·건강 검사·백업·Import/Export·스티키 저장·메인 UI·스트레스 | 데이터 또는 저장/보기 전환 변경 |
 | `full` | 전체 pytest 1회 | 공통 실행기·격리 변경, 기능 마무리 |
-| `release` | 전체 pytest 1회 → 새 EXE 빌드 → 격리 실행 4개 시나리오(신규·기존·차단·업그레이드) | 배포 산출물 검증 |
+| `release` | 공휴일 최신화(네트워크·`.env` 키 필요) → 전체 pytest 1회 → 새 EXE 빌드 → 격리 실행 4개 시나리오(신규·기존·차단·업그레이드) | 배포 산출물 검증 |
 
 `data`는 저장 계약 검사가 들어 있는 `test_ui.py`도 포함하므로 짧은 단위 테스트 묶음이 아니다.
 정확한 대상은 `tools/verify.py`의 `QUICK_TESTS`·`DATA_TESTS`가 정본이다.
 `quick --tests`는 기본 회귀를 유지하면서 `tests/` 안의 파일 또는 `파일::테스트`를 추가한다.
 대상이 없는 경우, 수집 오류, 0건 수집, 전부 skip은 통과가 아니다.
 `full`/`release` 실행 전에 `quick`/`data`를 의무적으로 중복 실행하지 않는다.
+
+`release`는 시작할 때 공휴일만 다시 받는다. 추가만 있으면 `holidays.py`를 갱신하고 계속하며, 삭제·이름 변경이 있으면 멈추고 종료 코드 1이다(`python fetch_data.py`로 받아들인 뒤 다시 실행). 키 없음·네트워크·HTTP·응답 코드 오류는 환경 문제로 종료 코드 2, 응답 형식·검증 실패는 데이터 문제로 종료 코드 1이다. 결과는 `result.json`의 `holidays`와 `summary.md`의 `## 공휴일 데이터`에 남고 키는 기록하지 않는다. pytest·빌드·EXE에는 키를 넘기지 않는다. `quick`·`data`·`full`·`doctor`는 네트워크를 쓰지 않는다.
 
 파일 변환(v4.4)은 `tests/test_file_conversion.py`(합성 이미지·PDF·인코딩·비덮어쓰기),
 `tests/test_file_conversion_runner.py`(실제 Job/QProcess·일괄·취소·시간 초과·정리),
