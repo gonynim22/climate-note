@@ -48,6 +48,7 @@
 | (Task 8) `python fetch_data.py` (2차) | 통과 (종료 코드 0) | 백업 `output/holiday-refresh/20261021-084259/holidays.py` | 공휴일 변경 21건(추가 20·변경 1), 음력 변경 0건 |
 | (Task 8) `verify.py quick --tests tests/test_date_time_calculator.py tests/test_ui_date_time_calculator.py tests/test_holiday_notice.py tests/test_ui.py tests/test_fetch_data.py tests/test_verify.py` | 통과 (474/474) | `20261021-084318-a88a7ddd1a` | 갱신된 `holidays.py`(2025–2028). 계획 목록에 `test_fetch_data.py`·`test_verify.py`를 더해 실제 데이터 변경 뒤 시험 독립성 확인. 경고 1건은 qfluentwidgets의 scipy 경로 사용 경고 |
 | (Task 8) `verify.py quick --tests tests/test_ui_licenses.py tests/test_packaging.py` | 통과 | `20261021-084516-24687a977e` | `licenses/DATA-SOURCES.txt` 문구 변경 뒤 |
+| (Task 8) `verify.py full` | 통과 (3006/3006, 실패 0) | `20261021-084603-fde44465a5` | 커밋 677ab53, 갱신된 `holidays.py`(2025–2028) |
 
 현재 입력에 대한 실제 결과만 기입한다. `release`는 실제 API·빌드를 쓰므로 실행하지 않았다.
 
