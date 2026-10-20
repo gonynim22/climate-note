@@ -90,7 +90,7 @@
 - 일정 이모지 선택 버튼은 벡터 테두리 스마일이며 입력부 색상 원과 외경 22px를 공유한다. 26px 클릭 영역·인라인 행 높이·팝업의 실제 이모지·선택/Undo·본문 Unicode 저장은 유지한다. 버튼 그림 때문에 DB/salt/기존 본문을 변환하지 않는다.
 - 일정 목록의 여백은 행 레이아웃에 포함하고 `QListWidget::item` padding은 0으로 둔다. 인라인 편집기를 표시한 뒤 행 높이를 계산해 입력창과 26px 이모지 버튼 하단을 확보한다. compact/medium/large에서 실제 배치된 편집 영역이 버튼 전체를 포함하는지 검증한다.
 - 캘린더 날짜 그리드와 요일 제목은 7열에 동일한 stretch를 적용한다. 일정 칩은 가로 `QSizePolicy.Ignored`로 말줄임 결과가 열 최소 너비에 역영향을 주지 않게 한다. 세로 화면에서 일정 추가·월 왕복·화면 왕복 후 실제 열 너비 차이 1px 이내와 요일 제목 정렬을 검증한다. 저장된 일정 본문·색상·DB/salt는 바꾸지 않는다.
-- 공휴일 데이터는 추적 중인 `holidays.py`를 사용하고 `fetch_data.py`의 실제 API 데이터로만 갱신한다. 임의 계산 금지. `release`는 시작할 때 공휴일만 다시 받아 추가는 자동 반영하고, 삭제·이름 변경은 멈춘다(수동 `python fetch_data.py`가 그 변경을 받아들이는 경로). 일부만 발표된 새 연도는 제외한다. API 키(`LUNAR_API_KEY`)는 release 공휴일 단계에서만 쓴다.
+- 공휴일 데이터는 추적 중인 `holidays.py`를 사용하고 `fetch_data.py`의 실제 API 데이터로만 갱신한다. 임의 계산 금지. `release`는 시작할 때 공휴일만 다시 받아 추가는 자동 반영하고, 삭제·이름 변경은 멈춘다(수동 `python fetch_data.py`가 그 변경을 받아들이는 경로). 일부만 발표된 새 연도는 제외한다. API 키(`LUNAR_API_KEY`)는 release 공휴일 단계와 수동 `fetch_data.py`에서만 쓰고, pytest·빌드·EXE에는 넘기지 않는다.
 - 폰트·아이콘·이미지·SVG는 `app_paths.resource_root()`로 찾는다. 본문은 시스템 Malgun Gothic 기본, Pretendard는 D-Day 강조와 최초 설정의 제목·크기 이름·시작 버튼용이다. QSS 글꼴 크기는 정수 px만 쓴다.
 - 소스 화면과 사용자 EXE의 이모지 렌더가 다르면 UI를 다시 수정하기 전에 실제 EXE의 SHA-256과 포함된 Qt DLL 버전·해시를 검증 환경과 대조한다. 표시 버전이나 소스 캡처만으로 수정 포함 여부를 판단하지 않는다. EXE 확인도 합성 데이터에서 수행한다.
 - Win+D 보호는 일시 topmost pulse 후 바탕화면 바로 위 non-topmost 복귀다. 영구 topmost·WorkerW/SetParent 재부모화 금지. native hook은 해제한다.
@@ -106,7 +106,7 @@
 > 🚫 **`archive/local-v3.5`는 절대 push하지 않는다.** 이 브랜치의 첫 커밋에 `security/` 폴더가 들어 있고 그 안에 금강청 소스코드 취약점 점검 상세·요약 보고서와 CODEMIND 반론서가 있다. 저장소가 Public이므로 push하면 그대로 노출된다. `git push --all`과 `git push --mirror`는 이 브랜치까지 올리므로 **사용 금지**. push는 항상 `git push origin main`처럼 브랜치를 명시한다.
 
 - **`security/`는 저장소에 없다.** CODEMIND 점검 원본 자료는 기관 내부 문서이므로 담당자가 저장소 외부에서 별도 관리하며 `.gitignore` 대상이다. 보안 코딩 규칙은 [`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md)에 자체 완결적으로 남아 있다.
-- **`holidays.py`는 추적 대상이다.** 공공데이터포털 API 키 없이도 클론 직후 실행·테스트·빌드가 가능해야 한다는 결정이다. 갱신은 종전대로 `fetch_data.py`로만 하며 임의 계산은 여전히 금지다. `release`가 시작할 때 공휴일만 다시 받아 추가는 자동 반영하고 삭제·변경은 멈추며, 수동 `python fetch_data.py`가 삭제·변경을 받아들인다. 일부만 발표된 새 연도는 제외하고, API 키는 release 공휴일 단계에서만 쓴다.
+- **`holidays.py`는 추적 대상이다.** 공공데이터포털 API 키 없이도 클론 직후 실행·테스트·빌드가 가능해야 한다는 결정이다. 갱신은 종전대로 `fetch_data.py`로만 하며 임의 계산은 여전히 금지다. `release`가 시작할 때 공휴일만 다시 받아 추가는 자동 반영하고 삭제·변경은 멈추며, 수동 `python fetch_data.py`가 삭제·변경을 받아들인다. 일부만 발표된 새 연도는 제외하고, API 키는 release 공휴일 단계와 수동 `fetch_data.py`에서만 쓰며 pytest·빌드·EXE에는 넘기지 않는다.
 - 루트 `LICENSE`는 **GPLv3**다. `PySide6-Fluent-Widgets`가 GPLv3이고, 기관 내부 소스 공개와 기관 내부 EXE 배포로 제공 범위가 일치한다. 다만 SBOM·PySide6/Qt 고지·Authenticode 서명은 [릴리스 이력의 보류 과제](docs/RELEASE_HISTORY.md)에 그대로 남아 있다.
 - `main`은 보호 브랜치다. push/merge는 Maintainer 이상, 강제 push는 비활성이다. 동료는 Developer 권한으로 Merge Request를 통해 기여한다.
 - **빌드 산출물은 git에 커밋하지 않는다.** `dist/`는 `.gitignore` 대상이며 EXE 배포는 **GitLab Releases**(`/-/releases`)를 쓴다. EXE 하나가 약 55.6 MiB이고 PyInstaller 산출물은 델타 압축이 거의 되지 않아, 커밋하면 릴리스마다 통짜 블롭이 히스토리에 영구 누적된다(5개 릴리스면 약 300 MiB). 소스만 받으려는 사람도 전부 내려받게 되고, 나중에 빼려면 히스토리 재작성이 필요하다.
