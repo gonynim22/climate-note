@@ -1,11 +1,12 @@
 """초 원본·달력 월말·실제 번들 공휴일에 대한 독립 기준 사례."""
 
 from datetime import date, datetime, time, timezone
+import re
 
 import pytest
 
 from date_time_calculator import (
-    CalendarDelta, CalendarResult, WorkdayResult, add_calendar,
+    CalendarDelta, CalendarResult, HOLIDAY_RANGE, HOLIDAY_YEARS, WorkdayResult, add_calendar,
     calendar_difference, difference_seconds, format_duration, format_minutes,
     interval_seconds, minute_value, parse_date, parse_time, sum_durations,
     working_days,
@@ -158,12 +159,15 @@ def test_workdays_custom_weekdays_and_all_weekdays_excluded():
     assert working_days(date(2026, 9, 24), date(2026, 9, 30), excluded_weekdays=range(7)) == WorkdayResult(0, 7, 7)
 
 
+FIRST, LAST = min(HOLIDAY_YEARS), max(HOLIDAY_YEARS)
+
+
 @pytest.mark.parametrize("start,end", [
-    (date(2024, 12, 31), date(2025, 1, 2)), (date(2027, 12, 31), date(2028, 1, 1)),
-    (date(2040, 1, 1), date(2040, 1, 2)),
+    (date(FIRST - 1, 12, 31), date(FIRST, 1, 2)), (date(LAST, 12, 31), date(LAST + 1, 1, 1)),
+    (date(LAST + 1, 1, 1), date(LAST + 1, 1, 2)),
 ])
 def test_missing_holiday_year_is_not_treated_as_zero_holidays(start, end):
-    with pytest.raises(ValueError, match="2025–2027년"):
+    with pytest.raises(ValueError, match=re.escape(HOLIDAY_RANGE)):
         working_days(start, end)
     assert working_days(start, end, exclude_holidays=False).total == (end - start).days + 1
 

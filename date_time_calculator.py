@@ -11,7 +11,8 @@ from holidays import KOREAN_HOLIDAYS
 
 HOLIDAY_DATES = frozenset(date.fromisoformat(key) for key in KOREAN_HOLIDAYS)
 HOLIDAY_YEARS = frozenset(day.year for day in HOLIDAY_DATES)
-HOLIDAY_RANGE = f"{min(HOLIDAY_YEARS)}–{max(HOLIDAY_YEARS)}년"
+HOLIDAY_SPAN = f"{min(HOLIDAY_YEARS)}–{max(HOLIDAY_YEARS)}"
+HOLIDAY_RANGE = f"{HOLIDAY_SPAN}년"
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,6 @@
 """합성 Qt 창에서 날짜·시간 계산기의 입력·결과·기록·배율을 검증한다."""
 from copy import deepcopy
+from datetime import date, timedelta
 import os
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from qfluentwidgets.common.font import fontFamilies, setFontFamilies
 
 from app_fonts import apply_app_font
 import database as db
+import ui_date_time_calculator
+from date_time_calculator import HOLIDAY_YEARS
 from ui_date_time_calculator import DateTimeCalculatorWindow, MODES
 
 
@@ -189,13 +192,29 @@ def test_workday_inclusion_holiday_coverage_and_weekday_selection(qtbot):
     click(qtbot, win, f['day_5'])
     assert win.result_label.text() == '2일'
     click(qtbot, win, f['holidays'])
-    f['start_date'].setText('2028-01-03')
-    f['end_date'].setText('2028-01-07')
+    first, last = min(HOLIDAY_YEARS), max(HOLIDAY_YEARS)
+    start = date(last + 1, 1, 3)
+    start += timedelta((7 - start.weekday()) % 7)
+    f['start_date'].setText(start.isoformat())
+    f['end_date'].setText((start + timedelta(4)).isoformat())
     assert win.result_label.text() == '—'
-    assert '2025' in win.error_label.text() and '2027' in win.error_label.text()
+    assert str(first) in win.error_label.text() and str(last) in win.error_label.text()
     click(qtbot, win, f['holidays'])
     assert win.result_label.text() == '4일'
     assert '공휴일 미반영' in win.result_note.text()
+
+
+def test_workday_holiday_notes_follow_data(qtbot, monkeypatch):
+    monkeypatch.setattr(ui_date_time_calculator, 'HOLIDAY_RANGE', '2025–2028년')
+    monkeypatch.setattr(ui_date_time_calculator, 'HOLIDAY_SPAN', '2025–2028')
+    win = calculator(qtbot)
+    click(qtbot, win, win.mode_buttons['workdays'])
+    f = win.fields['workdays']
+    assert '공휴일 자료: 2025–2028년' in [label.text() for label in win.findChildren(QLabel)]
+    assert '2025–2028년' in f['holidays'].toolTip()
+    type_text(qtbot, win, f['start_date'], '2026-01-01')
+    type_text(qtbot, win, f['end_date'], '2026-01-04')
+    assert '공휴일 반영 (2025–2028)' in win.result_note.text()
 
 
 @pytest.mark.parametrize('mode,key,value', [

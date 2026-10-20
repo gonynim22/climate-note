@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from date_time_calculator import (
     add_calendar, calendar_difference, difference_seconds, format_duration,
-    format_minutes, interval_seconds, minute_value, parse_date, parse_time,
+    format_minutes, HOLIDAY_RANGE, HOLIDAY_SPAN, interval_seconds, minute_value, parse_date, parse_time,
     sum_durations, working_days,
 )
 from ui_converter_combo import ConverterCombo
@@ -344,8 +344,8 @@ class DateTimeCalculatorWindow(QWidget):
             weekdays.addWidget(self._check(mode, f'day_{i}', label, i >= 5))
         layout.addLayout(weekdays)
         layout.addWidget(self._check(mode, 'holidays', '공휴일 제외', True))
-        self.fields[mode]['holidays'].setToolTip('공휴일 자료: 2025–2027년 · 범위 밖은 공휴일 제외를 끄고 계산')
-        layout.addWidget(self._form_note('공휴일 자료: 2025–2027년'))
+        self.fields[mode]['holidays'].setToolTip(f'공휴일 자료: {HOLIDAY_RANGE} · 범위 밖은 공휴일 제외를 끄고 계산')
+        layout.addWidget(self._form_note(f'공휴일 자료: {HOLIDAY_RANGE}'))
         self.workdays_swap_button = self._button('시작 / 종료 바꾸기', lambda: self.swap_dates('workdays'))
         layout.addWidget(self.workdays_swap_button)
 
@@ -585,7 +585,7 @@ class DateTimeCalculatorWindow(QWidget):
                 self._show_result('계산된 날짜', result.value.date().isoformat(), result.value.strftime('%H:%M:%S'), '년·월 → 일·시간·분·초' + ('\n월말로 조정됨' if result.adjusted else ''))
             elif self.mode == 'workdays':
                 result = working_days(parse_date(d['start_date']), parse_date(d['end_date']), excluded_weekdays={i for i in range(7) if d[f'day_{i}']}, exclude_holidays=d['holidays'], include_start=d['include_start'], include_end=d['include_end'])
-                self._show_result('계산 결과 · 근무일', f'{result.count:,}일', f'포함된 날짜 {result.total:,}일 중 {result.excluded:,}일 제외', ('공휴일 반영 (2025–2027)' if d['holidays'] else '공휴일 미반영 · 선택한 요일만 제외') + '\n주말과 공휴일은 중복 제외하지 않습니다.')
+                self._show_result('계산 결과 · 근무일', f'{result.count:,}일', f'포함된 날짜 {result.total:,}일 중 {result.excluded:,}일 제외', (f'공휴일 반영 ({HOLIDAY_SPAN})' if d['holidays'] else '공휴일 미반영 · 선택한 요일만 제외') + '\n주말과 공휴일은 중복 제외하지 않습니다.')
             else:
                 rows = self._row_values()
                 values = []
