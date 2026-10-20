@@ -287,13 +287,14 @@ def main():
 
     # ── 공휴일 데이터 만료 알림 (마지막 연도 12월부터 표시)
     from datetime import date as _date
+    from app_info import APP_CONTACT_EMAIL
+    from holiday_notice import holiday_expiry_notice
     from holidays import holiday_last_year
-    _last_year = holiday_last_year()
-    _today = _date.today()
-    if _today.year == _last_year and _today.month == 12 or _today.year > _last_year:
+    _notice = holiday_expiry_notice(_date.today(), holiday_last_year(), APP_CONTACT_EMAIL)
+    if _notice:
         QTimer.singleShot(2000, lambda: InfoBar.warning(
-            title="공휴일 안내",
-            content=f"공휴일은 {_last_year}년 데이터까지 제공됩니다.\n이후 데이터는 패치를 통해 업데이트해 주세요.",
+            title=_notice[0],
+            content=_notice[1],
             parent=main_window,
             position=InfoBarPosition.TOP,
             duration=10000,
