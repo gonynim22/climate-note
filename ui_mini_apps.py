@@ -232,11 +232,11 @@ class MiniAppsPocket(QWidget):
         self.money_card.setObjectName("moneyNotationCard")
         self.money_card.setAccessibleName("금액·숫자 표기 도우미 실행")
         self.document_card = self.add_app(
-            "문서 형식\n변환", "document_converter", "한글이 설치된 PC에서 HWP → HWPX 변환",
+            "파일\n변환", "document_converter", "사진·PDF·한글·표와 글을 새 파일로 변환",
             self.document_converter_requested.emit, icon=mini_app_icon("document_converter"),
         )
         self.document_card.setObjectName("documentConverterCard")
-        self.document_card.setAccessibleName("문서 형식 변환 실행")
+        self.document_card.setAccessibleName("파일 변환 실행")
         for spec in optional_apps:
             card = self.add_app(
                 spec.title, spec.app_id, spec.description,

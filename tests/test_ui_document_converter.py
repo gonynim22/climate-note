@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtCore import QMimeData, QPointF, QRect, Qt, QUrl
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
-from PySide6.QtWidgets import QApplication, QFileDialog
+from PySide6.QtWidgets import QApplication, QFileDialog, QPushButton
 
 import database as db
 import security
@@ -67,7 +67,7 @@ def test_real_folder_picker_and_hide_cancels_pending_selection(qtbot, tmp_path):
     dialog = win._dialog
     dialog.selectFile(str(tmp_path))
     dialog.accept()
-    assert win.output_directory == tmp_path and not win.same_folder.isChecked()
+    assert win.output_directory == tmp_path and win.save_combo.currentText() == tmp_path.name
     win.select_files()
     dialog = win._dialog
     win.hide()
@@ -82,7 +82,7 @@ def test_missing_hwp_disables_conversion_with_explanation(qtbot, tmp_path, monke
     source.touch()
     win.add_files([source])
     assert not win.start_button.isEnabled()
-    assert "한글" in win.environment_label.text()
+    assert "한글" in win.setting_description.text() and win.check_button.isVisible()
 
 
 def test_batch_failure_continues_and_retry_only_failed(qtbot, tmp_path, monkeypatch):
@@ -109,23 +109,206 @@ def test_batch_failure_continues_and_retry_only_failed(qtbot, tmp_path, monkeypa
 @pytest.mark.parametrize("size", [(1000, 900), (480, 500), (420, 500)])
 def test_controls_fit_small_screens(qtbot, size, tmp_path):
     win = window(qtbot)
-    # 재시도·폴더 열기는 실패·결과가 있을 때만 보이므로(디자인 점검 21번) 그 상태를 만들어 함께 잰다.
     files = [tmp_path / name for name in ("a.hwp", "b.hwp")]
     for file in files:
         file.touch()
     win.add_files(files)
-    win.entries[0].state = "실패"
-    win.entries[1].state, win.entries[1].output = "완료", str(tmp_path / "b.hwpx")
-    win._update_controls()
     win.fit_to_screen(QRect(0, 0, *size))
     QApplication.processEvents()
     assert win.width() <= size[0] and win.height() <= size[1]
-    for control in (win.start_button, win.retry_button, win.open_button, win.remove_button, win.clear_button, win.file_list):
+    for control in (win.start_button, win.settings_box, win.list_button, win.clear_button, win.file_header):
+        assert control.isVisible()
+        assert win.surface.rect().contains(QRect(control.mapTo(win.surface, control.rect().topLeft()), control.size()))
+    win.entries[0].state, win.entries[0].detail = "실패", "합성 실패"
+    win.entries[1].state, win.entries[1].output = "완료", str(tmp_path / "b.hwpx")
+    win._batch_finished("")
+    QApplication.processEvents()
+    for control in (win.open_button, win.new_button, win.comparison, win.result_note):
         assert control.isVisible()
         assert win.surface.rect().contains(QRect(control.mapTo(win.surface, control.rect().topLeft()), control.size()))
     root = os.environ.get("CLIMATENOTE_TEST_APPDATA")
     if root:
         assert win.grab().save(str(Path(root).parent / f"hwp-converter-{size[0]}x{size[1]}.png"))
+
+
+def make_image(path, color=Qt.blue):
+    from PySide6.QtGui import QImage
+    image = QImage(320, 180, QImage.Format_RGB32)
+    image.fill(color)
+    assert image.save(str(path))
+    return path
+
+
+def capture(win, name):
+    QApplication.processEvents()
+    root = os.environ.get("CLIMATENOTE_TEST_APPDATA")
+    if root:
+        assert win.grab().save(str(Path(root).parent / f"file-converter-{name}.png"))
+
+
+def test_real_image_flow_previews_comparison_and_no_automatic_open(qtbot, tmp_path, monkeypatch):
+    source = make_image(tmp_path / "현장사진.jpg")
+    before = source.read_bytes()
+    opened = []
+    monkeypatch.setattr(module.QDesktopServices, "openUrl", lambda url: opened.append(url) or True)
+    win = window(qtbot)
+    capture(win, "drop")
+    win.add_files([source])
+    qtbot.waitUntil(lambda: not win.probe.busy, timeout=15000)
+    assert win.pages.currentWidget() is win.pick_page
+    assert list(win.format_buttons) == ["jpg_small", "png", "pdf_bundle", "webp", "bmp", "ico"]
+    assert win.target_id == "jpg_small" and not win.head_preview.image.isNull()
+    assert win.settings_box.height() == 96 and "320 × 180" in win.file_info.text()
+    capture(win, "pick")
+    win.start_button.click()
+    assert win.busy and not win.settings_box.isEnabled() and not win.acceptDrops()
+    qtbot.waitUntil(lambda: not win.busy, timeout=20000)
+    assert win.pages.currentWidget() is win.result_page and win.entries[0].state == "완료"
+    output = Path(win.entries[0].output)
+    assert output.is_file() and source.read_bytes() == before and not opened
+    assert win.bars.source_bytes == len(before) and win.bars.output_bytes == output.stat().st_size
+    assert win.entries[0].result_preview
+    capture(win, "result")
+    win.open_button.click()
+    assert len(opened) == 1 and opened[0].toLocalFile() == str(tmp_path).replace("\\", "/")
+    win.again_button.click()
+    assert win.pages.currentWidget() is win.pick_page and len(win.entries) == 1
+    win.clear_button.click()
+    assert not win.entries and win.pages.currentWidget() is win.drop_page
+
+
+@pytest.mark.parametrize("size", [(1000, 900), (480, 500), (420, 500)])
+def test_all_image_settings_and_panels_fit(qtbot, tmp_path, size):
+    win = window(qtbot)
+    win.add_files([make_image(tmp_path / "image.jpg")])
+    qtbot.waitUntil(lambda: not win.probe.busy, timeout=15000)
+    win.fit_to_screen(QRect(0, 0, *size))
+    for target in list(win.format_buttons):
+        win.select_target(target)
+        QApplication.processEvents()
+        assert win.settings_box.height() == 96
+        assert win.width() <= size[0] and win.height() <= size[1]
+        for widget in [win.start_button, win.file_header, win.save_combo, *win.option_combos.values()]:
+            assert win.surface.rect().contains(QRect(widget.mapTo(win.surface, widget.rect().topLeft()), widget.size()))
+        capture(win, f"pick-{target}-{size[0]}x{size[1]}")
+    win.clear_entries()
+    win.open_map()
+    QApplication.processEvents()
+    assert win.content.rect().contains(win._overlay.geometry())
+    assert win._overlay.rect().contains(win._overlay.panel.geometry())
+    capture(win, f"map-{size[0]}x{size[1]}")
+
+
+def test_map_focus_escape_backdrop_and_hide(qtbot):
+    win = window(qtbot)
+    win.activateWindow()
+    qtbot.waitUntil(win.isActiveWindow)
+    win.open_map()
+    panel = win._overlay
+    qtbot.waitUntil(lambda: panel.close_button.hasFocus())
+    for _ in range(5):
+        qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Tab)
+        assert panel.panel.isAncestorOf(QApplication.focusWidget())
+    qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Escape)
+    assert win._overlay is None and win.isVisible()
+    win.open_map()
+    # QTest의 (0,0)은 기본값(위젯 가운데)이라 가림막 안의 실제 좌표를 쓴다.
+    qtbot.mouseClick(win._overlay, Qt.LeftButton, pos=win._overlay.rect().topLeft() + module.QPointF(4, 4).toPoint())
+    assert win._overlay is None and win.isVisible()
+    win.open_map()
+    win.hide()
+    assert win._overlay is None
+
+
+def test_mixed_kinds_list_removal_and_result_drop_replaces(qtbot, tmp_path):
+    win = window(qtbot)
+    a = make_image(tmp_path / "a.jpg")
+    b = make_image(tmp_path / "b.png")
+    text = tmp_path / "표.csv"
+    text.write_bytes("한글".encode("utf-8"))
+    win.add_files([a, text, b, a])
+    assert len(win.entries) == 2 and "한 번에 한 종류" in win.status_label.text()
+    qtbot.waitUntil(lambda: not win.probe.busy, timeout=15000)
+    assert win.target_id == "jpg_small" and "jpg" in win.format_buttons
+    win.open_list()
+    assert win._overlay is not None
+    win._remove_entry(win.entries[1])
+    assert [e.source for e in win.entries] == [a]
+    win.close_overlay()
+    qtbot.waitUntil(lambda: not win.probe.busy, timeout=15000)
+    win._batch_finished("")
+    win.add_files([text])
+    qtbot.waitUntil(lambda: not win.probe.busy, timeout=15000)
+    assert [e.source for e in win.entries] == [text] and win.target_id == "cp949"
+    assert win.other_section.isHidden()
+
+
+@pytest.mark.parametrize("count", [0, 4, 8, 9, 12])
+def test_other_formats_only_scroll_after_eight(qtbot, tmp_path, count):
+    win = window(qtbot)
+    source = tmp_path / "a.hwp"
+    source.touch()
+    win.add_files([source])
+    win._render_other_formats(list(module.TARGETS)[:count])
+    QApplication.processEvents()
+    assert win.other_section.isHidden() == (count == 0)
+    assert win.other_scroll.height() <= 70
+    assert (win.other_scroll.verticalScrollBar().maximum() > 0) == (count > 8)
+
+
+def test_combo_escape_closes_list_before_window(qtbot, tmp_path):
+    win = window(qtbot)
+    source = tmp_path / "a.hwp"
+    source.touch()
+    win.add_files([source])
+    win.save_combo.setFocus()
+    win.save_combo.showPopup()
+    assert win.save_combo.view().isVisible()
+    qtbot.keyClick(win.save_combo.view(), Qt.Key_Escape)
+    assert not win.save_combo.view().isVisible() and win.isVisible()
+    qtbot.keyClick(win.save_combo, Qt.Key_Escape)
+    assert not win.isVisible()
+
+
+@pytest.mark.parametrize("action", ["hide", "disable", "shutdown"])
+def test_new_worker_cancelled_by_window_lifecycle(qtbot, tmp_path, monkeypatch, action):
+    import file_conversion_runner
+    win = window(qtbot)
+    source = make_image(tmp_path / "original.jpg")
+    original = source.read_bytes()
+    win.add_files([source])
+    qtbot.waitUntil(lambda: not win.probe.busy, timeout=15000)
+    script = tmp_path / "waiting.py"
+    script.write_text("import time; time.sleep(60)", encoding="utf-8")
+    monkeypatch.setattr(file_conversion_runner, "worker_command", lambda *args: (sys.executable, [str(script)]))
+    win.start_conversion()
+    qtbot.waitUntil(lambda: win.file_runner._process.processId() != 0)
+    assert not win.file_header.isEnabled() and not win.start_button.isVisible()
+    win.add_files([make_image(tmp_path / "ignored.png")])
+    assert len(win.entries) == 1
+    if action == "disable":
+        win.setEnabled(False)
+    else:
+        getattr(win, action)()
+    qtbot.waitUntil(lambda: not win.file_runner.busy)
+    assert not list(tmp_path.glob(".climatenote-conv-*"))
+    assert not list(tmp_path.glob("*작게*"))
+    assert source.read_bytes() == original
+
+
+def test_result_page_counts_pdf_images_and_keeps_cleanup_warning(qtbot, tmp_path):
+    win = window(qtbot)
+    source = tmp_path / "source.hwp"
+    source.touch()
+    win.add_files([source])
+    entry = win.entries[0]
+    entry.state, entry.output, entry.output_count = "완료", str(tmp_path / "pages"), 3
+    win.target_id = "pdf_png"
+    win._batch_finished("")
+    assert win.result_title.text() == "PNG 3개를 만들었어요"
+    entry.state, entry.output = "취소", ""
+    win._batch_finished("임시 파일 정리를 완료하지 못했습니다")
+    assert "정리" in win.result_status.text() and "취소 1개" in win.result_status.text()
 
 
 @pytest.mark.parametrize("action", ["lock", "tray", "hide", "sidebar", "reset_prepare", "screen", "quit"])

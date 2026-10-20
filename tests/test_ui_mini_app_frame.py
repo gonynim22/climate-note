@@ -16,7 +16,7 @@ WINDOWS = {
     "unit": ("ui_unit_converter", "UnitConverterWindow", "단위 환산기", True),
     "date": ("ui_date_time_calculator", "DateTimeCalculatorWindow", "날짜·시간 계산기", True),
     "money": ("ui_money_notation", "MoneyNotationWindow", "금액·숫자 표기 도우미", True),
-    "doc": ("ui_document_converter", "DocumentConverterWindow", "문서 형식 변환", False),
+    "doc": ("ui_document_converter", "DocumentConverterWindow", "파일 변환", False),
     "text": ("screen_text.window", "ScreenTextWindow", "화면 글자 따기", False),
 }
 
@@ -107,14 +107,14 @@ def test_title_bar_drag_moves_window_and_close_by_enter(qtbot, key):
     assert not win.isVisible()
 
 
-def test_document_converter_has_no_purple_left():
-    import inspect
-    source = inspect.getsource(ui_document_converter)
-    for purple in ("#6741D9", "#9775FA", "#F3EEFC", "#D7CDEE", "#F4F1FA", "#51456A", "#EEEAF5", "#C9B6F6", "#685481"):
-        assert purple not in source, purple
+def test_document_converter_actions_stay_blue(qtbot):
+    # v4.4 D안의 그림·화살표는 보라, 주 동작·선택은 공통 파랑이다.
+    win = _open(qtbot, "doc")
+    assert "#2563EB" in win.styleSheet()
+    assert win.start_button.property("primary") is True
 
 
-@pytest.mark.parametrize("key", ["date", "doc"])
+@pytest.mark.parametrize("key", ["date"])
 def test_checkboxes_draw_white_check_on_app_blue(qtbot, key):
     """디자인 점검 8번: Windows 기본 체크(파랑 위 어두운 체크) 대신 앱 파랑 상자 + 흰 체크."""
     win = _open(qtbot, key)

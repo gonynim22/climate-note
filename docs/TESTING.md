@@ -38,6 +38,13 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 대상이 없는 경우, 수집 오류, 0건 수집, 전부 skip은 통과가 아니다.
 `full`/`release` 실행 전에 `quick`/`data`를 의무적으로 중복 실행하지 않는다.
 
+파일 변환(v4.4)은 `tests/test_file_conversion.py`(합성 이미지·PDF·인코딩·비덮어쓰기),
+`tests/test_file_conversion_runner.py`(실제 Job/QProcess·일괄·취소·시간 초과·정리),
+`tests/test_ui_document_converter.py`(D안·추천·패널·파일창·수명·데이터 불변)와 기존 HWP/주머니/아이콘 검사를 사용한다.
+100/125/150% 합성 배율을 확인하고 worker 선분기 때문에 전체 하네스를 실행한다.
+PowerShell release 후 새 frozen EXE에서 qpdf 플러그인·offscreen 일괄·시작 비용·v4.3 대비 크기를 별도로 기록한다.
+업무 PC 한글 회귀, Excel UTF-8 BOM CSV, 실제 혼합 DPI·KVM·Win+D는 수동 미확인과 구분한다.
+
 캘린더 열 너비 변경은 `tests/test_ui_calendar_columns.py`를 포함한다. 창이 화면 안에 들어오는지만 확인해서는 요일 열 축소를 검출하지 못한다. 이 검사는 세로 논리 작업 영역(1080×1920, 864×1536, 720×1280)과 medium/compact에서 실제 날짜 열·요일 제목의 배치를 검사한다. `QT_SCALE_FACTOR=1.25`/`1.5`의 별도 실행은 합성 배율 확인이며 실제 혼합 DPI/KVM 수동 확인을 대신하지 않는다.
 
 날짜·시간 계산기는 `tests/test_date_time_calculator.py`, `tests/test_ui_date_time_calculator.py`, `tests/test_date_time_integration.py`, `tests/test_ui_mini_apps.py`를 함께 검사한다. 초 보존/분 복사 정책·월말/윤년/역순·공휴일 범위/중복 제외·합산 행과 최근 복원·두 앱의 독립 수명·저장 실패/초기화 성공/실패·DB/Export/salt 불변을 포함한다. UI에는 스크롤 영역을 두지 않는다. 날짜 포함/날짜만/합산 종류와 오류 상태에서 입력·결과·복사·최근의 가로/세로 경계를 확인한다. 합산 이전/다음·24개 상한·숨긴 항목 오류/포커스 보존·종류별 선택과 최근 복원을 검사한다. `QT_SCALE_FACTOR=1.25`/`1.5`의 합성 배율은 실제 혼합 DPI/KVM 확인을 대체하지 않는다. 상세 기준은 [날짜·시간 계약](DATE_TIME_CALCULATION.md)을 따른다.

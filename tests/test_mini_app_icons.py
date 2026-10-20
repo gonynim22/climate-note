@@ -103,3 +103,20 @@ def test_launcher_icon_keeps_blue_accent(size):
     center = round(17 / 24 * size)
     assert distance(image.pixelColor(center, center), "#2563EB") <= 60
     assert image.pixelColor(round(7 / 24 * size), round(7 / 24 * size)).alpha() == 0
+
+
+@pytest.mark.parametrize("scale", [1, 1.25, 1.5])
+def test_relation_map_svg_renders_without_clipping(scale):
+    path = resource_root() / "resources/icons/relation_map.svg"
+    renderer = QSvgRenderer(str(path))
+    assert renderer.isValid()
+    size = round(48*scale)
+    image = QImage(size, size, QImage.Format_ARGB32)
+    image.fill(Qt.transparent)
+    painter = QPainter(image)
+    renderer.render(painter, QRectF(0, 0, size, size))
+    painter.end()
+    assert all(image.pixelColor(x, 0).alpha() == 0 for x in range(size))
+    assert all(image.pixelColor(x, size-1).alpha() == 0 for x in range(size))
+    colors = [image.pixelColor(x, y) for x in range(size) for y in range(size) if image.pixelColor(x, y).alpha() > 200]
+    assert len(colors) > size and all(distance(color, "#6741D9") < 10 for color in colors)

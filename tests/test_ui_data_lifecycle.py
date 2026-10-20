@@ -22,7 +22,7 @@ def quiet_native_layer(app_dir, monkeypatch):
     # 이 파일은 데이터/Qt 객체 수명을 검사한다. native 레이어 검사는 별도다.
     monkeypatch.setattr(ShowDesktopKeeper, "_install_foreground_hook", lambda self: None)
     monkeypatch.setattr(ShowDesktopKeeper, "_apply_topmost", lambda *a, **k: None)
-    monkeypatch.setattr(ShowDesktopKeeper, "_pin_to_desktop_layer", lambda self: False)
+    monkeypatch.setattr(ShowDesktopKeeper, "_pin_to_desktop_layer", lambda self, preferred_hwnd=0: False)
     monkeypatch.setattr(MainCalendarWindow, "_warn_keep_desktop_unavailable_once", lambda self: None)
     for kind in ("info", "success", "warning", "error"):
         monkeypatch.setattr(ui_main.InfoBar, kind, lambda *a, **k: None)

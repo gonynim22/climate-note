@@ -387,6 +387,8 @@ def test_tile_icons_and_first_name_line_share_the_same_top(qtbot):
     from ui_mini_apps import MiniAppTile
     win = window(qtbot)
     popup = open_pocket(qtbot, win)
+    assert popup.document_card.text() == "파일\n변환"
+    assert popup.document_card.accessibleName() == "파일 변환 실행"
     tiles = [tile for tile in popup.findChildren(MiniAppTile) if tile.isEnabled() and tile.isVisible()]
     one_line = next(tile for tile in tiles if "\n" not in tile.text())
     two_line = next(tile for tile in tiles if "\n" in tile.text())

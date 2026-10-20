@@ -52,19 +52,19 @@ def _doc(qtbot):
 
 def test_empty_list_shows_drop_hint_and_hides_rare_buttons(qtbot, tmp_path):
     win = _doc(qtbot)
-    assert win.empty_hint.isVisible()
-    assert "끌어 놓으세요" in win.empty_hint.text()
-    for button in (win.remove_button, win.clear_button, win.retry_button, win.cancel_button, win.open_button):
-        assert button.isHidden(), button.text()
-    assert win.add_button.isVisible() and win.start_button.isVisible()
+    assert win.pages.currentWidget() is win.drop_page
+    assert "끌어 놓기" in win.add_button.accessibleName()
+    for button in (win.clear_button, win.cancel_button, win.open_button, win.start_button):
+        assert not button.isVisible(), button.text()
+    assert win.add_button.isVisible()
 
     source = tmp_path / "a.hwp"
     source.touch()
     win.add_files([source])
     QApplication.processEvents()
-    assert not win.empty_hint.isVisible()
-    assert not win.remove_button.isHidden() and not win.clear_button.isHidden()
-    assert win.retry_button.isHidden() and win.open_button.isHidden()
+    assert not win.add_button.isVisible()
+    assert win.clear_button.isVisible() and win.start_button.isVisible()
+    assert not win.open_button.isVisible()
 
 
 def test_retry_open_and_cancel_appear_when_relevant(qtbot, tmp_path, monkeypatch):
@@ -81,6 +81,6 @@ def test_retry_open_and_cancel_appear_when_relevant(qtbot, tmp_path, monkeypatch
     qtbot.waitUntil(lambda: len(calls) == 2)
     win.runner.finished.emit(True, str(tmp_path / "b.hwpx"), "완료")
     QApplication.processEvents()
-    assert win.cancel_button.isHidden()
-    assert not win.retry_button.isHidden()  # 실패가 있으니 재시도
+    assert not win.cancel_button.isVisible()
+    assert any(button.text() == "다시 시도" and button.isVisible() for button in win.findChildren(doc.QPushButton))
     assert not win.open_button.isHidden()   # 완료 결과가 있으니 폴더 열기
