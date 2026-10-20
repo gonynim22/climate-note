@@ -4,6 +4,7 @@ fetch_data.py - 공공데이터포털 API에서 음력/공휴일 데이터 수�
 * 미래 연도를 임의 계산해 채우지 않는다.
 """
 import os
+import re
 import ssl
 import time
 import urllib.error
@@ -13,10 +14,25 @@ from pathlib import Path
 
 from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as ET
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
-load_dotenv()
-API_KEY = os.environ.get("LUNAR_API_KEY", "")
+ROOT = Path(__file__).resolve().parent
+
+
+class FetchError(Exception):
+    """받기 실패. environment=True: 키·네트워크·서비스 문제, False: 응답 내용 문제."""
+
+    def __init__(self, message: str, *, environment: bool):
+        super().__init__(message)
+        self.environment = environment
+
+
+def load_api_key(env_path: Path = ROOT / ".env") -> str:
+    """환경 변수 우선, 없으면 .env 파일에서 읽는다 (os.environ은 바꾸지 않음)."""
+    return os.environ.get("LUNAR_API_KEY") or dotenv_values(env_path).get("LUNAR_API_KEY") or ""
+
+
+API_KEY = load_api_key()
 API_BASE = "https://apis.data.go.kr/B090041/openapi/service"
 
 
@@ -39,30 +55,71 @@ _OPENER = _https_only_opener()
 
 
 def _api_get(service_path: str, year: int, month: int) -> str:
+    label = f"{service_path.split('/')[0]} {year:04d}-{month:02d}"
+    if not API_KEY:
+        raise FetchError("LUNAR_API_KEY가 없습니다 (.env 확인)", environment=True)
     params = urllib.parse.urlencode({"serviceKey": API_KEY, "solYear": f"{year:04d}",
                                      "solMonth": f"{month:02d}", "numOfRows": "50"})
-    with _OPENER.open(f"{API_BASE}/{service_path}?{params}", timeout=10) as resp:
-        return resp.read().decode("utf-8")
+    try:
+        with _OPENER.open(f"{API_BASE}/{service_path}?{params}", timeout=10) as resp:
+            return resp.read().decode("utf-8")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        # URL·키가 메시지·예외 체인에 남지 않게 형식 이름만 쓴다
+        raise FetchError(f"{label} 요청 실패 ({type(e).__name__})", environment=True) from None
+    except UnicodeDecodeError:
+        raise FetchError(f"{label} 응답 해석 실패", environment=False) from None
+
+
+def _response_items(xml_text: str, label: str) -> list:
+    """응답 XML을 검사해 item 목록을 돌려준다. 이상이면 FetchError."""
+    try:
+        root = ET.fromstring(xml_text)
+    except (ET.ParseError, DefusedXmlException):
+        raise FetchError(f"{label} 응답 XML 해석 실패", environment=False) from None
+    code = (root.findtext(".//header/resultCode") or "").strip()
+    if code == "03":
+        return []
+    if code != "00":
+        detail = (root.findtext(".//header/resultMsg") or root.findtext(".//returnAuthMsg") or "").strip()
+        raise FetchError(f"{label} API 오류 (결과 코드 {code or '없음'} {detail})".rstrip(), environment=True)
+    total_text = (root.findtext(".//body/totalCount") or "").strip()
+    if not total_text.isdigit():
+        raise FetchError(f"{label} totalCount 이상", environment=False)
+    items = root.findall(".//body/items/item")
+    if len(items) < int(total_text):
+        raise FetchError(f"{label} 항목 부족 ({len(items)}/{total_text})", environment=False)
+    return items
+
+
+def _field(item, tag: str, pattern: str, label: str) -> str:
+    value = (item.findtext(tag) or "").strip()
+    if not re.fullmatch(pattern, value):
+        raise FetchError(f"{label} {tag} 값 이상", environment=False)
+    return value
 
 
 # ── API 호출 함수 ──
 def fetch_holidays(year: int, month: int) -> list[dict]:
-    try:
-        root = ET.fromstring(_api_get("SpcdeInfoService/getRestDeInfo", year, month))
-        return [{"date": f"{i.findtext('locdate')[:4]}-{i.findtext('locdate')[4:6]}-{i.findtext('locdate')[6:8]}",
-                 "name": i.findtext("dateName")}
-                for i in root.findall(".//item") if i.findtext("isHoliday") == "Y"]
-    except (urllib.error.URLError, ET.ParseError, DefusedXmlException, TimeoutError, OSError):
-        return []
+    label = f"공휴일 {year:04d}-{month:02d}"
+    result = []
+    for item in _response_items(_api_get("SpcdeInfoService/getRestDeInfo", year, month), label):
+        loc = _field(item, "locdate", r"\d{8}", label)
+        name = _field(item, "dateName", r".+", label)
+        if _field(item, "isHoliday", r"[YN]", label) == "Y":
+            result.append({"date": f"{loc[:4]}-{loc[4:6]}-{loc[6:8]}", "name": name})
+    return result
+
 
 def fetch_lunar_month(year: int, month: int) -> list[dict]:
-    try:
-        root = ET.fromstring(_api_get("LrsrCldInfoService/getLunCalInfo", year, month))
-        return [{"date": f"{i.findtext('solYear')}-{i.findtext('solMonth')}-{i.findtext('solDay')}",
-                 "lunar": f"{int(i.findtext('lunMonth'))}.{int(i.findtext('lunDay'))}"}
-                for i in root.findall(".//item")]
-    except (urllib.error.URLError, ET.ParseError, DefusedXmlException, TimeoutError, OSError, ValueError):
-        return []
+    label = f"음력 {year:04d}-{month:02d}"
+    result = []
+    for item in _response_items(_api_get("LrsrCldInfoService/getLunCalInfo", year, month), label):
+        date = "-".join((_field(item, "solYear", r"\d{4}", label), _field(item, "solMonth", r"\d{2}", label),
+                         _field(item, "solDay", r"\d{2}", label)))
+        lunar = f"{int(_field(item, 'lunMonth', r'\d+', label))}.{int(_field(item, 'lunDay', r'\d+', label))}"
+        result.append({"date": date, "lunar": lunar})
+    return result
+
 
 def verify_holiday_data(hol) -> tuple[bool, str]:
     """재생성된 holidays 모듈이 최소 커버리지를 만족하는지 검증한다.
