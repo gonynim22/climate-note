@@ -268,6 +268,15 @@ def pytest_exit(code, counts):
     return 0
 
 
+def holiday_change_lines(holidays):
+    lines = [f"- 추가 {d}: {n}" for d, n in holidays.get("added", {}).items()]
+    lines += [f"- 삭제 {d}: {n}" for d, n in holidays.get("removed", {}).items()]
+    lines += [f"- 변경 {d}: {old} -> {new}" for d, (old, new) in holidays.get("renamed", {}).items()]
+    if holidays.get("excluded_years"):
+        lines.append(f"- 제외 연도: {', '.join(map(str, holidays['excluded_years']))}")
+    return lines
+
+
 def holiday_lines(holidays):
     lines = [f"- 상태: `{holidays['status']}`"]
     if holidays.get("error"):
@@ -276,11 +285,7 @@ def holiday_lines(holidays):
         lines.append(f"- 조회 시각: {holidays['checked_at']}")
     if holidays.get("years"):
         lines.append(f"- 받은 범위: {holidays['years'][0]}~{holidays['years'][1]}년")
-    lines += [f"- 추가 {d}: {n}" for d, n in holidays.get("added", {}).items()]
-    lines += [f"- 삭제 {d}: {n}" for d, n in holidays.get("removed", {}).items()]
-    lines += [f"- 변경 {d}: {old} -> {new}" for d, (old, new) in holidays.get("renamed", {}).items()]
-    if holidays.get("excluded_years"):
-        lines.append(f"- 제외 연도: {', '.join(map(str, holidays['excluded_years']))}")
+    lines += holiday_change_lines(holidays)
     if holidays.get("backup"):
         lines.append(f"- 백업: `{holidays['backup']}`")
     return lines
@@ -388,6 +393,7 @@ def refresh_holidays_step(run_dir, report):
     }
     if result.status == "blocked":
         print("공휴일: 기존 날짜 삭제·변경 발견", flush=True)
+        print(chr(10).join(holiday_change_lines(report["holidays"])), flush=True)
         raise VerificationFailure(
             "공휴일 기존 날짜가 삭제·변경되었습니다. 목록을 확인한 뒤 "
             "`python fetch_data.py`를 실행하고 다시 release 하세요.")
@@ -395,6 +401,9 @@ def refresh_holidays_step(run_dir, report):
         print(f"공휴일: {len(diff.added)}건 추가", flush=True)
     else:
         print("공휴일: 최신 확인", flush=True)
+    changes = holiday_change_lines(report["holidays"])
+    if changes:
+        print(chr(10).join(changes), flush=True)
 
 
 def execute(profile, extra=()):

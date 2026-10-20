@@ -338,10 +338,11 @@ def test_non_release_profiles_skip_holiday_refresh(runner, tmp_path, monkeypatch
     assert verify.execute("full") == 0
 
 
-def test_release_stops_when_holidays_blocked(runner, monkeypatch):
+def test_release_stops_when_holidays_blocked(runner, monkeypatch, capsys):
     renamed = {"2025-05-05": ("부처님오신날", "어린이날·부처님오신날")}
     use_fake_fetch(monkeypatch, result=refresh_result("blocked", renamed=renamed))
     assert verify.execute("release") == 1
+    assert "2025-05-05" in capsys.readouterr().out
     report = verify.read_json(runner / "result.json")
     assert report["steps"] == []
     assert report["holidays"]["status"] == "blocked"
@@ -360,7 +361,7 @@ def test_release_holiday_fetch_failure_exit_codes(runner, monkeypatch, environme
     assert report["steps"] == []
 
 
-def test_release_continues_after_holiday_update(runner, monkeypatch):
+def test_release_continues_after_holiday_update(runner, monkeypatch, capsys):
     use_fake_fetch(monkeypatch, result=refresh_result("updated", added={"2028-01-01": "1월1일"}))
 
     def step(name, _command, directory, _env, **kwargs):
@@ -372,6 +373,7 @@ def test_release_continues_after_holiday_update(runner, monkeypatch):
 
     monkeypatch.setattr(verify, "run_step", step)
     verify.execute("release")
+    assert "2028-01-01" in capsys.readouterr().out
     report = verify.read_json(runner / "result.json")
     assert [s["name"] for s in report["steps"]][0] == "pytest"
     assert report["holidays"]["added"] == {"2028-01-01": "1월1일"}
