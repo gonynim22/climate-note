@@ -3,6 +3,7 @@ fetch_data.py - 공공데이터포털 API에서 음력/공휴일 데이터 수�
 * API가 제공하는 범위(통상 1~2년 뒤까지)만 holidays.py로 생성한다.
 * 미래 연도를 임의 계산해 채우지 않는다.
 """
+import http.client
 import os
 import re
 import ssl
@@ -63,7 +64,7 @@ def _api_get(service_path: str, year: int, month: int) -> str:
     try:
         with _OPENER.open(f"{API_BASE}/{service_path}?{params}", timeout=10) as resp:
             return resp.read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
         # URL·키가 메시지·예외 체인에 남지 않게 형식 이름만 쓴다
         raise FetchError(f"{label} 요청 실패 ({type(e).__name__})", environment=True) from None
     except UnicodeDecodeError:

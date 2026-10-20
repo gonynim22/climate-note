@@ -1,5 +1,6 @@
 # tests/test_fetch_data.py - 공휴일/음력 데이터 검증 헬퍼 테스트
 import fetch_data
+import http.client
 import holidays
 import io
 import os
@@ -182,6 +183,7 @@ def test_missing_or_bad_fields_are_data_failures(monkeypatch, fetch, item):
     urllib.error.URLError("boom"),
     urllib.error.HTTPError("https://x/?serviceKey=synthetic-key-7", 500, "err", {}, None),
     TimeoutError(),
+    http.client.IncompleteRead(b""),
 ])
 def test_network_errors_are_environment_failures_without_key(monkeypatch, fetch, error):
     def fake_open(url, timeout):
