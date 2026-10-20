@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 from defusedxml import DefusedXmlException
@@ -122,6 +123,61 @@ def fetch_lunar_month(year: int, month: int) -> list[dict]:
     return result
 
 
+CORE_HOLIDAY_NAMES = ("1월1일", "삼일절", "광복절", "개천절", "한글날", "기독탄신일", "설날", "추석")
+HOLIDAY_YEARS = range(2025, 2051)
+
+
+def _pause() -> None:
+    time.sleep(0.1)
+
+
+def merge_holiday_names(entries: Iterable[dict]) -> dict[str, str]:
+    """같은 날 이름을 처음 본 순서로 '·'로 합친다 (같은 이름은 한 번만)."""
+    names: dict[str, list[str]] = {}
+    for entry in entries:
+        day_names = names.setdefault(entry["date"], [])
+        if entry["name"] not in day_names:
+            day_names.append(entry["name"])
+    return {date: "·".join(day_names) for date, day_names in names.items()}
+
+
+def missing_core_names(holidays: Mapping[str, str], year: int) -> list[str]:
+    """그 해 공휴일 이름에 들어 있지 않은 핵심 이름 (날짜는 보지 않음)."""
+    year_names = [name for date, name in holidays.items() if date.startswith(f"{year:04d}-")]
+    return [core for core in CORE_HOLIDAY_NAMES if not any(core in name for name in year_names)]
+
+
+def fetch_holiday_years(years: Iterable[int]) -> dict[int, dict[str, str]]:
+    """연도별 1~12월 공휴일을 받는다. 0건 연도는 빼고, 실패는 FetchError 그대로 올린다."""
+    result = {}
+    for year in years:
+        entries = []
+        for month in range(1, 13):
+            entries.extend(fetch_holidays(year, month))
+            _pause()
+        if entries:
+            result[year] = merge_holiday_names(entries)
+    return result
+
+
+def select_holiday_years(fetched: Mapping[int, Mapping[str, str]],
+                         existing_years: Iterable[int]) -> tuple[dict[str, str], list[int]]:
+    """받은 공휴일 중 쓸 연도를 고른다. 기존 연도가 불완전하면 실패, 새 연도는 제외한다."""
+    existing = set(existing_years)
+    merged: dict[str, str] = {}
+    excluded: list[int] = []
+    for year in sorted(existing | set(fetched)):
+        year_holidays = fetched.get(year, {})
+        missing = missing_core_names(year_holidays, year)
+        if not missing:
+            merged.update(year_holidays)
+        elif year in existing:
+            raise FetchError(f"{year}년 공휴일이 불완전합니다 (누락: {', '.join(missing)})", environment=False)
+        else:
+            excluded.append(year)
+    return merged, excluded
+
+
 def verify_holiday_data(hol) -> tuple[bool, str]:
     """재생성된 holidays 모듈이 최소 커버리지를 만족하는지 검증한다.
 
@@ -138,6 +194,10 @@ def verify_holiday_data(hol) -> tuple[bool, str]:
         return False, f"음력 범위 부족 (최대 {max(lm_years) if lm_years else '없음'})"
     if len(kh) < 40:
         return False, f"공휴일 건수 비정상 ({len(kh)}건)"
+    for year in sorted({int(y) for y in kh_years}):
+        missing = missing_core_names(kh, year)
+        if missing:
+            return False, f"{year}년 핵심 공휴일 누락: {', '.join(missing)}"
     return True, f"OK (공휴일 {len(kh)}건, 음력 {len(lm)}건)"
 
 

@@ -227,3 +227,95 @@ def test_load_api_key_reads_root_env_without_touching_environ(tmp_path, monkeypa
     assert fetch_data.load_api_key(env_file) == "env"
     monkeypatch.delenv("LUNAR_API_KEY")
     assert fetch_data.load_api_key(tmp_path / "missing.env") == ""
+
+
+def year_of(data, y):
+    return {k: v for k, v in data.items() if k.startswith(f"{y}-")}
+
+
+def test_merge_holiday_names_keeps_api_order_and_dedupes():
+    entries = [{"date": "2025-05-05", "name": "어린이날"}, {"date": "2025-05-05", "name": "부처님오신날"},
+               {"date": "2025-05-05", "name": "어린이날"}, {"date": "2025-05-06", "name": "대체공휴일"}]
+    assert fetch_data.merge_holiday_names(entries) == {
+        "2025-05-05": "어린이날·부처님오신날", "2025-05-06": "대체공휴일"}
+
+
+def test_missing_core_names_accepts_merged_names():
+    y27 = year_of(holidays.KOREAN_HOLIDAYS, 2027)
+    assert fetch_data.missing_core_names(y27, 2027) == []
+    renamed = {**y27, "2027-03-01": "삼일절·임시공휴일"}
+    assert fetch_data.missing_core_names(renamed, 2027) == []
+    deleted = {k: v for k, v in y27.items() if k != "2027-03-01"}
+    assert fetch_data.missing_core_names(deleted, 2027) == ["삼일절"]
+
+
+def test_verify_requires_core_names_every_year():
+    class Stub:
+        KOREAN_HOLIDAYS = {k: v for k, v in holidays.KOREAN_HOLIDAYS.items() if k != "2026-10-09"}
+        LUNAR_MAPPING = holidays.LUNAR_MAPPING
+    ok, msg = fetch_data.verify_holiday_data(Stub)
+    assert ok is False
+    assert "2026" in msg and "한글날" in msg
+
+
+def fake_fetch_for(monkeypatch, calls):
+    def fake(year, month):
+        calls.append((year, month))
+        if year != 2027:
+            return []
+        prefix = f"{year}-{month:02d}-"
+        return [{"date": k, "name": v} for k, v in year_of(holidays.KOREAN_HOLIDAYS, year).items()
+                if k.startswith(prefix)]
+
+    monkeypatch.setattr(fetch_data, "fetch_holidays", fake)
+    monkeypatch.setattr(fetch_data, "_pause", lambda: None)
+
+
+def test_fetch_holiday_years_requests_twelve_months_and_skips_empty_years(monkeypatch):
+    calls = []
+    fake_fetch_for(monkeypatch, calls)
+    result = fetch_data.fetch_holiday_years([2027, 2040])
+    assert set(result) == {2027}
+    assert len(calls) == 24
+    assert result[2027] == year_of(holidays.KOREAN_HOLIDAYS, 2027)
+
+
+def test_fetch_holiday_years_stops_on_first_failure(monkeypatch):
+    calls = []
+
+    def fake(year, month):
+        calls.append((year, month))
+        if month == 3:
+            raise fetch_data.FetchError("x", environment=False)
+        return []
+
+    monkeypatch.setattr(fetch_data, "fetch_holidays", fake)
+    monkeypatch.setattr(fetch_data, "_pause", lambda: None)
+    with pytest.raises(fetch_data.FetchError) as exc:
+        fetch_data.fetch_holiday_years([2027])
+    assert exc.value.environment is False
+    assert calls == [(2027, 1), (2027, 2), (2027, 3)]
+
+
+def test_select_excludes_incomplete_new_year():
+    kh = holidays.KOREAN_HOLIDAYS
+    fetched = {y: year_of(kh, y) for y in (2025, 2026, 2027)}
+    fetched[2028] = {"2028-04-12": "국회의원선거일"}
+    merged, excluded = fetch_data.select_holiday_years(fetched, {2025, 2026, 2027})
+    assert not any(k.startswith("2028-") for k in merged)
+    assert excluded == [2028]
+    assert merged == kh
+
+
+@pytest.mark.parametrize("case", ["missing", "lost_chuseok"])
+def test_select_fails_when_existing_year_loses_core_or_disappears(case):
+    kh = holidays.KOREAN_HOLIDAYS
+    fetched = {y: year_of(kh, y) for y in (2025, 2026, 2027)}
+    if case == "missing":
+        del fetched[2026]
+    else:
+        fetched[2026] = {k: v for k, v in fetched[2026].items() if "추석" not in v}
+    with pytest.raises(fetch_data.FetchError) as exc:
+        fetch_data.select_holiday_years(fetched, {2025, 2026, 2027})
+    assert exc.value.environment is False
+    assert "2026" in str(exc.value)
