@@ -573,7 +573,7 @@ def test_all_modes_fit_work_area_without_scroll_or_clipping(qtbot, mode, state, 
         win.fields[mode]['start_date'].setText('2026-01-01')
         win.fields[mode]['end_date'].setText('2026-01-04')
         if state == 'error':
-            win.fields[mode]['end_date'].setText('2028-01-04')
+            win.fields[mode]['end_date'].setText(date(max(HOLIDAY_YEARS) + 1, 1, 4).isoformat())
     else:
         if state.startswith('interval'):
             choose(win.sum_kind, 'interval')
