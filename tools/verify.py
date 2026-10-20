@@ -122,6 +122,8 @@ def isolated_env(run_dir):
     )
     # 외부 pytest 옵션으로 선택된 검사/보고서/격리 경로가 바뀌지 않게 한다.
     env.pop("PYTEST_ADDOPTS", None)
+    # API 키는 공휴일 단계에서만 쓰고 pytest·빌드·EXE에는 넘기지 않는다.
+    env.pop("LUNAR_API_KEY", None)
     return env
 
 
@@ -266,6 +268,24 @@ def pytest_exit(code, counts):
     return 0
 
 
+def holiday_lines(holidays):
+    lines = [f"- 상태: `{holidays['status']}`"]
+    if holidays.get("error"):
+        lines.append(f"- 실패: {holidays['error']}")
+    if holidays.get("checked_at"):
+        lines.append(f"- 조회 시각: {holidays['checked_at']}")
+    if holidays.get("years"):
+        lines.append(f"- 받은 범위: {holidays['years'][0]}~{holidays['years'][1]}년")
+    lines += [f"- 추가 {d}: {n}" for d, n in holidays.get("added", {}).items()]
+    lines += [f"- 삭제 {d}: {n}" for d, n in holidays.get("removed", {}).items()]
+    lines += [f"- 변경 {d}: {old} -> {new}" for d, (old, new) in holidays.get("renamed", {}).items()]
+    if holidays.get("excluded_years"):
+        lines.append(f"- 제외 연도: {', '.join(map(str, holidays['excluded_years']))}")
+    if holidays.get("backup"):
+        lines.append(f"- 백업: `{holidays['backup']}`")
+    return lines
+
+
 def save_report(run_dir, report):
     lines = ["# 기후노트 검증 결과", "",
              f"- 실행: `{run_dir.name}`", f"- 프로필: `{report['profile']}`",
@@ -274,6 +294,9 @@ def save_report(run_dir, report):
         lines.append(f"- 테스트: `{json.dumps(report['tests'])}`")
     if report.get("error"):
         lines.append(f"- 오류: {report['error']}")
+    if "holidays" in report:
+        lines += ["", "## 공휴일 데이터", ""]
+        lines += holiday_lines(report["holidays"])
     lines += ["", "## 실행 단계", "", "| 단계 | 결과 | 실제 종료 코드 | 로그 |",
               "|---|---|---|---|"]
     for step in report["steps"]:
@@ -334,6 +357,46 @@ def artifact_metadata(exe, env):
     return meta
 
 
+def _fetch_data_module():
+    # 모듈 import 때는 가져오지 않고 release 단계에서만 가져온다.
+    sys.path.insert(0, str(ROOT))
+    try:
+        import fetch_data
+    finally:
+        sys.path.pop(0)
+    return fetch_data
+
+
+def refresh_holidays_step(run_dir, report):
+    fd = _fetch_data_module()
+    try:
+        result = fd.refresh_holidays(ROOT / "holidays.py", backup_dir=run_dir / "holidays-backup")
+    except fd.FetchError as exc:
+        report["holidays"] = {"status": "failed", "error": str(exc)}
+        print(f"공휴일: 받기 실패 ({exc})", flush=True)
+        if exc.environment:
+            raise ValueError(f"공휴일 데이터 받기 실패: {exc}") from exc
+        raise VerificationFailure(f"공휴일 데이터 받기 실패: {exc}") from exc
+    diff = result.diff
+    report["holidays"] = {
+        "status": result.status, "checked_at": result.checked_at,
+        "years": list(result.years), "added": dict(diff.added),
+        "removed": dict(diff.removed),
+        "renamed": {d: list(pair) for d, pair in diff.renamed.items()},
+        "excluded_years": list(result.excluded_years),
+        "backup": result.backup.relative_to(run_dir).as_posix() if result.backup else None,
+    }
+    if result.status == "blocked":
+        print("공휴일: 기존 날짜 삭제·변경 발견", flush=True)
+        raise VerificationFailure(
+            "공휴일 기존 날짜가 삭제·변경되었습니다. 목록을 확인한 뒤 "
+            "`python fetch_data.py`를 실행하고 다시 release 하세요.")
+    if result.status == "updated":
+        print(f"공휴일: {len(diff.added)}건 추가", flush=True)
+    else:
+        print("공휴일: 최신 확인", flush=True)
+
+
 def execute(profile, extra=()):
     run_dir = create_run_dir()
     report = {"format_version": 1, "profile": profile, "status": "running",
@@ -346,9 +409,13 @@ def execute(profile, extra=()):
         save_report(run_dir, report)
         env = isolated_env(run_dir)
         report["environment"] = doctor()
-        report["inputs_before"] = source_snapshot()
         if report["environment"]["errors"]:
             raise ValueError("; ".join(report["environment"]["errors"]))
+        if profile == "release":
+            # 스냅샷 전에 끝나야 inputs_after 비교와 충돌하지 않는다. 뒤 단계가 실패해도 되돌리지 않는다.
+            refresh_holidays_step(run_dir, report)
+            save_report(run_dir, report)
+        report["inputs_before"] = source_snapshot()
         code = 0
         if profile != "doctor":
             step = run_step("pytest", pytest_command(profile, extra, run_dir), run_dir, env, report=report)

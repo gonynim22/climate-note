@@ -5,10 +5,15 @@ from pathlib import Path
 import subprocess
 import sys
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
+import fetch_data
 from tools import verify
+
+# runner fixture가 바꾸기 전의 실제 공휴일 단계
+REAL_HOLIDAY_STEP = verify.refresh_holidays_step
 
 
 def test_junit_entity_rejection_preserves_report(tmp_path):
@@ -30,6 +35,8 @@ def runner(tmp_path, monkeypatch):
     monkeypatch.setattr(verify, "isolated_env", lambda _: os.environ.copy())
     monkeypatch.setattr(verify, "doctor", lambda: {"errors": []})
     monkeypatch.setattr(verify, "source_snapshot", lambda: {"head": "test", "files": {"a.py": "abc"}})
+    # 기존 release 시험이 네트워크를 타지 않게 공휴일 단계는 건너뛴다.
+    monkeypatch.setattr(verify, "refresh_holidays_step", lambda run_dir, report: None)
     return directory
 
 
@@ -287,3 +294,93 @@ def test_fixture_cleanup_disposes_only_new_app_windows(qapp, qtbot):
     assert isValid(helper)
     assert not isValid(created)
     assert not isValid(timer)
+
+
+def use_fake_fetch(monkeypatch, *, result=None, error=None):
+    """공휴일 단계를 실제로 돌리되 fetch_data는 가짜로 바꾼다."""
+    def fake_refresh(path, backup_dir=None, **_kwargs):
+        if error is not None:
+            raise error
+        return result
+
+    monkeypatch.setattr(verify, "refresh_holidays_step", REAL_HOLIDAY_STEP)
+    module = SimpleNamespace(refresh_holidays=fake_refresh, FetchError=fetch_data.FetchError)
+    monkeypatch.setattr(verify, "_fetch_data_module", lambda: module)
+
+
+def refresh_result(status, *, added=None, removed=None, renamed=None):
+    diff = fetch_data.HolidayDiff(added=added or {}, removed=removed or {}, renamed=renamed or {})
+    return fetch_data.RefreshResult(
+        status=status, diff=diff, excluded_years=[], checked_at="2026-10-20T09:00:00+09:00",
+        years=(2025, 2050), backup=None)
+
+
+def test_release_refreshes_holidays_before_input_snapshot(runner, monkeypatch):
+    calls = []
+    monkeypatch.setattr(verify, "refresh_holidays_step", lambda run_dir, report: calls.append("holidays"))
+
+    def snapshot():
+        calls.append("snapshot")
+        return {"head": "test", "files": {}}
+
+    monkeypatch.setattr(verify, "source_snapshot", snapshot)
+    monkeypatch.setattr(verify, "pytest_command", lambda *_: [sys.executable, "-c", "raise SystemExit(1)"])
+    verify.execute("release")
+    assert calls[:2] == ["holidays", "snapshot"]
+
+
+def test_non_release_profiles_skip_holiday_refresh(runner, tmp_path, monkeypatch):
+    def forbidden(run_dir, report):
+        raise AssertionError("release 밖에서 공휴일 단계가 실행됨")
+
+    monkeypatch.setattr(verify, "refresh_holidays_step", forbidden)
+    monkeypatch.setattr(verify, "pytest_command", mini_pytest(tmp_path, "def test_ok():\n    assert True\n"))
+    assert verify.execute("full") == 0
+
+
+def test_release_stops_when_holidays_blocked(runner, monkeypatch):
+    renamed = {"2025-05-05": ("부처님오신날", "어린이날·부처님오신날")}
+    use_fake_fetch(monkeypatch, result=refresh_result("blocked", renamed=renamed))
+    assert verify.execute("release") == 1
+    report = verify.read_json(runner / "result.json")
+    assert report["steps"] == []
+    assert report["holidays"]["status"] == "blocked"
+    assert report["holidays"]["renamed"] == {"2025-05-05": ["부처님오신날", "어린이날·부처님오신날"]}
+    assert "fetch_data.py" in report["error"]
+    with open(runner / "summary.md", encoding="utf-8") as stream:
+        assert "2025-05-05" in stream.read()
+
+
+@pytest.mark.parametrize("environment,expected", [(True, 2), (False, 1)])
+def test_release_holiday_fetch_failure_exit_codes(runner, monkeypatch, environment, expected):
+    use_fake_fetch(monkeypatch, error=fetch_data.FetchError("받기 실패", environment=environment))
+    assert verify.execute("release") == expected
+    report = verify.read_json(runner / "result.json")
+    assert report["holidays"]["status"] == "failed"
+    assert report["steps"] == []
+
+
+def test_release_continues_after_holiday_update(runner, monkeypatch):
+    use_fake_fetch(monkeypatch, result=refresh_result("updated", added={"2028-01-01": "1월1일"}))
+
+    def step(name, _command, directory, _env, **kwargs):
+        record = {"name": name, "status": "passed", "returncode": 0, "log": f"{name}.log"}
+        kwargs["report"]["steps"].append(record)
+        if name == "pytest":
+            verify.atomic_text(directory / "pytest.xml", "<testsuite><testcase name='ok'/></testsuite>")
+        return record
+
+    monkeypatch.setattr(verify, "run_step", step)
+    verify.execute("release")
+    report = verify.read_json(runner / "result.json")
+    assert [s["name"] for s in report["steps"]][0] == "pytest"
+    assert report["holidays"]["added"] == {"2028-01-01": "1월1일"}
+    with open(runner / "summary.md", encoding="utf-8") as stream:
+        assert "2028-01-01" in stream.read()
+
+
+def test_isolated_env_drops_api_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(verify, "ROOT", tmp_path)
+    monkeypatch.setenv("LUNAR_API_KEY", "synthetic-key-7")
+    run = verify.create_run_dir(root=tmp_path)
+    assert "LUNAR_API_KEY" not in verify.isolated_env(run)
