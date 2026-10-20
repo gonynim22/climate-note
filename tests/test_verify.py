@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import urllib.error
 import uuid
 from types import SimpleNamespace
 
@@ -379,6 +380,101 @@ def test_release_continues_after_holiday_update(runner, monkeypatch, capsys):
     assert report["holidays"]["added"] == {"2028-01-01": "1월1일"}
     with open(runner / "summary.md", encoding="utf-8") as stream:
         assert "2028-01-01" in stream.read()
+
+
+def passing_steps(monkeypatch):
+    """pytest·빌드 단계는 통과로 기록만 한다 (EXE가 없어 산출물 검사에서 멈춘다)."""
+    def step(name, _command, directory, _env, **kwargs):
+        record = {"name": name, "status": "passed", "returncode": 0, "log": f"{name}.log"}
+        kwargs["report"]["steps"].append(record)
+        if name == "pytest":
+            verify.atomic_text(directory / "pytest.xml", "<testsuite><testcase name='ok'/></testsuite>")
+        return record
+
+    monkeypatch.setattr(verify, "run_step", step)
+
+
+def test_release_continues_when_holidays_up_to_date(runner, monkeypatch, capsys):
+    use_fake_fetch(monkeypatch, result=refresh_result("up_to_date"))
+    passing_steps(monkeypatch)
+    verify.execute("release")
+    out = capsys.readouterr().out
+    assert "API에서 확인하는 중" in out and "공휴일: 최신 확인" in out
+    report = verify.read_json(runner / "result.json")
+    assert [s["name"] for s in report["steps"]][0] == "pytest"
+    assert report["holidays"]["status"] == "up_to_date"
+    assert report["holidays"]["checked_at"] == "2026-10-20T09:00:00+09:00"
+    with open(runner / "summary.md", encoding="utf-8") as stream:
+        summary = stream.read()
+    assert "공휴일 최신 확인" in summary and "2026-10-20T09:00:00+09:00" in summary
+
+
+def test_release_stops_when_holidays_only_removed(runner, monkeypatch, capsys):
+    removed = {"2026-10-05": "대체공휴일(개천절)"}
+    use_fake_fetch(monkeypatch, result=refresh_result("blocked", removed=removed))
+    assert verify.execute("release") == 1
+    assert "삭제 2026-10-05" in capsys.readouterr().out
+    report = verify.read_json(runner / "result.json")
+    assert report["steps"] == []
+    assert report["holidays"]["removed"] == removed
+    assert report["holidays"]["added"] == {} and report["holidays"]["renamed"] == {}
+    assert "fetch_data.py" in report["error"]
+    with open(runner / "summary.md", encoding="utf-8") as stream:
+        assert "- 삭제 2026-10-05: 대체공휴일(개천절)" in stream.read()
+
+
+def use_real_fetch(monkeypatch, tmp_path, holidays_bytes, key, opener):
+    """실제 fetch_data 받기 경로를 쓰되 holidays.py 위치·키·네트워크만 시험용으로 바꾼다."""
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "holidays.py").write_bytes(holidays_bytes)
+    monkeypatch.setattr(verify, "ROOT", root)
+    monkeypatch.setattr(verify, "refresh_holidays_step", REAL_HOLIDAY_STEP)
+    monkeypatch.setattr(fetch_data, "API_KEY", key)
+    monkeypatch.setattr(fetch_data._OPENER, "open", opener)
+
+
+@pytest.mark.parametrize("key", ["", "synthetic-key-7"], ids=["no_key", "network_error"])
+def test_release_real_fetch_failure_keeps_key_out_of_reports(runner, tmp_path, monkeypatch, capsys, key):
+    seen = []
+
+    def failing_open(url, timeout):
+        seen.append(url)
+        raise urllib.error.URLError(f"no route: {url}")  # 오류 문자열에 키가 든 URL이 있다
+
+    use_real_fetch(monkeypatch, tmp_path, (verify.ROOT / "holidays.py").read_bytes(), key, failing_open)
+    assert verify.execute("release") == 2
+    report = verify.read_json(runner / "result.json")
+    assert report["holidays"]["status"] == "failed"
+    assert report["steps"] == []
+    if not key:
+        assert seen == []
+        assert "LUNAR_API_KEY" in report["holidays"]["error"]
+        return
+    assert key in seen[0]
+    assert "URLError" in report["holidays"]["error"]
+    captured = capsys.readouterr()
+    with open(runner / "result.json", encoding="utf-8") as stream:
+        report_text = stream.read()
+    with open(runner / "summary.md", encoding="utf-8") as stream:
+        summary = stream.read()
+    for text in (report_text, summary, captured.out, captured.err):
+        assert key not in text and "serviceKey" not in text
+
+
+def test_release_corrupt_holidays_file_is_data_failure(runner, tmp_path, monkeypatch):
+    def no_network(*_args, **_kwargs):
+        pytest.fail("읽지 못한 holidays.py인데 API를 부름")
+
+    conflict = "<<<<<<< HEAD\nKOREAN_HOLIDAYS = {}\n=======\n>>>>>>> other\n".encode("utf-8")
+    use_real_fetch(monkeypatch, tmp_path, conflict, "synthetic-key-7", no_network)
+    assert verify.execute("release") == 1
+    report = verify.read_json(runner / "result.json")
+    assert report["status"] == "failed" and report["exit_code"] == 1
+    assert report["holidays"]["status"] == "failed"
+    assert "SyntaxError" in report["holidays"]["error"]
+    assert report["steps"] == []
+    assert (tmp_path / "root" / "holidays.py").read_bytes() == conflict
 
 
 def test_isolated_env_drops_api_key(tmp_path, monkeypatch):

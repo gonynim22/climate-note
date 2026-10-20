@@ -277,8 +277,15 @@ def holiday_change_lines(holidays):
     return lines
 
 
+HOLIDAY_STATUS_TEXT = {
+    "up_to_date": "공휴일 최신 확인", "updated": "공휴일 갱신됨",
+    "blocked": "기존 날짜 삭제·변경으로 중단", "failed": "공휴일 받기 실패",
+}
+
+
 def holiday_lines(holidays):
-    lines = [f"- 상태: `{holidays['status']}`"]
+    status = holidays["status"]
+    lines = [f"- 상태: {HOLIDAY_STATUS_TEXT.get(status, status)} (`{status}`)"]
     if holidays.get("error"):
         lines.append(f"- 실패: {holidays['error']}")
     if holidays.get("checked_at"):
@@ -374,6 +381,7 @@ def _fetch_data_module():
 
 def refresh_holidays_step(run_dir, report):
     fd = _fetch_data_module()
+    print("공휴일 데이터를 API에서 확인하는 중... (1~3분)", flush=True)
     try:
         result = fd.refresh_holidays(ROOT / "holidays.py", backup_dir=run_dir / "holidays-backup")
     except fd.FetchError as exc:
