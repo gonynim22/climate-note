@@ -3,6 +3,7 @@
 # 2026-10-05 push 보안 검사 1단계: defusedxml 추가, EXE 미포함 개발·빌드 패키지 취약 버전 갱신(docs/work/2026-10-05-push-security-scan-step1.md).
 # 2026-10-05 push 보안 검사 2단계: cryptography 취약점 해소 최소 버전 갱신, 46.0.4 고정 벡터·양방향 호환 검증(docs/work/2026-10-05-push-security-scan-step2.md).
 # 2026-10-08 화면 글자 따기: onnxruntime 1.30.0(하위 flatbuffers·protobuf) 추가 (docs/work/2026-10-08-screen-text-capture.md).
+# 2026-10-21 push 보안 검사: EXE 미포함 pillow 12.3.0→13.0.0 (OSV 9건 해소, docs/work/2026-10-21-v4.4-release.md).
 # 검증 스냅샷: docs/work/2026-09-10-schedule-emoji-glyph-clipping.md
 # 일상 개발은 requirements.txt, 동일 환경 재현은 이 파일을 사용한다.
 
@@ -27,7 +28,7 @@ iniconfig==2.3.0
 numpy==2.2.6
 packaging==26.0
 pefile==2024.8.26
-pillow==12.3.0
+pillow==13.0.0
 pluggy==1.6.0
 protobuf==7.36.2
 pycparser==3.0
