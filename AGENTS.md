@@ -115,7 +115,7 @@
 
 ## 기록 관리
 
-- 2026-10-20 공휴일 데이터 최신화·만료 안내: `release`가 공휴일을 먼저 최신화(추가 자동, 삭제·변경 중단)하고, 날짜·시간 계산기 범위 문구를 데이터에서 가져오며, 공휴일 만료 안내에 개발자 메일을 넣었다. 버전 표시 변경 없음 — 미배포 v4.4에 포함. [작업 기록](docs/work/2026-10-20-holiday-data-refresh.md)과 [설계](docs/superpowers/specs/2026-10-20-holiday-data-refresh-design.md)를 따른다.
+- 2026-10-20 공휴일 데이터 최신화·만료 안내: `release`가 공휴일을 먼저 최신화(추가 자동, 삭제·변경 중단)하고, 날짜·시간 계산기 범위 문구를 데이터에서 가져오며, 공휴일 만료 안내에 개발자 메일을 넣었다. 첫 실제 갱신으로 공휴일은 2025–2028년(2025-05-05 이름 합치기, 2028년 추가, 음력 변경 없음). full `20261021-084603-fde44465a5` 3,006개 통과. 버전 표시 변경 없음 — 미배포 v4.4에 포함, main 병합 `ed60401`, push·release 미실행. [작업 기록](docs/work/2026-10-20-holiday-data-refresh.md)과 [설계](docs/superpowers/specs/2026-10-20-holiday-data-refresh-design.md)를 따른다.
 
 - 2026-10-20 **v4.4**: 파일 변환 D안과 사진·PDF·인코딩 확장. 기존 HWP 엔진·DB v18·Export v3·salt·설정·lock을 유지한다. 현재 자동/EXE 검증과 수동 미확인은 [작업 기록](docs/work/2026-10-20-file-converter-redesign.md)을 따른다.
 

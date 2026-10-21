@@ -57,4 +57,4 @@
 - 남은 문제 / 수동 확인: 만료 안내 실제 화면. 요청 한 건의 시간 초과로 전체가 멈춤(Task 8 1차에서 실제로 발생) — release 공휴일 단계(약 312건)도 같아서 종료 코드 2로 멈출 수 있음, 다시 실행하면 됨(재시도 추가는 후속 검토). 핵심 이름에 5~7월 공휴일 없음(어린이날·현충일 추가는 후속 검토). `tests/test_file_conversion_runner.py::test_real_batch_worker_outputs_and_isolation`의 full 중 1회 간헐 실패(별도 조사 필요).
 - 변경한 정본 문서: `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, `docs/DATE_TIME_CALCULATION.md`
 - 다음 행동: v4.4와 함께 release(공휴일 단계가 "최신 확인"으로 지나가는지 확인).
-- 배포·커밋·push 여부: 커밋만 수행, push·release 수행하지 않음
+- 배포·커밋·push 여부: main에 로컬 병합(fast-forward, `ed60401`, 병합 뒤 quick `20261021-091254-adb57a0678` 160개 통과), push·release 수행하지 않음
