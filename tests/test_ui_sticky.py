@@ -335,6 +335,52 @@ def test_todo_hover_uses_wide_target_and_pointing_cursor(sticky, qapp):
     assert sticky.text_edit.viewport().cursor().shape() == Qt.IBeamCursor
 
 
+def _todo_gap_and_body_x(text_edit):
+    """그려진 체크 상자 오른쪽 끝~본문 첫 글자 caret 간격과 본문 x를 반환한다."""
+    _pos, _char, icon_rect, _hit_rect = text_edit._visible_todo_visuals()[0]
+    body_cursor = text_edit.textCursor()
+    body_cursor.setPosition(2)
+    body_x = text_edit.cursorRect(body_cursor).x()
+    return body_x - icon_rect.right(), body_x
+
+
+def test_todo_body_keeps_same_clear_gap_when_toggled(sticky, qapp):
+    """체크/언체크해도 본문 위치가 같고, 취소선이 상자에 붙지 않게 띄운다."""
+    from app_fonts import load_icon_fonts
+    from ui_sticky import insert_todo
+
+    load_icon_fonts()
+    insert_todo(sticky.text_edit)
+    sticky.text_edit.textCursor().insertText("우유 사기")
+    sticky.show()
+    qapp.processEvents()
+
+    measured = []
+    for _ in range(3):
+        measured.append(_todo_gap_and_body_x(sticky.text_edit))
+        sticky.text_edit._toggle_at(0, sticky.text_edit.document().characterAt(0))
+        qapp.processEvents()
+
+    assert measured[0] == measured[1] == measured[2]
+    assert measured[0][0] >= 3
+
+
+def test_legacy_todo_first_toggle_keeps_body_position(sticky, qapp):
+    """예전 '☐'를 처음 눌러 FA 문자로 바뀌어도 본문이 옆으로 당겨지지 않는다."""
+    from app_fonts import load_icon_fonts
+
+    load_icon_fonts()
+    sticky.text_edit.setPlainText("☐ 레거시 할 일")
+    sticky.show()
+    qapp.processEvents()
+    before = _todo_gap_and_body_x(sticky.text_edit)
+
+    sticky.text_edit._toggle_at(0, "☐")
+    qapp.processEvents()
+
+    assert _todo_gap_and_body_x(sticky.text_edit) == before
+
+
 def test_enter_on_todo_with_text_continues(qtbot, sticky):
     """\uf0c8 뒤에 텍스트가 있을 때 Enter를 누르면 다음 블록도 '\uf0c8 '로 시작한다."""
     sticky.text_edit.setPlainText("\uf0c8 우유 사기")

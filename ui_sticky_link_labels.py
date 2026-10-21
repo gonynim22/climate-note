@@ -95,6 +95,7 @@ class FileLabelHighlighter(QSyntaxHighlighter):
     def __init__(self, document):
         super().__init__(document)
         self.todo_characters = ()
+        self.todo_advance = 0.0
 
     def highlightBlock(self, text):
         block = self.currentBlock()
@@ -145,6 +146,14 @@ class FileLabelHighlighter(QSyntaxHighlighter):
             if char in self.todo_characters:
                 mask = QTextCharFormat()
                 mask.setForeground(QColor(0, 0, 0, 0))
+                if self.todo_advance:
+                    # Stored glyphs differ in width; give every marker the drawn box width.
+                    cursor = QTextCursor(block)
+                    cursor.setPosition(block.position() + offset + length)
+                    font = cursor.charFormat().font().resolve(self.document().defaultFont())
+                    natural = QFontMetricsF(font).horizontalAdvance(char)
+                    mask.setFontLetterSpacingType(QFont.AbsoluteSpacing)
+                    mask.setFontLetterSpacing(_padding_spacing(font, char, self.todo_advance - natural))
                 self.setFormat(offset, length, mask)
             offset += length
         self.setCurrentBlockUserData(data if data.labels else None)

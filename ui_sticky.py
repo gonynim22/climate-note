@@ -174,6 +174,9 @@ class _TodoTextEdit(FileLinkTextEdit):
         # 않는다. 기존 FA/유니코드 문자는 호환 sentinel로 그대로 남긴다.
         self._todo_glyph_highlighter = self._link_highlighter
         self._todo_glyph_highlighter.todo_characters = _ALL_UNCHECKED + _ALL_CHECKED
+        # 저장 글리프(11px 안팎)보다 큰 벡터 상자가 구분 공백을 침범하면 체크 시
+        # 취소선이 상자에 붙어 보인다. 화면 배치에서만 상자 폭을 확보한다.
+        self._todo_glyph_highlighter.todo_advance = self._TODO_ICON_SIZE
         self.viewport().setMouseTracking(True)
 
     @staticmethod
