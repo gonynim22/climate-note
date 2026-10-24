@@ -62,6 +62,39 @@ def test_tray_icon_file_exists_under_resource_root():
     assert (resource_root() / "icon" / "icon_fixed_32.ico").exists()
 
 
+def _ico_entries(path):
+    """ICO 머리말의 (가로, 세로, bpp, PNG 여부) 목록."""
+    import struct
+
+    data = path.read_bytes()
+    _reserved, kind, count = struct.unpack_from("<HHH", data, 0)
+    assert kind == 1
+    entries = []
+    for index in range(count):
+        width, height, _colors, _r, _planes, bpp, size, offset = struct.unpack_from(
+            "<BBBBHHII", data, 6 + 16 * index)
+        assert offset + size <= len(data)
+        entries.append((width or 256, height or 256, bpp,
+                        data[offset:offset + 8] == b"\x89PNG\r\n\x1a\n"))
+    return entries
+
+
+def test_app_icons_carry_every_windows_display_size(qapp):
+    """EXE·트레이 아이콘은 작은 크기를 따로 담아 축소로 흐려지지 않게 한다(2026-10-25 새 아이콘)."""
+    exe_icon = resource_root() / "icon" / "icon_fixed_256.ico"
+    tray_icon = resource_root() / "icon" / "icon_fixed_32.ico"
+    exe_sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
+    tray_sizes = [16, 20, 24, 32, 40, 48, 64]
+    for path, sizes in ((exe_icon, exe_sizes), (tray_icon, tray_sizes)):
+        entries = _ico_entries(path)
+        assert [w for w, _h, _bpp, _png in entries] == sizes, path.name
+        assert all(w == h and bpp == 32 and png for w, h, bpp, png in entries), path.name
+    from PySide6.QtGui import QIcon
+
+    loaded = {size.width() for size in QIcon(str(tray_icon)).availableSizes()}
+    assert set(tray_sizes) <= loaded
+
+
 def test_build_spec_bundles_every_resource_root_subdirectory():
     """resource_root() 아래에서 참조하는 디렉터리는 build.spec datas에 있어야 한다."""
     with open(ROOT / "build.spec", encoding="utf-8") as f:
