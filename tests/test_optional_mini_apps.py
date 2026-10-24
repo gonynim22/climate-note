@@ -27,8 +27,8 @@ class FakeOptionalWindow(QWidget):
         self.calls.append("show_near")
         self.show()
 
-    def hide_owned_popups(self):
-        self.calls.append("hide_owned_popups")
+    def hide_owned_popups(self, *, restore=False):
+        self.calls.append("hide_owned_popups(restore)" if restore else "hide_owned_popups")
 
     def cancel_work(self):
         self.calls.append("cancel_work")
@@ -155,7 +155,8 @@ def test_screen_change_closes_popups_and_fits_without_cancelling(qtbot):
     fake = open_fake(qtbot, win)
     fake.calls.clear()
     win._on_screen_changed()
-    assert fake.calls == ["hide_owned_popups", "fit_to_screen"]
+    # 화면 변경은 창을 숨기지 않으므로 영역 고르기로 숨겨 둔 창을 되돌리게 한다.
+    assert fake.calls == ["hide_owned_popups(restore)", "fit_to_screen"]
 
 
 @pytest.mark.parametrize("route", ["quit", "reset_success"])

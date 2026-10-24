@@ -308,10 +308,18 @@ class ScreenTextWindow(QWidget):
         self.fit_to_screen(available)
         self._reappear()
 
-    def hide_owned_popups(self):
-        """예약된 캡처와 화면 오버레이를 닫는다. 찍은 화면은 버린다."""
+    def hide_owned_popups(self, *, restore=False):
+        """예약된 캡처와 화면 오버레이를 닫는다. 찍은 화면은 버린다.
+
+        restore(화면 변경)이면 영역 고르기 때문에 숨겨 둔 창을 취소처럼 다시 보인다.
+        숨김·잠금 경로는 이 뒤에 창을 숨기므로 restore를 쓰지 않는다.
+        """
+        interrupted = self._capture_timer.isActive() or self._capture.is_active()
         self._capture_timer.stop()
         self._capture.cancel(notify=False)
+        if restore and interrupted and self.isEnabled():
+            self.fit_to_screen()  # 바뀐 화면에 맞춘 뒤 보인다(옛 자리에 잠깐 뜨지 않게)
+            self._reappear()
 
     def cancel_work(self):
         """진행 중인 인식을 취소한다. 늦게 도착한 결과는 실행 번호로 버린다."""

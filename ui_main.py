@@ -4532,7 +4532,7 @@ class MainCalendarWindow(QWidget):
 
     def _fit_optional_mini_apps(self) -> None:
         for win in self._optional_windows.values():
-            win.hide_owned_popups()
+            win.hide_owned_popups(restore=True)  # 화면 변경은 창을 숨기지 않는다
             win.fit_to_screen()
 
     def _discard_optional_mini_apps(self) -> None:

@@ -401,6 +401,41 @@ def test_hide_owned_popups_stops_pending_capture(qtbot, make):
     assert not win._capture.is_active()
 
 
+def test_screen_change_during_pending_capture_brings_window_back(qtbot, make):
+    """영역 고르기를 기다리는 중 화면이 바뀌면 숨겨 둔 창을 취소처럼 다시 보인다(R17)."""
+    win = make()
+    win.start_capture()
+    assert not win.isVisible()
+    win.hide_owned_popups(restore=True)
+    assert win.isVisible() and win.focusWidget() is win.capture_button
+    qtbot.wait(350)
+    assert not win._capture.is_active() and win.isVisible()
+
+
+def test_screen_change_during_overlay_brings_window_back_with_result(qtbot, make):
+    win = make(FakeEngine(TABLE))
+    recognized(qtbot, win)
+    text = win.text_edit.toPlainText()
+    win.start_capture()
+    qtbot.waitUntil(lambda: win._capture.is_active(), timeout=2000)
+    win.hide_owned_popups(restore=True)
+    assert not win._capture.is_active()
+    assert win.isVisible() and win.stack.currentWidget() is win.result_page
+    assert win.focusWidget() is win.copy_button and win.text_edit.toPlainText() == text
+
+
+def test_screen_change_does_not_show_window_hidden_by_lifecycle(qtbot, make):
+    win = make()
+    win.hide()  # 트레이·잠금 등으로 숨긴 창
+    win.hide_owned_popups(restore=True)
+    assert not win.isVisible()
+    win.show()
+    win.start_capture()
+    win.setEnabled(False)  # 잠금
+    win.hide_owned_popups(restore=True)
+    assert not win.isVisible()
+
+
 def test_lifecycle_hide_during_overlay_does_not_reopen_window(qtbot, make):
     win = make()
     win.start_capture()
