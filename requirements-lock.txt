@@ -4,6 +4,7 @@
 # 2026-10-05 push 보안 검사 2단계: cryptography 취약점 해소 최소 버전 갱신, 46.0.4 고정 벡터·양방향 호환 검증(docs/work/2026-10-05-push-security-scan-step2.md).
 # 2026-10-08 화면 글자 따기: onnxruntime 1.30.0(하위 flatbuffers·protobuf) 추가 (docs/work/2026-10-08-screen-text-capture.md).
 # 2026-10-21 push 보안 검사: EXE 미포함 pillow 12.3.0→13.0.0 (OSV 9건 해소, docs/work/2026-10-21-v4.4-release.md).
+# 2026-10-24 push 전 로컬 OSV: EXE 미포함 setuptools 83.0.0→84.1.0 (GHSA-xmj3-9gf7-h52w 해소, docs/work/2026-10-24-desktop-click-flicker.md).
 # 검증 스냅샷: docs/work/2026-09-10-schedule-emoji-glyph-clipping.md
 # 일상 개발은 requirements.txt, 동일 환경 재현은 이 파일을 사용한다.
 
@@ -40,6 +41,6 @@ PySideSix-Frameless-Window==0.8.0
 pywin32==311
 pywin32-ctypes==0.2.3
 scipy==1.17.1
-setuptools==83.0.0
+setuptools==84.1.0
 shiboken6==6.11.2
 typing_extensions==4.15.0

@@ -24,6 +24,7 @@ v4.4는 2026-10-21 GitLab Release로 이미 게시됐으므로(SHA-256 `BEEB3C4D
 - 2026-10-24 원인 확인: 실행 중인 v4.4 EXE의 창 순서를 읽기 전용 감시 스크립트(WinEvent + 4ms 폴링)로 기록. 바탕화면 클릭도 `EVENT_SYSTEM_FOREGROUND(Progman)`를 내므로 `ShowDesktopKeeper`가 Win+D와 똑같이 350ms topmost pulse를 했다. 4회 모두 캘린더가 탐색기 위로 올라갔다가(`top=1`, 덮는 창 없음) 360ms 뒤 다시 뒤로 갔다. 고정 자체(평소 바탕화면 바로 위)는 정상이었다.
 - 1차 수정(폐기): 알림 순간 바탕화면이 감시 창을 이미 덮었을 때만 pulse. 단위 검사는 통과했지만 실화면에서 Win+D 때 캘린더가 105~360ms 사라졌다가 나타났다(사용자 제보와 기록 일치). 셸은 바탕화면 활성화 알림 **뒤** 7~250ms에 바탕화면(Progman)을 올린다. 앞선 Win+D 기록에서 "바탕화면을 올리지 않는다"고 본 것은 감시 스크립트가 바탕화면 위치 변화를 기록하지 않은 탓이었다.
 - 2차 수정(채택): 알림 순간 마우스 버튼(왼·오·가운데)이 눌려 있고 커서 아래 최상위 창이 셸 바탕화면이면 클릭으로 보고 pulse하지 않는다(`_is_desktop_click`). 판정 실패 시 pulse 유지, 클릭 경로도 settle에서 레이어 재고정. 실화면 기록: 클릭 순간은 매번 `down=[L]/[R] root=Progman`, Win+D는 `down=[Win]`, '바탕화면 보기' 버튼은 `root=Shell_TrayWnd`였다.
+- 2026-10-24 빌드 준비: v4.4a 버전 반영 커밋 `5b2be74`. 첫 release를 시작한 뒤 push 전 로컬 OSV에서 `setuptools 83.0.0`(GHSA-xmj3-9gf7-h52w, Low, 84.1.0 해결) 1건이 나와 release를 멈췄다. 10-21 pillow처럼 서버 검사가 거절할 수 있어 EXE 미포함(`build.spec` 제외) setuptools만 84.1.0으로 올리고 lock을 갱신했다(로컬 OSV 0건, doctor `20261024-215613-20cc2ef8b4` 통과, pip freeze 전후 차이는 이 한 줄: `output/harness/20261024-desktop-click-manual/pip-freeze-*.txt`).
 - 회귀 검사: 실제 z-order 대역 창으로 (1) 클릭 시 topmost 없음, (2) Win+D 알림 뒤 바탕화면이 올라와도 pulse로 위 유지, (3) 클릭으로 봤는데 바탕화면이 올라오면 settle에서 재고정을 검사한다. (1)은 원래 코드, (2)는 1차 수정 코드에서 실패하는 것을 먼저 확인했다.
 
 ## 검증 증거
