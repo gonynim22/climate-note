@@ -5,6 +5,7 @@
 """
 
 import argparse
+import ast
 from datetime import datetime, timezone
 import hashlib
 from importlib import metadata
@@ -161,29 +162,24 @@ def git_output(*args, root=ROOT):
     ).stdout
 
 
+# 진행 노트·계획(실행 결과 기록), 홍보 영상 작업, 출력·비공개 자료는 소스 입력이 아니다.
+# 나머지는 종류와 폴더를 가리지 않고 모두 입력이다(OCR 모델·fixture·고지 JSON 누락 재발 방지).
+NON_INPUT_PREFIXES = ("docs/work/", "docs/superpowers/", "motion/", "output/", "security/")
+
+
 def source_snapshot(root=ROOT):
     root = Path(root).resolve()
     paths = git_output("ls-files", "--cached", "--others", "--exclude-standard",
                        "-z", root=root).split("\0")
     hashes = {}
     for name in sorted(set(paths)):
-        if not name:
+        posix = name.replace("\\", "/")
+        if not posix or posix.startswith(NON_INPUT_PREFIXES):
             continue
-        parts = Path(name).parts
-        allowed_tree = len(parts) == 1 or parts[0] in {
-            "tools", "tests", "docs", "resources", "fonts", "icon", "licenses",
-        }
-        if not allowed_tree or (len(parts) == 1 and name.startswith(".")):
-            continue
-        # 진행 노트·계획 수정은 실행 결과에 대한 기록이므로 소스 입력에서 제외.
-        if name.replace("\\", "/").startswith(("docs/work/", "docs/superpowers/")):
-            continue
-        if Path(name).suffix.lower() not in {
-            ".py", ".md", ".txt", ".ini", ".spec", ".svg", ".png", ".ico", ".ttf",
-        }:
-            continue
+        if "/" not in posix and posix.startswith("."):
+            continue  # 루트의 .env·.gitignore 등
         path = inside(root / name, root)
-        hashes[name.replace("\\", "/")] = file_hash(path) if path.is_file() else None
+        hashes[posix] = file_hash(path) if path.is_file() else None
     return {"head": git_output("rev-parse", "HEAD", root=root).strip(),
             "dirty": bool(git_output("status", "--porcelain", root=root).strip()),
             "files": hashes}
@@ -309,6 +305,11 @@ def save_report(run_dir, report):
     if "holidays" in report:
         lines += ["", "## 공휴일 데이터", ""]
         lines += holiday_lines(report["holidays"])
+    if "bundle" in report:
+        bundle = report["bundle"]
+        lines += ["", "## EXE 구성", "",
+                  f"- BINARY {bundle['binary_entries']}개, 검증 환경 밖 {len(bundle['outside_environment'])}개",
+                  f"- Qt DLL {len(bundle['qt_dlls'])}개: 검증 환경 원본과 바이트 동일"]
     lines += ["", "## 실행 단계", "", "| 단계 | 결과 | 실제 종료 코드 | 로그 |",
               "|---|---|---|---|"]
     for step in report["steps"]:
@@ -367,6 +368,63 @@ def artifact_metadata(exe, env):
             or meta["original_filename"] != info["app_exe_name"]()):
         raise VerificationFailure("EXE 버전 정보가 현재 app_info와 다릅니다.")
     return meta
+
+
+# System32에서 받는 BINARY는 Python이 쓰는 VC 런타임뿐이다.
+VC_RUNTIME_PREFIXES = ("vcruntime140", "msvcp140")
+
+
+def _binary_entries(value):
+    if isinstance(value, (list, tuple)):
+        if len(value) == 3 and value[-1] == "BINARY" and isinstance(value[0], str):
+            yield value
+        else:
+            for item in value:
+                yield from _binary_entries(item)
+
+
+def _embedded_reader(exe):
+    # PyInstaller는 release 단계에서만 가져온다.
+    from PyInstaller.archive.readers import CArchiveReader
+    archive = CArchiveReader(str(exe))
+    names = {name.replace("\\", "/"): name for name in archive.toc}
+    return lambda name: archive.extract(names[name.replace("\\", "/")])
+
+
+def bundle_check(toc_path, exe):
+    """빌드 TOC의 BINARY 출처와 EXE 안 Qt DLL이 이 검증 환경의 원본인지 확인한다.
+
+    Git Bash PATH의 mingw OpenSSL DLL이 섞인 적이 있다(2026-09-28). 직전 EXE와의
+    바이트 동일은 Qt 업그레이드를 막으므로 통과 조건으로 쓰지 않는다.
+    """
+    with open(toc_path, encoding="utf-8") as stream:
+        entries = list(_binary_entries(ast.literal_eval(stream.read())))
+    if not entries:
+        raise VerificationFailure("이번 빌드 TOC에 BINARY 항목이 없습니다.")
+    venv, base = Path(sys.prefix).resolve(), Path(sys.base_prefix).resolve()
+    system = (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32").resolve()
+    outside = []
+    for name, source, _ in entries:
+        path = Path(source).resolve()
+        if not (path.is_relative_to(venv) or path.is_relative_to(base) or (
+                path.parent == system and path.name.lower().startswith(VC_RUNTIME_PREFIXES))):
+            outside.append([name, source])
+    if outside:
+        raise VerificationFailure(f"검증 환경 밖 BINARY 포함: {outside}")
+    read = _embedded_reader(exe)
+    qt = []
+    for name, source, _ in entries:
+        posix = name.replace("\\", "/")
+        if not (Path(posix).name.startswith("Qt6") and posix.lower().endswith(".dll")):
+            continue
+        embedded = read(name)
+        with open(source, "rb") as stream:
+            if embedded != stream.read():
+                raise VerificationFailure(f"EXE의 {posix}가 검증 환경 원본과 다릅니다.")
+        qt.append({"name": posix, "sha256": hashlib.sha256(embedded).hexdigest()})
+    if not qt:
+        raise VerificationFailure("EXE에서 Qt DLL을 찾지 못했습니다.")
+    return {"binary_entries": len(entries), "outside_environment": outside, "qt_dlls": qt}
 
 
 def _fetch_data_module():
@@ -456,6 +514,11 @@ def execute(profile, extra=()):
                 }
                 if not report["build_toc"]:
                     raise VerificationFailure("이번 빌드의 TOC가 없습니다.")
+                analysis = sorted((run_dir / "build").rglob("Analysis-00.toc"))
+                if len(analysis) != 1:
+                    raise VerificationFailure("이번 빌드의 Analysis TOC를 하나로 찾지 못했습니다.")
+                report["bundle"] = bundle_check(analysis[0], exe)
+                save_report(run_dir, report)
                 print("격리된 EXE 창이 잠시 표시됩니다. 검사 후 전용 프로세스를 정리합니다.", flush=True)
                 step = run_step("smoke", [sys.executable, str(ROOT / "tools/smoke_release.py"),
                                          "--exe", str(exe), "--run-dir", str(run_dir)],

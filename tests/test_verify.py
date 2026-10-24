@@ -240,6 +240,52 @@ def test_source_snapshot_includes_untracked_code_but_not_private_data(tmp_path, 
     assert report["dirty"]
 
 
+# 빌드·검사에 실제로 쓰이지만 예전 확장자/폴더 허용 목록이 놓치던 입력(교차검증 F1).
+BUILD_AND_TEST_INPUTS = (
+    "screen_text/engine.py", "screen_text/models/rec.onnx", "screen_text/models/MANIFEST.json",
+    "screen_text/models/LICENSE", "tests/fixtures/schema_v17.sql",
+    "tests/fixtures/crypto_compat_cryptography46.json", "licenses/components.json",
+    "licenses/fluentui-system-icons.LICENSE", "LICENSE", "build.bat",
+    "tools/screen_text_lab/assets/report.js", "diagnostics/probe.py",
+)
+# 실행 결과 기록·홍보 작업·비공개 자료는 검사 중에 바뀌어도 입력 변경이 아니다.
+NOT_INPUTS = (
+    "docs/work/note.md", "docs/superpowers/plans/plan.md", "motion/scene.mp4",
+    ".env", "security/private.md", "output/result.json",
+)
+
+
+def test_source_snapshot_detects_content_changes_in_every_build_input(tmp_path, monkeypatch):
+    for name in BUILD_AND_TEST_INPUTS + NOT_INPUTS:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        verify.atomic_text(tmp_path / name, "before\n")
+
+    def git(*args, **_kwargs):
+        if args[0] == "ls-files":
+            return "\0".join(BUILD_AND_TEST_INPUTS + NOT_INPUTS) + "\0"
+        return "dirty" if args[0] == "status" else "abc"
+
+    monkeypatch.setattr(verify, "git_output", git)
+    before = verify.source_snapshot(tmp_path)
+    assert set(before["files"]) == set(BUILD_AND_TEST_INPUTS)
+    for name in BUILD_AND_TEST_INPUTS + NOT_INPUTS:
+        verify.atomic_text(tmp_path / name, "after\n")
+    after = verify.source_snapshot(tmp_path)
+    # 이미 dirty인 트리에서도 내용만 바뀐 것을 잡아야 한다.
+    assert before["dirty"] == after["dirty"]
+    assert [n for n in BUILD_AND_TEST_INPUTS if before["files"][n] == after["files"][n]] == []
+
+
+def test_real_source_snapshot_covers_bundled_model_fixtures_and_notices():
+    files = verify.source_snapshot()["files"]
+    for name in ("screen_text/models/rec.onnx", "screen_text/models/det.onnx",
+                 "screen_text/models/MANIFEST.json", "screen_text/licenses/components.json",
+                 "tests/fixtures/schema_v17.sql", "tests/fixtures/crypto_compat_cryptography46.json",
+                 "licenses/components.json", "LICENSE", "build.bat", "build.spec"):
+        assert files.get(name), name
+    assert not [n for n in files if n.startswith(("docs/work/", "docs/superpowers/", "motion/"))]
+
+
 def test_test_bootstrap_honors_run_path_before_app_import():
     directory = verify.create_run_dir()
     env = verify.isolated_env(directory)
@@ -482,3 +528,93 @@ def test_isolated_env_drops_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("LUNAR_API_KEY", "synthetic-key-7")
     run = verify.create_run_dir(root=tmp_path)
     assert "LUNAR_API_KEY" not in verify.isolated_env(run)
+
+
+def _bundle_env(tmp_path, monkeypatch):
+    """가짜 가상환경·기본 Python·System32와 그 안의 원본 DLL(교차검증 F4)."""
+    venv, base, windows = tmp_path / "venv", tmp_path / "base", tmp_path / "Windows"
+    for folder in (venv / "PySide6", base / "DLLs", windows / "System32"):
+        folder.mkdir(parents=True)
+    monkeypatch.setattr(sys, "prefix", str(venv))
+    monkeypatch.setattr(sys, "base_prefix", str(base))
+    monkeypatch.setenv("SystemRoot", str(windows))
+    files = {
+        "PySide6\Qt6Core.dll": venv / "PySide6/Qt6Core.dll",
+        "PySide6\pyside6.abi3.dll": venv / "PySide6/pyside6.abi3.dll",
+        "python313.dll": base / "python313.dll",
+        "libssl-3.dll": base / "DLLs/libssl-3.dll",
+        "vcruntime140.dll": windows / "System32/vcruntime140.dll",
+        "msvcp140.dll": windows / "System32/msvcp140.dll",
+    }
+    for name, path in files.items():
+        path.write_bytes(b"original " + name.encode())
+    return files
+
+
+def _write_toc(path, files):
+    # 실제 Analysis-00.toc처럼 BINARY 항목이 중첩 목록 안에 있다.
+    entries = [(name, str(source), "BINARY") for name, source in files.items()]
+    path.write_text(repr(([("main", "main.py", "PYSOURCE")], entries, [("data", "x", "DATA")])),
+                    encoding="utf-8")
+
+
+def test_bundle_check_accepts_environment_binaries_and_matching_qt(tmp_path, monkeypatch):
+    files = _bundle_env(tmp_path, monkeypatch)
+    toc = tmp_path / "Analysis-00.toc"
+    _write_toc(toc, files)
+    monkeypatch.setattr(verify, "_embedded_reader",
+                        lambda _exe: lambda name: files[name].read_bytes())
+    result = verify.bundle_check(toc, tmp_path / "app.exe")
+    assert result["binary_entries"] == len(files)
+    assert result["outside_environment"] == []
+    assert [item["name"] for item in result["qt_dlls"]] == ["PySide6/Qt6Core.dll"]
+
+
+def test_bundle_check_rejects_git_mingw_and_other_outside_binaries(tmp_path, monkeypatch):
+    files = _bundle_env(tmp_path, monkeypatch)
+    mingw = tmp_path / "Git/mingw64/bin/libcrypto-3-x64.dll"
+    mingw.parent.mkdir(parents=True)
+    mingw.write_bytes(b"mingw")
+    other = tmp_path / "Windows/System32/foreign.dll"  # System32는 VC 런타임만 허용
+    other.write_bytes(b"foreign")
+    toc = tmp_path / "Analysis-00.toc"
+    _write_toc(toc, {**files, "libcrypto-3-x64.dll": mingw, "foreign.dll": other})
+    monkeypatch.setattr(verify, "_embedded_reader",
+                        lambda _exe: lambda name: files[name].read_bytes())
+    with pytest.raises(verify.VerificationFailure, match="검증 환경 밖") as caught:
+        verify.bundle_check(toc, tmp_path / "app.exe")
+    assert "libcrypto-3-x64.dll" in str(caught.value) and "foreign.dll" in str(caught.value)
+
+
+def test_bundle_check_rejects_qt_dll_that_differs_from_environment(tmp_path, monkeypatch):
+    files = _bundle_env(tmp_path, monkeypatch)
+    toc = tmp_path / "Analysis-00.toc"
+    _write_toc(toc, files)
+    monkeypatch.setattr(verify, "_embedded_reader", lambda _exe: lambda _name: b"other Qt build")
+    with pytest.raises(verify.VerificationFailure, match="Qt6Core.dll"):
+        verify.bundle_check(toc, tmp_path / "app.exe")
+
+
+def test_release_bundle_failure_has_exit_one_and_skips_smoke(runner, monkeypatch):
+    steps = []
+
+    def step(name, _command, directory, _env, **kwargs):
+        steps.append(name)
+        record = {"name": name, "status": "passed", "returncode": 0, "log": f"{name}.log"}
+        kwargs["report"]["steps"].append(record)
+        if name == "pytest":
+            verify.atomic_text(directory / "pytest.xml", "<testsuite><testcase name='ok'/></testsuite>")
+        if name == "build":
+            (directory / "build/build").mkdir(parents=True)
+            verify.atomic_text(directory / "build/build/Analysis-00.toc", "()")
+        return record
+
+    def failed(_toc, _exe):
+        raise verify.VerificationFailure("검증 환경 밖 BINARY 포함")
+
+    monkeypatch.setattr(verify, "run_step", step)
+    monkeypatch.setattr(verify, "artifact_metadata", lambda exe, _env: {"path": str(exe)})
+    monkeypatch.setattr(verify, "bundle_check", failed)
+    assert verify.execute("release") == 1
+    assert steps == ["pytest", "build"]
+    assert "검증 환경 밖" in verify.read_json(runner / "result.json")["error"]

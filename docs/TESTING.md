@@ -124,9 +124,10 @@ CTC 출력 진단은 `tests/test_screen_text_lab_ctc.py`의 작은 분포 완전
 EXE는 시나리오마다 별도 AppData를 사용하고 `CLIMATENOTE_SKIP_STARTUP_REFRESH=1`로
 실제 시작프로그램 경로 갱신을 막는다. 기존 앱을 종료할 필요가 없다.
 
-보고서에는 검사 전후 소스·빌드 설정·테스트·개발 지침의 SHA-256을 기록한다.
-미추적 코드도 포함하고 `.env`, 내부 `security/`, 사용자 데이터·가상환경·빌드 출력은 제외한다.
-진행 기록인 `docs/work/`·`docs/superpowers/`도 제외한다. 검사 중 코드가 달라지면
+보고서에는 검사 전후 저장소 파일 목록(`git ls-files`, 미추적 포함·gitignore 제외)의 SHA-256을
+종류·폴더와 무관하게 기록한다(OCR 모델·fixture SQL/JSON·고지 JSON·`LICENSE`·`build.bat` 포함, 2026-10-24 v4.4b).
+루트 숨김 파일(`.env` 등)·내부 `security/`·`output/`과 진행 기록인 `docs/work/`·`docs/superpowers/`,
+홍보 영상 작업 `motion/`은 제외한다. 검사 중 코드가 달라지면
 `inputs_changed`로 실패한다. 문서 변경만 했으면 링크·사실·지침 이전을 검토한다.
 
 종료 코드: `0` 자동 검사 완료·통과, `1` 검증 실패/입력 변경,
@@ -141,11 +142,14 @@ EXE는 시나리오마다 별도 AppData를 사용하고 `CLIMATENOTE_SKIP_START
 현재 `NotSigned` 상태를 자동 실패로 바꾸지 않는다. 라이선스·서명 과제는 기존 결정대로 별도다.
 **release·빌드는 PowerShell에서 실행한다.** Git Bash의 PATH로 실행하면 PyInstaller가
 `C:\Program Files\Git\mingw64\bin`의 `libcrypto-3-x64.dll`/`libssl-3-x64.dll`을 EXE 번들에
-잘못 포함시킨 사례가 있었다(v3.8c 최초 release). EXE 검사는 `build/build/Analysis-00.toc`의
-바이너리 출처 경로를 대조해 이런 제3자 DLL 혼입을 찾아낸다.
+잘못 포함시킨 사례가 있었다(v3.8c 최초 release). v4.4b부터 `release`가 빌드 직후 격리 실행 전에
+`build/build/Analysis-00.toc`를 자동 대조한다. BINARY 출처는 프로젝트 `.venv`·그 기본 Python·System32의
+VC 런타임(`vcruntime140*`·`msvcp140*`)만 허용하고, EXE 안 Qt DLL은 검증 환경 원본과 바이트가 같아야 한다.
+어긋나면 종료 코드 1이며 결과는 `result.json`의 `bundle`과 `summary.md`의 `## EXE 구성`에 남는다.
+직전 EXE와의 바이트 동일·크기 차이는 Qt 업그레이드를 막지 않도록 자동 통과 조건으로 쓰지 않는다.
 
 1. 신규 설치: 빈 AppData → 응답하는 창 → 현재 schema·SQLite 무결성·32바이트 salt·유효한 일일 `.cnbak`·오류 로그 확인.
-2. 기존 데이터: 현재 저장 계약의 합성 일정·메모·열린/휴지통 스티키·D-Day·집중/세션·바로가기·설정 → 실행 전후 raw/복호화 내용 해시·ID·salt 불변과 최초 보호백업 확인.
+2. 기존 데이터: 현재 저장 계약의 합성 일정(색 3개와 시각+알림·기간·반복 끝 날짜/건너뛴 날 세부 설정)·메모·닫힌/휴지통 스티키·D-Day·집중/세션·바로가기·설정 → 실행 전후 raw/복호화 내용 해시·ID·일정 세부 설정 값·salt 불변과 최초 보호백업 확인. seed에 세부 설정 일정이 빠지면 실패한다. 알림은 검사 중 울리지 않게 한 달 뒤로 두며, 열린 스티키는 창 크기 5mm 격자 저장 때문에 seed하지 않는다.
 3. 시작 차단: 합성 DB의 salt 손상 → 데이터 보호 오류창만 표시 → 원본 DB·salt·기존 보호백업 해시 불변 확인.
 4. 업그레이드(v4.1): `tests/fixtures/schema_v17.sql`로 만든 v17 합성 데이터 → 새 EXE 시작 → 모든 표의 기존 열 값 해시·salt 불변, 새 열 기본값, v18, `calendar_pre_v18_v17.db`가 원본과 같은지, 그리고 '기후노트 업데이트 안내' 창이 떴는지 확인. 다른 시나리오에서 이 창이 뜨면 실패다. v4.3에서는 보호백업 후 PIN 검증값 승격을 별도 확인한다. 새 검증값이 이전 PIN을 검증함을 확인한 뒤 `privacy_pin` 하나만 이전 값으로 정규화해 기존 열 해시를 대조하며, 마이그레이션 전 보호본은 정규화 없이 원본 전체를 대조한다.
 

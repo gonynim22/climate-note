@@ -9,7 +9,7 @@ import argparse
 from contextlib import closing, contextmanager
 import ctypes
 from ctypes import wintypes as W
-from datetime import date
+from datetime import date, timedelta
 import hashlib
 import json
 import os
@@ -232,7 +232,32 @@ def _dataset_snapshot(db, security):
             "raw_hashes": {name: digest(value) for name, value in rows.items()},
             "logical_hashes": {name: digest(value) for name, value in logical.items()},
             "ids": {name: [row.get("id", row.get("key")) for row in value] for name, value in rows.items()},
+            # 해시만으로는 어떤 값이 바뀌었는지 모르므로 합성 일정의 세부 설정은 값으로 남긴다.
+            "schedule_options": [[row["id"], *(row[c] for c in V18_COLUMNS)]
+                                 for row in rows["schedules"]],
             "salt_sha256": file_hash(security.SALT_FILE)}
+
+
+def _check_seed_options(seeded):
+    """기존 데이터 seed에 시각+알림·기간·반복(끝 날짜·건너뛴 날) 일정이 모두 있어야 한다."""
+    options = [row[1:] for row in seeded["schedule_options"]]
+    kinds = {
+        "시각+알림": any(start and alarm is not None for start, _, _, _, _, alarm in options),
+        "기간": any(end for _, end, _, _, _, _ in options),
+        "반복": any(rule and until and skip for _, _, rule, until, skip, _ in options),
+    }
+    missing = [name for name, found in kinds.items() if not found]
+    if missing:
+        raise ValueError(f"기존 데이터 seed에 세부 설정 일정이 없습니다: {', '.join(missing)}")
+
+
+def _check_existing(seeded, after):
+    """기존 데이터 실행 뒤 값·세부 설정·salt가 같고 최초 보호 백업이 있는지 검사한다."""
+    for key in ("raw_hashes", "logical_hashes", "ids", "schedule_options", "salt_sha256"):
+        if seeded[key] != after[key]:
+            raise ValueError(f"기존 합성 데이터 변경: {key}")
+    if not any(name.startswith("calendar_pre_v35_") for name in after["backups"]):
+        raise ValueError("기존 데이터 최초 보호 백업이 없습니다.")
 
 
 def _data_worker(action, data_root, result_path):
@@ -248,11 +273,22 @@ def _data_worker(action, data_root, result_path):
     if action == "seed":
         if db.DB_FILE.exists():
             raise ValueError("새 합성 데이터 폴더만 초기화할 수 있습니다.")
+        from schedule_rules import ScheduleOptions
+
         db.migrate()
         db.upgrade_privacy_pin()  # 현재 버전 기존 데이터 시나리오는 승격이 끝난 상태로 시작.
-        day = date.today().isoformat()
+        today = date.today()
+        day = today.isoformat()
         for color, _ in db.SCHEDULE_COLORS:
             db.add_schedule(day, "하네스 합성 일정 " + color, color)
+        # 세부 설정 일정(v4.1). 알림은 검사 중에 울려 처리 시각을 쓰지 않도록 한 달 뒤로 둔다.
+        db.add_schedule((today + timedelta(days=30)).isoformat(), "하네스 시각·알림 일정",
+                        options=ScheduleOptions(start_time="09:30", alarm_before=10))
+        db.add_schedule(day, "하네스 기간 일정",
+                        options=ScheduleOptions(end_date=(today + timedelta(days=2)).isoformat()))
+        db.add_schedule(day, "하네스 반복 일정", options=ScheduleOptions(
+            repeat_rule="weekly", repeat_until=(today + timedelta(weeks=8)).isoformat(),
+            repeat_skip=((today + timedelta(weeks=1)).isoformat(),)))
         db.save_memo(day, "하네스 합성 메모")
         # 닫힌 스티키로 둔다. 열린 스티키는 앱이 시작 뒤 창 크기를 5mm 격자에 맞춰 다시 저장하므로
         # (300×400→306×396 등, v4.0부터 같은 동작) '기존 데이터 불변' 비교가 시점에 따라 흔들린다.
@@ -443,6 +479,7 @@ def scenario(exe, run_dir, name):
         before = data_step("seed_v17", data_root, folder / "before.json")
     elif name != "fresh":
         before = data_step("seed", data_root, folder / "before.json")
+        _check_seed_options(before)
     if name == "blocked":
         data_step("corrupt", data_root, folder / "corrupt.json")
         before = protected_hashes(data_root)
@@ -512,11 +549,7 @@ def scenario(exe, run_dir, name):
         if name == "fresh" and (not setup_seen or after["calendar_scale"] != "compact"):
             raise ValueError("최초 설정 표시/선택한 크기 저장을 확인하지 못했습니다.")
         if before is not None:
-            for key in ("raw_hashes", "logical_hashes", "ids", "salt_sha256"):
-                if before[key] != after[key]:
-                    raise ValueError(f"기존 합성 데이터 변경: {key}")
-            if not any(name.startswith("calendar_pre_v35_") for name in after["backups"]):
-                raise ValueError("기존 데이터 최초 보호 백업이 없습니다.")
+            _check_existing(before, after)
         result["data"] = after
     return result
 

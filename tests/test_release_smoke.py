@@ -97,7 +97,7 @@ def test_seed_is_isolated_and_cannot_overwrite_existing_dataset():
     before = smoke.data_step("seed", data_root, directory / "seed.json")
     assert before["version"] == 18
     assert before["integrity"] == ["ok"]
-    assert len(before["ids"]["schedules"]) == 3
+    assert len(before["ids"]["schedules"]) == 6  # 색 3개 + 세부 설정 3개
     assert len(before["ids"]["sticky_notes"]) == 2
     assert len(before["ids"]["focus_sessions"]) == 1
     protected = smoke.protected_hashes(data_root)
@@ -107,6 +107,49 @@ def test_seed_is_isolated_and_cannot_overwrite_existing_dataset():
     corrupt = smoke.data_step("corrupt", data_root, directory / "corrupt.json")
     assert corrupt["code"] != "ok"
     assert smoke.protected_hashes(data_root)["calendar.db"] == protected["calendar.db"]
+
+
+def test_existing_seed_has_time_alarm_period_and_repeat_schedules():
+    """기존 데이터 시나리오가 v4.1 세부 설정 값의 불변까지 확인하게 한다(교차검증 F2)."""
+    directory = verify.create_run_dir()
+    data_root = directory / "synthetic"
+    data_root.mkdir()
+    before = smoke.data_step("seed", data_root, directory / "seed.json")
+    smoke._check_seed_options(before)
+    options = [row[1:] for row in before["schedule_options"]]
+    assert any(start and alarm is not None for start, _, _, _, _, alarm in options)
+    assert any(end for _, end, _, _, _, _ in options)
+    assert any(rule and until and skip for _, _, rule, until, skip, _ in options)
+
+
+def test_seed_option_check_rejects_missing_kinds():
+    full = {"schedule_options": [
+        [1, "", "", "", "", "", None],
+        [2, "09:30", "", "", "", "", 10],
+        [3, "", "2026-01-03", "", "", "", None],
+        [4, "", "", "weekly", "2026-03-01", "2026-01-08", None],
+    ]}
+    smoke._check_seed_options(full)
+    for removed in (1, 2, 3):
+        partial = {"schedule_options": [r for i, r in enumerate(full["schedule_options"]) if i != removed]}
+        with pytest.raises(ValueError, match="세부 설정"):
+            smoke._check_seed_options(partial)
+
+
+def test_existing_check_rejects_changed_schedule_options():
+    seeded = {"raw_hashes": {"schedules": "a"}, "logical_hashes": {"schedules": "b"},
+              "ids": {"schedules": [1]}, "salt_sha256": "c",
+              "schedule_options": [[1, "09:30", "", "", "", "", 10]]}
+    after = copy.deepcopy(seeded)
+    after["backups"] = {"calendar_pre_v35_x.cnbak": "v4.4b"}
+    smoke._check_existing(seeded, after)
+    after["schedule_options"] = [[1, "09:30", "", "", "", "", None]]
+    with pytest.raises(ValueError, match="schedule_options"):
+        smoke._check_existing(seeded, after)
+    del after["backups"]["calendar_pre_v35_x.cnbak"]
+    after["schedule_options"] = seeded["schedule_options"]
+    with pytest.raises(ValueError, match="보호 백업"):
+        smoke._check_existing(seeded, after)
 
 
 def test_smoke_failure_and_interruption_are_recorded(tmp_path, monkeypatch):
