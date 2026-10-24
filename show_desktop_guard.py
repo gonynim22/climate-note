@@ -5,7 +5,9 @@
 통과시키고(셸은 그 알림 뒤에 바탕화면을 올린다), 셸의 z-order 변경이 끝난 뒤
 바탕화면 바로 위로 다시 고정한다. 바탕화면 위를 마우스로 누른 경우는 바탕화면이
 올라오지 않으므로 topmost로 올리지 않는다(올리면 캘린더가 다른 앱 창 위로 잠깐
-튀어나와 깜빡인다).
+튀어나와 깜빡인다). 바탕화면이 이미 활성일 때의 Win+D는 foreground 알림 없이
+바탕화면만 올리므로, 바탕화면이 활성인 동안 최상위 창 순서 변경(REORDER)에서
+바탕화면이 감시 창을 덮었으면 같은 pulse를 한다.
 따라서 바탕화면 아이콘은 기후노트 뒤에 있고 일반 앱 창은 기후노트 위에 있다.
 
 Win+M/실제 최소화는 ``WindowStateChange``를 감지해 다음 이벤트 루프 턴에
@@ -31,9 +33,11 @@ _SWP_FLAGS = _SWP_NOSIZE | _SWP_NOMOVE | _SWP_NOACTIVATE
 
 # foreground WinEvent 상수
 _EVENT_SYSTEM_FOREGROUND = 0x0003
+_EVENT_OBJECT_REORDER = 0x8004
 _WINEVENT_OUTOFCONTEXT = 0x0000
 _DESKTOP_WINDOW_CLASSES = {"Progman", "WorkerW"}
 _TOPMOST_PULSE_MS = 350
+_Z_ORDER_WALK_LIMIT = 10000
 _GW_HWNDPREV = 3
 _GWL_EXSTYLE = -20
 _WS_EX_TOPMOST = 0x00000008
@@ -60,6 +64,10 @@ _GetForegroundWindow.restype = wintypes.HWND
 _GetShellWindow = _user32.GetShellWindow
 _GetShellWindow.argtypes = []
 _GetShellWindow.restype = wintypes.HWND
+
+_GetDesktopWindow = _user32.GetDesktopWindow
+_GetDesktopWindow.argtypes = []
+_GetDesktopWindow.restype = wintypes.HWND
 
 _GetWindow = _user32.GetWindow
 _GetWindow.argtypes = [wintypes.HWND, ctypes.c_uint]
@@ -204,6 +212,7 @@ class ShowDesktopKeeper(QObject):
 
     # HWND is pointer-sized; Signal(int) would truncate 64-bit window handles.
     _foreground_changed = Signal(object)
+    _desktop_reordered = Signal()
 
     def __init__(
         self,
@@ -219,7 +228,10 @@ class ShowDesktopKeeper(QObject):
         self._desktop_hwnd = 0
         self._pulse_active = False
         self._win_event_hook = None
+        self._reorder_hook = None
         self._win_event_callback = None
+        # 최상위 창 순서가 바뀌면 이 루트 데스크톱 창(#32769)의 REORDER가 온다.
+        self._root_desktop_hwnd = int(_GetDesktopWindow() or 0)
 
         self._settle_timer = QTimer(self)
         self._settle_timer.setSingleShot(True)
@@ -229,6 +241,10 @@ class ShowDesktopKeeper(QObject):
         # WinEvent callback 안에서는 Qt/창 조작을 하지 않고 다음 Qt 루프 턴으로 넘긴다.
         self._foreground_changed.connect(
             self._on_foreground_changed,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        self._desktop_reordered.connect(
+            self._on_desktop_reordered,
             Qt.ConnectionType.QueuedConnection,
         )
 
@@ -295,24 +311,24 @@ class ShowDesktopKeeper(QObject):
         self._uninstall_foreground_hook()
 
     def _uninstall_foreground_hook(self) -> bool:
-        """Idempotently release the native hook and its ctypes callback.
+        """Idempotently release the native hooks and their ctypes callback.
 
         If Win32 refuses to unhook, both references must stay alive. Dropping
         the ctypes callback while Windows can still call it would leave a
         dangling native function pointer.
         """
-        hook = self._win_event_hook
-        if not hook:
-            self._win_event_callback = None
-            return True
-        if not _UnhookWinEvent(hook):
-            _logger.warning(
-                "ShowDesktopKeeper WinEvent hook 해제 실패: %s",
-                ctypes.get_last_error(),
-            )
-            return False
-        self._win_event_hook = None
-        # ctypes callback이 GC되지 않게 설치 중에는 보관하고, 해제 뒤에만 놓는다.
+        for name in ("_reorder_hook", "_win_event_hook"):
+            hook = getattr(self, name)
+            if not hook:
+                continue
+            if not _UnhookWinEvent(hook):
+                _logger.warning(
+                    "ShowDesktopKeeper WinEvent hook 해제 실패: %s",
+                    ctypes.get_last_error(),
+                )
+                return False
+            setattr(self, name, None)
+        # ctypes callback이 GC되지 않게 설치 중에는 보관하고, 모두 해제한 뒤에만 놓는다.
         self._win_event_callback = None
         return True
 
@@ -335,6 +351,25 @@ class ShowDesktopKeeper(QObject):
             self._win_event_callback = None
             return
         self._win_event_hook = hook
+        # 바탕화면이 이미 활성일 때의 Win+D는 foreground 알림 없이 바탕화면만
+        # 올린다(2026-10-25 실측). 최상위 창 순서 변경으로 그 경우를 잡는다.
+        # 등록에 실패해도 foreground 기반 보호는 그대로 동작한다.
+        reorder = _SetWinEventHook(
+            _EVENT_OBJECT_REORDER,
+            _EVENT_OBJECT_REORDER,
+            None,
+            self._win_event_callback,
+            0,
+            0,
+            _WINEVENT_OUTOFCONTEXT,
+        )
+        if not reorder:
+            _logger.warning(
+                "바탕화면 창 순서 감지 등록 실패: %s",
+                ctypes.get_last_error(),
+            )
+            return
+        self._reorder_hook = reorder
 
     def _win_event_proc(
         self,
@@ -349,6 +384,12 @@ class ShowDesktopKeeper(QObject):
         """Minimal WinEvent callback; real work is queued onto Qt's event loop."""
         if event == _EVENT_SYSTEM_FOREGROUND:
             self._foreground_changed.emit(int(hwnd or 0))
+        elif (
+            event == _EVENT_OBJECT_REORDER
+            and int(hwnd or 0) == self._root_desktop_hwnd
+        ):
+            # 다른 앱의 자식 창 순서 변경은 여기서 버린다(빈도가 높다).
+            self._desktop_reordered.emit()
 
     def _on_foreground_changed(self, hwnd: int) -> None:
         if not self._enabled:
@@ -374,6 +415,34 @@ class ShowDesktopKeeper(QObject):
         # 바탕화면 클릭: 셸이 바탕화면을 올리지 않으므로 topmost로 올리지 않는다
         # (올리면 다른 앱 창 위로 잠깐 튀어나와 깜빡인다). settle에서 레이어만 재고정.
         self._settle_timer.start()
+
+    def _on_desktop_reordered(self) -> None:
+        """바탕화면이 활성인 채 창 순서가 바뀜: 바탕화면이 감시 창을 덮었으면 Win+D처럼 pulse."""
+        if not self._enabled or not self._desktop_foreground or self._pulse_active:
+            return
+        if self._covered_by_desktop():
+            self._start_topmost_pulse()
+
+    def _covered_by_desktop(self) -> bool:
+        """보이는 감시 창 중 하나라도 바탕화면 호스트보다 아래에 있는지."""
+        desktop_hwnd = self._resolve_desktop_hwnd()
+        visible = {hwnd for _widget, hwnd in self._native_guarded_windows(visible_only=True)}
+        if not desktop_hwnd or not visible:
+            return False
+        above = set()
+        try:
+            hwnd = int(_GetWindow(desktop_hwnd, _GW_HWNDPREV) or 0)
+            # 창 순서가 걸어가는 도중 바뀌어도 끝나도록 횟수를 제한한다.
+            for _ in range(_Z_ORDER_WALK_LIMIT):
+                if not hwnd or above == visible:
+                    break
+                if hwnd in visible:
+                    above.add(hwnd)
+                hwnd = int(_GetWindow(hwnd, _GW_HWNDPREV) or 0)
+        except (OSError, ValueError) as e:
+            _logger.debug("바탕화면 덮임 확인 실패: %s", e)
+            return False
+        return above != visible
 
     def _start_topmost_pulse(self) -> None:
         self._pulse_active = True

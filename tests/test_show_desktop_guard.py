@@ -278,6 +278,66 @@ def test_desktop_raised_after_click_is_repinned_without_topmost(
     assert keeper._pulse_active is False
 
 
+def test_show_desktop_while_desktop_already_active_pulses_on_reorder(
+    qtbot,
+    monkeypatch,
+):
+    """바탕화면을 누른 뒤(이미 활성) Win+D는 foreground 알림 없이 바탕화면만 올린다.
+
+    2026-10-25 실측: 그때는 데스크톱 창의 창 순서 변경(REORDER)만 오고,
+    캘린더가 다음 Win+D까지 바탕화면에 가려졌다.
+    """
+    widget = _make_window(qtbot)
+    desktop = _make_window(qtbot)
+    keeper = _make_keeper(enabled=True)
+    keeper.guard(widget)
+    keeper._settle_timer.setInterval(60)
+    _set_desktop_predicate(monkeypatch, int(desktop.winId()), click=True)
+    _place_below(desktop, widget)
+    keeper._on_foreground_changed(int(desktop.winId()))  # 바탕화면 클릭
+    qtbot.waitUntil(lambda: not keeper._settle_timer.isActive(), timeout=1000)
+
+    _raise_to_top(desktop)  # Win+D: 알림 없이 바탕화면이 일반 창 맨 위로
+    assert not _is_above(widget, desktop)
+    keeper._on_desktop_reordered()
+    assert keeper._pulse_active is True
+    assert _is_topmost(widget)
+    qtbot.waitUntil(lambda: not _is_topmost(widget), timeout=1000)
+    assert _is_above(widget, desktop)
+
+
+def test_reorder_without_desktop_cover_does_not_pulse(qtbot, monkeypatch):
+    widget = _make_window(qtbot)
+    desktop = _make_window(qtbot)
+    keeper = _make_keeper(enabled=True)
+    keeper.guard(widget)
+    keeper._settle_timer.setInterval(60)
+    _set_desktop_predicate(monkeypatch, int(desktop.winId()), click=True)
+    _place_below(desktop, widget)
+    keeper._on_foreground_changed(int(desktop.winId()))
+    qtbot.waitUntil(lambda: not keeper._settle_timer.isActive(), timeout=1000)
+
+    keeper._on_desktop_reordered()  # 바탕화면 클릭 등: 바탕화면은 여전히 아래
+    assert keeper._pulse_active is False
+    assert not _is_topmost(widget)
+
+
+def test_reorder_while_other_app_is_active_does_not_pulse(qtbot, monkeypatch):
+    widget = _make_window(qtbot)
+    desktop = _make_window(qtbot)
+    other = _make_window(qtbot)
+    keeper = _make_keeper(enabled=True)
+    keeper.guard(widget)
+    _set_desktop_predicate(
+        monkeypatch, int(desktop.winId()), foreground_hwnd=int(other.winId()))
+    keeper._on_foreground_changed(int(other.winId()))
+    _raise_to_top(desktop)  # 바탕화면이 위에 있어도 바탕화면이 활성이 아니면 건드리지 않는다
+
+    keeper._on_desktop_reordered()
+    assert keeper._pulse_active is False
+    assert not _is_topmost(widget)
+
+
 def test_enabling_on_desktop_skips_pulse_only_for_desktop_click(
     qtbot,
     monkeypatch,
@@ -628,9 +688,11 @@ def test_win_event_hook_callback_is_retained_queued_and_released(
     released = []
     desktop_hwnd = 101
 
-    def fake_install(_min, _max, _module, callback, _pid, _tid, _flags):
+    def fake_install(event_min, _max, _module, callback, _pid, _tid, _flags):
+        installed.setdefault("callbacks", []).append(callback)
         installed["callback"] = callback
-        return 1234
+        return {guard_module._EVENT_SYSTEM_FOREGROUND: 1234,
+                guard_module._EVENT_OBJECT_REORDER: 5678}[event_min]
 
     monkeypatch.setattr(guard_module, "_SetWinEventHook", fake_install)
     monkeypatch.setattr(
@@ -641,7 +703,8 @@ def test_win_event_hook_callback_is_retained_queued_and_released(
     _set_desktop_predicate(monkeypatch, desktop_hwnd)
 
     keeper = ShowDesktopKeeper(enabled=True)
-    assert keeper._win_event_callback is installed["callback"]
+    # 두 hook(foreground·창 순서)이 같은 보관 callback을 쓴다.
+    assert installed["callbacks"] == [keeper._win_event_callback] * 2
 
     installed["callback"](
         1234,
@@ -655,9 +718,50 @@ def test_win_event_hook_callback_is_retained_queued_and_released(
     qtbot.waitUntil(lambda: keeper._pulse_active, timeout=1000)
 
     keeper.shutdown()
-    assert released == [1234]
+    assert sorted(released) == [1234, 5678]
     assert keeper._win_event_hook is None
+    assert keeper._reorder_hook is None
     assert keeper._win_event_callback is None
+
+
+def test_reorder_event_of_root_desktop_is_queued_to_cover_check(
+    qtbot,
+    monkeypatch,
+):
+    checks = []
+    monkeypatch.setattr(guard_module, "_SetWinEventHook", lambda *_args: 1357)
+    monkeypatch.setattr(guard_module, "_UnhookWinEvent", lambda _hook: True)
+    monkeypatch.setattr(
+        ShowDesktopKeeper, "_on_desktop_reordered", lambda self: checks.append(self))
+    keeper = ShowDesktopKeeper(enabled=True)
+    root = int(guard_module._GetDesktopWindow() or 0)
+    assert root
+
+    callback = keeper._win_event_callback
+    callback(1357, guard_module._EVENT_OBJECT_REORDER, root + 4, 0, 0, 0, 0)  # 다른 창 안 순서
+    callback(1357, guard_module._EVENT_OBJECT_REORDER, root, -4, 0, 0, 0)
+    assert checks == []  # WinEvent callback 안에서는 처리하지 않는다
+    qtbot.waitUntil(lambda: checks == [keeper], timeout=1000)
+    qtbot.wait(50)
+    assert checks == [keeper]
+    keeper.shutdown()
+
+
+def test_reorder_hook_failure_keeps_foreground_protection(caplog, monkeypatch):
+    monkeypatch.setattr(
+        guard_module,
+        "_SetWinEventHook",
+        lambda event_min, *_args: 0 if event_min == guard_module._EVENT_OBJECT_REORDER else 2222,
+    )
+    monkeypatch.setattr(guard_module, "_UnhookWinEvent", lambda _hook: True)
+
+    with caplog.at_level("WARNING", logger="app_error"):
+        keeper = ShowDesktopKeeper(enabled=True)
+
+    assert keeper.is_operational() is True
+    assert keeper._reorder_hook is None
+    assert "창 순서 감지 등록 실패" in caplog.text
+    keeper.shutdown()
 
 
 def test_qobject_destruction_unhooks_native_foreground_hook(
@@ -678,9 +782,9 @@ def test_qobject_destruction_unhooks_native_foreground_hook(
 
     keeper = ShowDesktopKeeper(enabled=True)
     keeper.deleteLater()
-    qtbot.waitUntil(lambda: released == [4321], timeout=1000)
+    qtbot.waitUntil(lambda: released == [4321, 4321], timeout=1000)
 
-    assert released == [4321]
+    assert released == [4321, 4321]  # foreground·창 순서 hook
 
 
 def test_unhook_failure_retains_callback_and_shutdown_retries_idempotently(
@@ -688,7 +792,7 @@ def test_unhook_failure_retains_callback_and_shutdown_retries_idempotently(
     monkeypatch,
 ):
     attempts = []
-    outcomes = iter((False, True))
+    outcomes = iter((False, True, True))  # 창 순서 hook 실패 → 재시도 때 두 hook 모두 해제
     monkeypatch.setattr(
         guard_module,
         "_SetWinEventHook",
@@ -715,7 +819,7 @@ def test_unhook_failure_retains_callback_and_shutdown_retries_idempotently(
     assert keeper.is_operational() is False
 
     keeper.shutdown()
-    assert attempts == [2468, 2468]
+    assert attempts == [2468, 2468, 2468]
 
 
 def test_hook_install_failure_is_reported_by_operational_state(
