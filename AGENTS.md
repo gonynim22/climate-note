@@ -93,7 +93,7 @@
 - 공휴일 데이터는 추적 중인 `holidays.py`를 사용하고 `fetch_data.py`의 실제 API 데이터로만 갱신한다. 임의 계산 금지. `release`는 시작할 때 공휴일만 다시 받아 추가는 자동 반영하고, 삭제·이름 변경은 멈춘다(수동 `python fetch_data.py`가 그 변경을 받아들이는 경로). 일부만 발표된 새 연도는 제외한다. API 키(`LUNAR_API_KEY`)는 release 공휴일 단계와 수동 `fetch_data.py`에서만 쓰고, pytest·빌드·EXE에는 넘기지 않는다.
 - 폰트·아이콘·이미지·SVG는 `app_paths.resource_root()`로 찾는다. 본문은 시스템 Malgun Gothic 기본, Pretendard는 D-Day 강조와 최초 설정의 제목·크기 이름·시작 버튼용이다. QSS 글꼴 크기는 정수 px만 쓴다.
 - 소스 화면과 사용자 EXE의 이모지 렌더가 다르면 UI를 다시 수정하기 전에 실제 EXE의 SHA-256과 포함된 Qt DLL 버전·해시를 검증 환경과 대조한다. 표시 버전이나 소스 캡처만으로 수정 포함 여부를 판단하지 않는다. EXE 확인도 합성 데이터에서 수행한다.
-- Win+D 보호는 일시 topmost pulse 후 바탕화면 바로 위 non-topmost 복귀다. 영구 topmost·WorkerW/SetParent 재부모화 금지. native hook은 해제한다.
+- Win+D 보호는 일시 topmost pulse 후 바탕화면 바로 위 non-topmost 복귀다. 바탕화면 위에서 마우스 버튼이 눌린 활성화(바탕화면 클릭)는 pulse하지 않고 settle에서 레이어만 재고정한다(2026-10-24, pulse가 캘린더를 다른 앱 창 위로 350ms 올려 깜빡임). 셸은 바탕화면 활성화 알림 뒤 7~250ms에 바탕화면을 올리므로 알림 시점의 '덮였는지'로 Win+D를 판단하지 않는다. 영구 topmost·WorkerW/SetParent 재부모화 금지. native hook은 해제한다. [작업 기록](docs/work/2026-10-24-desktop-click-flicker.md)
 - 설정창 800×560 무스크롤, 캘린더 크기·일정 표시·위젯 수 제한·DPI/스냅·메뉴 수명 등 세부 UI 계약은 [UI_PATTERNS.md](docs/UI_PATTERNS.md)를 따른다.
 - 설정의 라이선스는 `ui_licenses.py`의 별도 오프라인 원문 창으로 제공한다. 기본 목록 정본은 `licenses/components.json`, 선택형 OCR 목록은 `screen_text/licenses/components.json`이며 OCR 폴더를 제거하면 해당 항목도 제외한다. 루트 GPLv3 원문과 구성요소별 저작권·라이선스·출처를 번들에 포함하고, HWP 명세 지정 문구와 PaddleOCR 원저작권을 보존한다. 열람·전체 복사·닫기와 부모 숨김/잠금 시 닫기를 유지하며 DB·설정 키·모델/사전·의존성을 변경하지 않는다. 전수 SBOM·대응 소스 전달·기관/자산/공모전 조건·서명 확인을 고지 화면 구현만으로 완료 처리하지 않는다. 상세 계약과 증빙은 [UI 계약](docs/UI_PATTERNS.md), [라이선스 정비 기록](docs/work/2026-10-09-license-notices-update.md)을 따른다.
 - 테스트/EXE 검증은 실행별 합성 데이터 폴더에서만 수행한다. 실사용 AppData·DB·salt 또는 기존 실행 중인 앱을 검사·정리 대상으로 쓰지 않는다.
