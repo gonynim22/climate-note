@@ -589,12 +589,12 @@ def test_settings_simplified_card_text_and_data_folder_button(qtbot, app_dir, qa
     assert win.open_data_folder_btn.toolTip() == "저장 폴더 열기"
 
 
-def test_settings_credit_uses_v44b_metadata(qtbot, app_dir, qapp):
-    """v4.4b의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
+def test_settings_credit_uses_v45_metadata(qtbot, app_dir, qapp):
+    """v4.5의 설정 하단 문구는 단일 앱 메타데이터를 따른다."""
     win = SettingsWindow()
     qtbot.addWidget(win)
 
-    assert APP_VERSION == "v4.4b"
+    assert APP_VERSION == "v4.5"
     assert win.author_label.text().startswith(f"{APP_VERSION}  ·  {APP_RELEASE_DATE}")
 
 
@@ -1650,6 +1650,7 @@ def test_schedule_right_click_menu_edits_and_deletes(
     """우클릭 메뉴를 추가해도 기존 더블클릭 편집과 휴지통 삭제 경로를 재사용한다."""
     win = MainCalendarWindow()
     qtbot.addWidget(win)
+    win.show()
     win._on_date_selected("2026-07-15")
     win.schedule_input.setText("회의")
     win._on_add_schedule()
@@ -1667,7 +1668,7 @@ def test_schedule_right_click_menu_edits_and_deletes(
     assert [action.text() for action in actions] == ["편집", "삭제"]
 
     actions[0].trigger()
-    assert win._editing_item is item
+    qtbot.waitUntil(lambda: win._editing_item is item)
     win._finish_current_edit(False)
 
     actions[1].trigger()

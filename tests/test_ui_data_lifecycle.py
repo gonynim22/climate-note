@@ -365,7 +365,7 @@ def test_export_flushes_latest_link_or_preserves_existing_backup(qtbot, app_dir,
         payload = json.loads(security.decrypt_with_pin(target.read_bytes(), 'synthetic-password-1234'))
         exported = next(n for n in payload['sticky_notes'] if n['content'] == latest)
         assert 'climatenote-file:' in exported['content']
-        assert payload['format_version'] == 3
+        assert payload['format_version'] == 4
 
 
 @pytest.mark.parametrize('scale', ['compact', 'large'])

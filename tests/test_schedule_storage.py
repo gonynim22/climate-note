@@ -4,7 +4,7 @@ import json
 import logging
 import sqlite3
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -15,7 +15,224 @@ import security
 from schedule_rules import ScheduleOptions
 
 FIXTURE = Path(__file__).parent / "fixtures" / "schema_v17.sql"
+V19_COLUMNS = ["series_id", "original_date"]
 V18_COLUMNS = ["start_time", "end_date", "repeat_rule", "repeat_until", "repeat_skip", "alarm_before"]
+
+
+def _weekly():
+    return db.add_schedule("2026-10-26", "원래 회의", options=ScheduleOptions(
+        start_time="09:00", repeat_rule="weekly", alarm_before=0))
+
+
+def _override(sid, day="2026-11-02", alarm=None):
+    return db.update_schedule_occurrence(sid, day, "📌 현장 회의 <안건>", "#4CC9F0",
+                                         options=ScheduleOptions(start_time="14:00", alarm_before=alarm))
+
+
+def test_occurrence_edit_replaces_one_day_and_survives_whole_edit(app_dir):
+    sid = _weekly()
+    salt = security.SALT_FILE.read_bytes()
+    child = _override(sid)
+    assert [r["id"] for r in db.get_schedules("2026-11-02")] == [child]
+    assert [r["id"] for r in db.get_schedules("2026-11-09")] == [sid]
+    assert db.get_schedule(sid)["options"].repeat_skip == ()
+    assert db.get_schedules("2026-11-02")[0]["series_id"] == sid
+    assert db.get_schedules("2026-11-02")[0]["is_override"]
+    db.update_schedule(sid, content="전체 변경", color="#FF6B6B", options=ScheduleOptions(
+        start_time="10:00", repeat_rule="daily", repeat_until="2026-10-30"))
+    result = db.get_schedules("2026-11-02")[0]
+    assert (result["content"], result["color"], result["start_time"]) == ("📌 현장 회의 <안건>", "#4CC9F0", "14:00")
+    assert _override(sid) == child  # 새 규칙에서 벗어나도 재편집 가능
+    assert security.SALT_FILE.read_bytes() == salt
+    assert db.inspect_startup_data_health().ok
+    assert db.search_all("현장")[0]["is_override"]
+
+
+def test_occurrence_alarm_off_suppresses_original_and_on_uses_own_time(app_dir):
+    sid = _weekly()
+    child = _override(sid)
+    after, until = datetime(2026, 11, 2, 8), datetime(2026, 11, 2, 15)
+    assert db.get_alarm_occurrences(after, until) == []
+    _override(sid, alarm=30)
+    alarms = db.get_alarm_occurrences(after, until)
+    assert [(a.schedule_id, a.due) for a in alarms] == [(child, datetime(2026, 11, 2, 13, 30))]
+
+
+def test_repeat_off_detaches_modified_rows_without_rewriting_them(app_dir):
+    sid = _weekly()
+    child = _override(sid)
+    with db._connection() as conn:
+        before = tuple(conn.execute("SELECT id, date, content, created_at, color, start_time, alarm_before FROM schedules WHERE id=?", (child,)).fetchone())
+    db.update_schedule(sid, options=ScheduleOptions())
+    with db._connection() as conn:
+        assert tuple(conn.execute("SELECT id, date, content, created_at, color, start_time, alarm_before FROM schedules WHERE id=?", (child,)).fetchone()) == before
+    assert db.get_schedule(child)["series_id"] is None
+    db.delete_schedule(sid)
+    assert db.get_schedules("2026-11-02")[0]["id"] == child
+    assert db.inspect_startup_data_health().ok
+
+
+def test_occurrence_and_whole_deletion_cover_modified_rows(app_dir):
+    sid = _weekly()
+    _override(sid)
+    _override(sid, "2026-11-09")
+    db.skip_schedule_occurrence(sid, "2026-11-02")
+    assert db.get_schedules("2026-11-02") == []
+    assert "2026-11-02" in db.get_schedule(sid)["options"].repeat_skip
+    db.delete_schedule(sid)
+    assert db.get_occurrences("2026-10-26", "2026-12-01") == {}
+
+
+def test_last_regular_occurrence_does_not_remove_modified_rows(app_dir):
+    sid = _weekly()
+    child = _override(sid)
+    db.update_schedule(sid, options=ScheduleOptions(repeat_rule="weekly", repeat_until="2026-10-26"))
+    db.skip_schedule_occurrence(sid, "2026-10-26")
+    assert db.get_schedules("2026-11-02")[0]["id"] == child
+    db.skip_schedule_occurrence(sid, "2026-11-02")
+    assert db.get_occurrences("2026-10-26", "2026-12-01") == {}
+
+
+def test_skip_limit_preserves_override_and_parent_on_failure(app_dir):
+    start = date(2026, 1, 1)
+    skips = tuple((start + timedelta(days=i)).isoformat() for i in range(500))
+    sid = db.add_schedule(start.isoformat(), "매일", options=ScheduleOptions(repeat_rule="daily", repeat_skip=skips))
+    day = (start + timedelta(days=500)).isoformat()
+    _override(sid, day)
+    before = db.export_all_data()
+    with pytest.raises(ValueError, match="너무 많"):
+        db.skip_schedule_occurrence(sid, day)
+    assert db.export_all_data() == before
+
+
+@pytest.mark.parametrize("start,rule,day", [("2026-01-31", "monthly", "2026-02-28"),
+                                            ("2024-02-29", "yearly", "2025-02-28")])
+def test_modified_month_end_and_leap_day_roundtrip(app_dir, start, rule, day):
+    sid = db.add_schedule(start, "반복", options=ScheduleOptions(repeat_rule=rule))
+    child = _override(sid, day)
+    assert [r["id"] for r in db.get_schedules(day)] == [child]
+    db.import_all_data(db.export_all_data())
+    assert len(db.get_schedules(day)) == 2
+    assert all(r["is_override"] for r in db.get_schedules(day))
+
+
+def test_repeat_off_after_first_day_edit_keeps_both_rows(app_dir):
+    sid = _weekly()
+    child = _override(sid, "2026-10-26")
+    db.update_schedule(sid, options=ScheduleOptions())
+    entries = db.get_schedules("2026-10-26")
+    assert {r["id"] for r in entries} == {sid, child}
+    assert all(r["series_id"] is None for r in entries)
+    assert db.inspect_startup_data_health().ok
+
+
+def test_v4_import_failure_after_parent_insert_rolls_back_everything(app_dir):
+    sid = _weekly()
+    _override(sid)
+    before = db.export_all_data()
+    with db._connection() as conn:
+        conn.execute("CREATE TRIGGER fail_child BEFORE UPDATE OF series_id ON schedules "
+                     "BEGIN SELECT RAISE(ABORT, 'synthetic'); END")
+        conn.commit()
+    with pytest.raises(sqlite3.Error):
+        db.import_all_data(before)
+    assert db.export_all_data() == before
+
+
+def test_occurrence_edit_rejects_bad_date_parent_options_and_rolls_back(app_dir, monkeypatch):
+    sid = _weekly()
+    before = db.export_all_data()
+    for day in ("2026-11-03", "2026-10-19"):
+        with pytest.raises(ValueError):
+            _override(sid, day)
+    for opts in (ScheduleOptions(repeat_rule="daily"), ScheduleOptions(end_date="2026-11-03")):
+        with pytest.raises(ValueError):
+            db.update_schedule_occurrence(sid, "2026-11-02", "x", "#FFD166", options=opts)
+    assert db.export_all_data() == before
+    child = _override(sid)
+    with pytest.raises(ValueError):
+        _override(child, "2026-11-09")
+    with db._connection() as conn:
+        conn.execute("CREATE TRIGGER fail_detach BEFORE UPDATE OF series_id ON schedules BEGIN SELECT RAISE(ABORT, 'test'); END")
+        conn.commit()
+    before = db.export_all_data()
+    with pytest.raises(sqlite3.Error):
+        db.update_schedule(sid, content="new", options=ScheduleOptions())
+    assert db.export_all_data() == before
+
+
+def test_export_v4_roundtrip_remaps_series_even_with_reversed_rows_and_reimport(app_dir):
+    sid = _weekly()
+    _override(sid, alarm=30)
+    payload = json.loads(db.export_all_data())
+    payload["schedules"].reverse()
+    for _ in range(2):
+        db.import_all_data(json.dumps(payload))
+    entries = db.get_schedules("2026-11-02")
+    assert len(entries) == 3
+    assert len({r["series_id"] for r in entries}) == 3
+    assert all(r["is_override"] and r["content"] == "📌 현장 회의 <안건>" for r in entries)
+    db.delete_schedule(sid)
+    assert len(db.get_schedules("2026-11-02")) == 2
+    assert db.inspect_startup_data_health().ok
+
+
+@pytest.mark.parametrize("change", ["missing", "self", "duplicate", "date", "options", "root_date", "bool", "nested"])
+def test_v4_invalid_relationship_rejected_before_any_write(app_dir, change):
+    sid = _weekly()
+    _override(sid)
+    before = db.export_all_data()
+    payload = json.loads(before)
+    parent, child = payload["schedules"]
+    if change == "missing": child["series_source_id"] = 9999
+    elif change == "self": child["series_source_id"] = child["source_id"]
+    elif change == "duplicate": payload["schedules"].append(dict(child, source_id=9999))
+    elif change == "date": child["original_date"] = "2026-11-03"
+    elif change == "options": child["repeat_rule"] = "daily"
+    elif change == "root_date": parent["original_date"] = parent["date"]
+    elif change == "bool": child["series_source_id"] = True
+    elif change == "nested": parent["series_source_id"] = child["source_id"]
+    with pytest.raises(ValueError):
+        db.import_all_data(json.dumps(payload))
+    assert db.export_all_data() == before
+
+
+def test_v19_health_rejects_orphan_without_writing(app_dir):
+    sid = _weekly()
+    child = _override(sid)
+    with db._connection() as conn:
+        conn.execute("UPDATE schedules SET series_id = 99999 WHERE id = ?", (child,))
+        conn.commit()
+    before = db.DB_FILE.read_bytes()
+    assert db.inspect_startup_data_health().code == "schema_invalid"
+    assert db.DB_FILE.read_bytes() == before
+
+
+def test_v18_to_v19_adds_only_link_columns_and_rolls_back_on_failure(app_dir, monkeypatch):
+    _seed_v17(app_dir)
+    with db._connection() as conn:
+        for _, sql in db.SCHEDULE_V18_COLUMNS:
+            conn.execute(sql)
+        conn.execute("PRAGMA user_version = 18")
+        conn.commit()
+        before = [tuple(r) for r in conn.execute("SELECT * FROM schedules")]
+    salt = security.SALT_FILE.read_bytes()
+    columns = db.SCHEDULE_V19_COLUMNS
+    monkeypatch.setattr(db, "SCHEDULE_V19_COLUMNS", (columns[0], ("original_date", "ALTER TABLE schedules ADD COLUMN original_date TEXT NOT NULL")))
+    with pytest.raises(sqlite3.Error):
+        db.migrate()
+    with db._connection() as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert [tuple(r) for r in conn.execute("SELECT * FROM schedules")] == before
+    monkeypatch.setattr(db, "SCHEDULE_V19_COLUMNS", columns)
+    backup = db.backup_before_migration()
+    assert backup is True
+    assert (app_dir / "backups" / "calendar_pre_v19_v18.db").is_file()
+    db.migrate()
+    db.migrate()
+    with db._connection() as conn:
+        assert [tuple(r) for r in conn.execute("SELECT * FROM schedules")] == [r + (None, "") for r in before]
+    assert security.SALT_FILE.read_bytes() == salt
 
 
 def _seed_v17(app_dir):
@@ -62,7 +279,7 @@ def _raw_dump(db_file):
         dump = {}
         for table in tables:  # 표·열 이름은 sqlite_master·table_info에서 온 값이다
             columns = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")
-                       if row[1] not in V18_COLUMNS]
+                       if row[1] not in V18_COLUMNS + V19_COLUMNS]
             dump[table] = conn.execute(
                 f"SELECT {', '.join(columns)} FROM {table} ORDER BY rowid").fetchall()
         return dump
@@ -88,14 +305,14 @@ def test_first_start_on_v17_preserves_values_and_upgrades_only_pin(app_dir):
     assert after == before
     assert security.SALT_FILE.read_bytes() == salt
     with db._connection(enable_wal=False, read_only=True) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
         columns = [row[1] for row in conn.execute("PRAGMA table_info(schedules)")]
-        assert columns == ["id", "date", "content", "created_at", "color", *V18_COLUMNS]
+        assert columns == ["id", "date", "content", "created_at", "color", *V18_COLUMNS, *V19_COLUMNS]
         rows = conn.execute(
             "SELECT start_time, end_date, repeat_rule, repeat_until, repeat_skip, alarm_before FROM schedules"
         ).fetchall()
         assert [tuple(row) for row in rows] == [("", "", "", "", "", None)] * 3
-    snapshot = app_dir / "backups" / "calendar_pre_v18_v17.db"
+    snapshot = app_dir / "backups" / "calendar_pre_v19_v17.db"
     assert snapshot.is_file()
     assert _raw_dump(snapshot) == before
     assert db.get_schedules("2026-10-15")[0]["content"] == "📌 보고서 초안 검토"
@@ -111,8 +328,8 @@ def test_v18_migration_is_idempotent_and_accepts_version_rolled_back(app_dir):
         conn.commit()
     db.migrate()
     with db._connection(enable_wal=False, read_only=True) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 18
-        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
+        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS + V19_COLUMNS
 
 
 def test_v18_migration_failure_rolls_back_every_column(app_dir, monkeypatch):
@@ -135,19 +352,19 @@ def test_v18_migration_failure_rolls_back_every_column(app_dir, monkeypatch):
 
 def test_fresh_and_reset_databases_get_the_same_v18_schema(app_dir):
     with db._connection(enable_wal=False, read_only=True) as conn:
-        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS
+        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS + V19_COLUMNS
     db.reset_database()
     with db._connection(enable_wal=False, read_only=True) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 18
-        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
+        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS + V19_COLUMNS
 
 
 def test_health_reports_newer_schema(app_dir):
     with db._connection() as conn:
-        conn.execute("PRAGMA user_version = 19")
+        conn.execute(f"PRAGMA user_version = {db.CURRENT_SCHEMA_VERSION + 1}")
         conn.commit()
     report = db.inspect_startup_data_health()
-    assert (report.ok, report.code, report.version) == (False, "schema_newer", 19)
+    assert (report.ok, report.code, report.version) == (False, "schema_newer", db.CURRENT_SCHEMA_VERSION + 1)
 
 
 def test_health_rejects_v18_without_new_columns(app_dir):
@@ -433,7 +650,7 @@ def test_export_v3_writes_all_schedule_fields_and_hides_alarm_seen_at(app_dir):
 
     payload = json.loads(db.export_all_data())
 
-    assert payload["format_version"] == 3
+    assert payload["format_version"] == 4
     first, second, legacy = payload["schedules"]
     assert {k: first[k] for k in OPTION_KEYS} == {
         "start_time": "10:00", "end_date": "", "repeat_rule": "weekly",
@@ -717,8 +934,8 @@ def test_v17_with_some_v18_columns_already_present_gets_the_rest_and_keeps_value
     db.migrate()
 
     with db._connection(enable_wal=False, read_only=True) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 18
-        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == db.CURRENT_SCHEMA_VERSION
+        assert [row[1] for row in conn.execute("PRAGMA table_info(schedules)")][5:] == V18_COLUMNS + V19_COLUMNS
         rows = {row["date"]: tuple(row)[1:] for row in conn.execute(
             "SELECT date, start_time, end_date, repeat_rule, repeat_until, repeat_skip, alarm_before "
             "FROM schedules")}

@@ -10,6 +10,7 @@ import re
 import runpy
 import shutil
 import ssl
+import socket
 import tempfile
 import time
 import urllib.error
@@ -61,6 +62,19 @@ def _https_only_opener() -> urllib.request.OpenerDirector:
 
 
 _OPENER = _https_only_opener()
+_RETRY_DELAYS = (0.5, 1.0)  # 최초 요청 포함 최대 3번, 각 요청 제한 10초
+
+
+def _transient_request_error(error) -> bool:
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code in (408, 429, 500, 502, 503, 504)
+    if isinstance(error, urllib.error.URLError):
+        error = error.reason
+    if isinstance(error, ssl.SSLError):
+        return False
+    if isinstance(error, socket.gaierror):
+        return error.errno == socket.EAI_AGAIN
+    return isinstance(error, (TimeoutError, ConnectionError, http.client.IncompleteRead))
 
 
 def _api_get(service_path: str, year: int, month: int) -> str:
@@ -69,14 +83,21 @@ def _api_get(service_path: str, year: int, month: int) -> str:
         raise FetchError("LUNAR_API_KEY가 없습니다 (.env 확인)", environment=True)
     params = urllib.parse.urlencode({"serviceKey": API_KEY, "solYear": f"{year:04d}",
                                      "solMonth": f"{month:02d}", "numOfRows": "50"})
-    try:
-        with _OPENER.open(f"{API_BASE}/{service_path}?{params}", timeout=10) as resp:
-            return resp.read().decode("utf-8")
-    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
-        # URL·키가 메시지·예외 체인에 남지 않게 형식 이름만 쓴다
-        raise FetchError(f"{label} 요청 실패 ({type(e).__name__})", environment=True) from None
-    except UnicodeDecodeError:
-        raise FetchError(f"{label} 응답 해석 실패", environment=False) from None
+    for attempt in range(len(_RETRY_DELAYS) + 1):
+        try:
+            with _OPENER.open(f"{API_BASE}/{service_path}?{params}", timeout=10) as resp:
+                return resp.read().decode("utf-8")
+        except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError) as e:
+            transient = _transient_request_error(e)
+            if isinstance(e, urllib.error.HTTPError):
+                e.close()
+            if transient and attempt < len(_RETRY_DELAYS):
+                time.sleep(_RETRY_DELAYS[attempt])
+                continue
+            # URL·키가 메시지·예외 체인에 남지 않게 형식 이름만 쓴다
+            raise FetchError(f"{label} 요청 실패 ({type(e).__name__})", environment=True) from None
+        except UnicodeDecodeError:
+            raise FetchError(f"{label} 응답 해석 실패", environment=False) from None
 
 
 def _response_items(xml_text: str, label: str) -> list:
@@ -130,7 +151,7 @@ def fetch_lunar_month(year: int, month: int) -> list[dict]:
     return result
 
 
-CORE_HOLIDAY_NAMES = ("1월1일", "삼일절", "광복절", "개천절", "한글날", "기독탄신일", "설날", "추석")
+CORE_HOLIDAY_NAMES = ("1월1일", "삼일절", "어린이날", "현충일", "광복절", "개천절", "한글날", "기독탄신일", "설날", "추석")
 HOLIDAY_YEARS = range(2025, 2051)
 
 

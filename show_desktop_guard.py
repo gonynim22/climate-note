@@ -7,7 +7,9 @@
 올라오지 않으므로 topmost로 올리지 않는다(올리면 캘린더가 다른 앱 창 위로 잠깐
 튀어나와 깜빡인다). 바탕화면이 이미 활성일 때의 Win+D는 foreground 알림 없이
 바탕화면만 올리므로, 바탕화면이 활성인 동안 최상위 창 순서 변경(REORDER)에서
-바탕화면이 감시 창을 덮었으면 같은 pulse를 한다.
+바탕화면이 감시 창을 덮었으면 같은 pulse를 한다. 바탕화면 보기를 되돌릴 때는
+셸이 바탕화면만 맨 아래로 내리므로, 그 뒤 감시 창 아래에 보이는 창이 처음
+생기면 한 번 다시 고정해 따라 내려간다.
 따라서 바탕화면 아이콘은 기후노트 뒤에 있고 일반 앱 창은 기후노트 위에 있다.
 
 Win+M/실제 최소화는 ``WindowStateChange``를 감지해 다음 이벤트 루프 턴에
@@ -42,9 +44,8 @@ _GW_HWNDPREV = 3
 _GWL_EXSTYLE = -20
 _WS_EX_TOPMOST = 0x00000008
 _GA_ROOT = 2
-_VK_LBUTTON = 0x01
-_VK_RBUTTON = 0x02
-_VK_MBUTTON = 0x04
+_VK_LWIN = 0x5B
+_VK_RWIN = 0x5C
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 
@@ -72,6 +73,14 @@ _GetDesktopWindow.restype = wintypes.HWND
 _GetWindow = _user32.GetWindow
 _GetWindow.argtypes = [wintypes.HWND, ctypes.c_uint]
 _GetWindow.restype = wintypes.HWND
+
+_IsWindowVisible = _user32.IsWindowVisible
+_IsWindowVisible.argtypes = [wintypes.HWND]
+_IsWindowVisible.restype = wintypes.BOOL
+
+_IsIconic = _user32.IsIconic
+_IsIconic.argtypes = [wintypes.HWND]
+_IsIconic.restype = wintypes.BOOL
 
 _GetWindowLongPtrW = _user32.GetWindowLongPtrW
 _GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
@@ -181,18 +190,23 @@ def _is_desktop_foreground(hwnd: int) -> bool:
 
 
 def _is_desktop_click() -> bool:
-    """Whether a mouse button is held down over the shell desktop right now.
+    """Whether this desktop activation came from the mouse on the desktop.
 
     Clicking the desktop makes it foreground exactly like Show Desktop does,
     but the shell then leaves the desktop at the bottom. Win+D and the taskbar
     corner button raise the desktop only after the foreground notification, so
     the pulse cannot wait for the cover to appear; it is skipped only for a
     click on the desktop itself.
+
+    A desktop icon click notifies only after the button is released, so a held
+    button is not required. Win+D always had the Win key held (even with the
+    cursor over the desktop) and the corner button has the cursor on the
+    taskbar. A keyless Show Desktop taken for a click is rescued by the
+    REORDER cover check.
     """
     try:
-        if not any(
-            _GetAsyncKeyState(vk) & 0x8000
-            for vk in (_VK_LBUTTON, _VK_RBUTTON, _VK_MBUTTON)
+        if any(
+            _GetAsyncKeyState(vk) & 0x8000 for vk in (_VK_LWIN, _VK_RWIN)
         ):
             return False
         point = wintypes.POINT()
@@ -227,6 +241,8 @@ class ShowDesktopKeeper(QObject):
         self._desktop_foreground = False
         self._desktop_hwnd = 0
         self._pulse_active = False
+        # 바탕화면 보기로 셸이 바탕화면을 올렸고, 다시 내릴 때 따라 내려갈 차례다.
+        self._desktop_raised = False
         self._win_event_hook = None
         self._reorder_hook = None
         self._win_event_callback = None
@@ -265,6 +281,7 @@ class ShowDesktopKeeper(QObject):
         self._enabled = bool(on)
         self._settle_timer.stop()
         self._pulse_active = False
+        self._desktop_raised = False
 
         foreground = int(_GetForegroundWindow() or 0)
         if self._enabled and _is_desktop_foreground(foreground):
@@ -304,6 +321,7 @@ class ShowDesktopKeeper(QObject):
         """Release the system hook and leave every guarded window non-topmost."""
         self._settle_timer.stop()
         self._pulse_active = False
+        self._desktop_raised = False
         self._desktop_foreground = False
         self._desktop_hwnd = 0
         self._enabled = False
@@ -417,11 +435,19 @@ class ShowDesktopKeeper(QObject):
         self._settle_timer.start()
 
     def _on_desktop_reordered(self) -> None:
-        """바탕화면이 활성인 채 창 순서가 바뀜: 바탕화면이 감시 창을 덮었으면 Win+D처럼 pulse."""
-        if not self._enabled or not self._desktop_foreground or self._pulse_active:
+        """최상위 창 순서가 바뀜: 바탕화면이 올라와 덮으면 pulse, 다시 내려가면 따라 내려간다."""
+        if not self._enabled or self._pulse_active:
             return
-        if self._covered_by_desktop():
+        if self._desktop_foreground and self._covered_by_desktop():
             self._start_topmost_pulse()
+            return
+        if self._desktop_raised and self._above_other_windows():
+            # 바탕화면 보기를 되돌리면 셸이 바탕화면만 맨 아래로 내려 감시 창이
+            # 되살아난 창들 위에 남는다. 한 번만 따라 내려가 다른 '바탕화면 고정'
+            # 앱과 서로 밀어내지 않는다.
+            self._desktop_raised = False
+            if not self._pin_to_desktop_layer():
+                self._demote_all(int(_GetForegroundWindow() or 0))
 
     def _covered_by_desktop(self) -> bool:
         """보이는 감시 창 중 하나라도 바탕화면 호스트보다 아래에 있는지."""
@@ -444,8 +470,30 @@ class ShowDesktopKeeper(QObject):
             return False
         return above != visible
 
+    def _above_other_windows(self) -> bool:
+        """보이는 감시 창과 바탕화면 호스트 사이에 보이는 다른 창이 있는지."""
+        desktop_hwnd = self._resolve_desktop_hwnd()
+        visible = {hwnd for _widget, hwnd in self._native_guarded_windows(visible_only=True)}
+        if not desktop_hwnd or not visible:
+            return False
+        reached = set()
+        try:
+            hwnd = int(_GetWindow(desktop_hwnd, _GW_HWNDPREV) or 0)
+            for _ in range(_Z_ORDER_WALK_LIMIT):
+                if not hwnd or reached == visible:
+                    break
+                if hwnd in visible:
+                    reached.add(hwnd)
+                elif _IsWindowVisible(hwnd) and not _IsIconic(hwnd):
+                    return True
+                hwnd = int(_GetWindow(hwnd, _GW_HWNDPREV) or 0)
+        except (OSError, ValueError) as e:
+            _logger.debug("바탕화면 위 창 순서 확인 실패: %s", e)
+        return False
+
     def _start_topmost_pulse(self) -> None:
         self._pulse_active = True
+        self._desktop_raised = True
         self._apply_to_all(True, visible_only=True)
         self._settle_timer.start()
 

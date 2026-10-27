@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import QApplication, QGridLayout, QWidget
 
 import database as db
@@ -62,7 +63,10 @@ def test_timed_chip_and_plain_text(qtbot, monkeypatch):
     win = calendar_window(qtbot, monkeypatch, "large", screen=(2560, 1440))
     layout = win._day_cells["2026-10-14"]._chips_layout
     chips = [layout.itemAt(i).widget() for i in range(layout.count())]
-    assert [chip.toolTip() for chip in chips] == ["종일 일정", "14:00 <b>회의</b>"]
+    assert chips[0].toolTip() == "종일 일정"
+    tooltip = QTextDocument()
+    tooltip.setHtml(chips[1].toolTip())
+    assert tooltip.toPlainText() == "14:00 <b>회의</b>"
     assert chips[1].text().startswith("14:00 <b>")
     assert chips[1].textFormat() == Qt.PlainText
     assert not chips[1].font().bold()

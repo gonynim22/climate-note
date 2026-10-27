@@ -235,6 +235,8 @@ def _dataset_snapshot(db, security):
             # 해시만으로는 어떤 값이 바뀌었는지 모르므로 합성 일정의 세부 설정은 값으로 남긴다.
             "schedule_options": [[row["id"], *(row[c] for c in V18_COLUMNS)]
                                  for row in rows["schedules"]],
+            "schedule_links": [[row["id"], row["series_id"], row["original_date"]]
+                               for row in rows["schedules"]],
             "salt_sha256": file_hash(security.SALT_FILE)}
 
 
@@ -245,6 +247,7 @@ def _check_seed_options(seeded):
         "시각+알림": any(start and alarm is not None for start, _, _, _, _, alarm in options),
         "기간": any(end for _, end, _, _, _, _ in options),
         "반복": any(rule and until and skip for _, _, rule, until, skip, _ in options),
+        "수정 회차": any(parent is not None and day for _, parent, day in seeded["schedule_links"]),
     }
     missing = [name for name, found in kinds.items() if not found]
     if missing:
@@ -253,7 +256,7 @@ def _check_seed_options(seeded):
 
 def _check_existing(seeded, after):
     """기존 데이터 실행 뒤 값·세부 설정·salt가 같고 최초 보호 백업이 있는지 검사한다."""
-    for key in ("raw_hashes", "logical_hashes", "ids", "schedule_options", "salt_sha256"):
+    for key in ("raw_hashes", "logical_hashes", "ids", "schedule_options", "schedule_links", "salt_sha256"):
         if seeded[key] != after[key]:
             raise ValueError(f"기존 합성 데이터 변경: {key}")
     if not any(name.startswith("calendar_pre_v35_") for name in after["backups"]):
@@ -286,9 +289,11 @@ def _data_worker(action, data_root, result_path):
                         options=ScheduleOptions(start_time="09:30", alarm_before=10))
         db.add_schedule(day, "하네스 기간 일정",
                         options=ScheduleOptions(end_date=(today + timedelta(days=2)).isoformat()))
-        db.add_schedule(day, "하네스 반복 일정", options=ScheduleOptions(
+        series = db.add_schedule(day, "하네스 반복 일정", options=ScheduleOptions(
             repeat_rule="weekly", repeat_until=(today + timedelta(weeks=8)).isoformat(),
             repeat_skip=((today + timedelta(weeks=1)).isoformat(),)))
+        db.update_schedule_occurrence(series, (today + timedelta(weeks=2)).isoformat(),
+                                      "하네스 수정 회차", "#4CC9F0", options=ScheduleOptions(start_time="14:00"))
         db.save_memo(day, "하네스 합성 메모")
         # 닫힌 스티키로 둔다. 열린 스티키는 앱이 시작 뒤 창 크기를 5mm 격자에 맞춰 다시 저장하므로
         # (300×400→306×396 등, v4.0부터 같은 동작) '기존 데이터 불변' 비교가 시점에 따라 흔들린다.
@@ -317,7 +322,7 @@ def _data_worker(action, data_root, result_path):
         security._fernet_cache = None
         security._legacy_fernet_cache = None
         result = {"code": db.inspect_startup_data_health().code}
-    elif action == "seed_v17":
+    elif action in ("seed_v17", "seed_v18"):
         if db.DB_FILE.exists():
             raise ValueError("새 합성 데이터 폴더만 초기화할 수 있습니다.")
         db.DB_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -348,21 +353,32 @@ def _data_worker(action, data_root, result_path):
                 "elapsed_seconds, completed, created_at) VALUES (1, ?, ?, ?, 1500, 1, ?)",
                 (security.encrypt("v17 집중 기록"), stamp, day + " 09:25:00", stamp))
             conn.execute("PRAGMA user_version = 17")
+            if action == "seed_v18":
+                for _, statement in db.SCHEDULE_V18_COLUMNS:
+                    conn.execute(statement)
+                # 본문 외에도 v18의 시간·반복·알림 원문을 보존하는지 검사한다.
+                future = date.today() + timedelta(days=30)
+                conn.execute("UPDATE schedules SET date=?, start_time='14:30', repeat_rule='weekly', "
+                             "repeat_until=?, repeat_skip=?, alarm_before=30 WHERE id=1",
+                             (future.isoformat(), (future + timedelta(weeks=8)).isoformat(),
+                              (future + timedelta(weeks=1)).isoformat()))
+                conn.execute("PRAGMA user_version = 18")
             conn.commit()
-        result = _original_columns_snapshot(db.DB_FILE)
+        result = _original_columns_snapshot(db.DB_FILE, from_version=18 if action == "seed_v18" else 17)
         result["salt_sha256"] = file_hash(security.SALT_FILE)
     elif action == "upgrade_source":
         # EXE 없이 같은 시작 경로를 소스로 실행한다(검사 도구 자체 시험용).
         import main as app_main
         app_main._initialize_database()
         result = {"ok": True}
-    elif action == "inspect_upgrade":
+    elif action in ("inspect_upgrade", "inspect_upgrade_v18"):
+        from_version = 18 if action == "inspect_upgrade_v18" else 17
         health = db.inspect_startup_data_health()
         if not health.ok:
             raise ValueError(f"업그레이드 뒤 데이터 건강 검사 실패: {health.code}")
         if health.version != db.CURRENT_SCHEMA_VERSION:
             raise ValueError("업그레이드 뒤 DB 버전이 최신이 아닙니다.")
-        snapshot = db.APP_DIR / "backups" / "calendar_pre_v18_v17.db"
+        snapshot = db.APP_DIR / "backups" / f"calendar_pre_v{db.CURRENT_SCHEMA_VERSION}_v{from_version}.db"
         if not snapshot.is_file():
             raise ValueError("마이그레이션 전 스냅샷이 없습니다.")
         with closing(sqlite3.connect(f"{snapshot.as_uri()}?mode=ro", uri=True)) as original:
@@ -372,22 +388,20 @@ def _data_worker(action, data_root, result_path):
         if security.is_legacy_privacy_pin(stored_pin) or not security.verify_privacy_pin(previous_pin, stored_pin):
             raise ValueError("기존 PIN의 검증값 승격을 확인하지 못했습니다.")
         # 검증한 PIN 값만 이전 값으로 정규화한다. 나머지 모든 열/설정은 원문 해시 대조.
-        result = _original_columns_snapshot(db.DB_FILE, privacy_pin=previous_pin)
+        result = _original_columns_snapshot(db.DB_FILE, privacy_pin=previous_pin, from_version=from_version)
         result["privacy_pin_upgraded"] = True
         if result["version"] != db.CURRENT_SCHEMA_VERSION:
             raise ValueError("업그레이드 뒤 DB 버전이 최신이 아닙니다.")
         with db._connection(read_only=True, enable_wal=False) as conn:
             result["integrity"] = [row[0] for row in conn.execute("PRAGMA integrity_check")]
-            changed = conn.execute(
-                "SELECT COUNT(*) FROM schedules WHERE start_time != '' OR end_date != '' "
-                "OR repeat_rule != '' OR repeat_until != '' OR repeat_skip != '' "
-                "OR alarm_before IS NOT NULL").fetchone()[0]
+            conditions = "series_id IS NOT NULL OR original_date != ''"
+            if from_version == 17:
+                conditions += (" OR start_time != '' OR end_date != '' OR repeat_rule != '' "
+                               "OR repeat_until != '' OR repeat_skip != '' OR alarm_before IS NOT NULL")
+            changed = conn.execute("SELECT COUNT(*) FROM schedules WHERE " + conditions).fetchone()[0]
         if changed:
             raise ValueError("업그레이드 뒤 새 칸이 기본값이 아닙니다.")
-        snapshot = db.APP_DIR / "backups" / "calendar_pre_v18_v17.db"
-        if not snapshot.is_file():
-            raise ValueError("마이그레이션 전 스냅샷이 없습니다.")
-        result["pre_snapshot"] = _original_columns_snapshot(snapshot)
+        result["pre_snapshot"] = _original_columns_snapshot(snapshot, from_version=from_version)
         result["salt_sha256"] = file_hash(security.SALT_FILE)
         log = db.APP_DIR / "error.log"
         result["error_log_bytes"] = log.stat().st_size if log.exists() else 0
@@ -419,10 +433,11 @@ V18_COLUMNS = ("start_time", "end_date", "repeat_rule", "repeat_until", "repeat_
 V17_FIXTURE = ROOT / "tests" / "fixtures" / "schema_v17.sql"
 
 
-def _original_columns_snapshot(path, *, privacy_pin=None):
-    """모든 표의 v17 열 값 해시(v18 새 열 제외)와 user_version."""
+def _original_columns_snapshot(path, *, privacy_pin=None, from_version=17):
+    """업그레이드 전 버전에 존재하는 모든 열의 원문 해시와 user_version."""
     boundary = inside(ROOT / "output" / "harness", ROOT)
     resolved = inside(path, boundary)
+    excluded = ("series_id", "original_date") + (V18_COLUMNS if from_version == 17 else ())
     # 상위 프로세스(리허설)도 부르므로 database를 import하지 않고 직접 읽기 전용으로 연다.
     conn = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
     try:
@@ -431,7 +446,7 @@ def _original_columns_snapshot(path, *, privacy_pin=None):
         hashes = {}
         for table in tables:  # 표·열 이름은 sqlite_master·table_info에서만 온다.
             columns = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")
-                       if row[1] not in V18_COLUMNS]
+                       if row[1] not in excluded]
             rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY rowid").fetchall()
             if table == "app_settings" and privacy_pin is not None:
                 key_index, value_index = columns.index("key"), columns.index("value")
@@ -451,7 +466,7 @@ def _check_upgrade(seeded, after):
         raise ValueError("업그레이드가 기존 값을 바꿨습니다.")
     if after.get("privacy_pin_upgraded") is not True:
         raise ValueError("기존 PIN의 검증값 승격을 확인하지 못했습니다.")
-    if after["pre_snapshot"] != {"tables": seeded["tables"], "version": 17}:
+    if after["pre_snapshot"] != {"tables": seeded["tables"], "version": seeded["version"]}:
         raise ValueError("마이그레이션 전 스냅샷이 원본과 다릅니다.")
     if after["salt_sha256"] != seeded["salt_sha256"]:
         raise ValueError("업그레이드가 salt를 바꿨습니다.")
@@ -475,8 +490,9 @@ def scenario(exe, run_dir, name):
     data_root = folder / "appdata"
     data_root.mkdir()
     before = None
-    if name == "upgrade":
-        before = data_step("seed_v17", data_root, folder / "before.json")
+    upgrading = name in ("upgrade", "upgrade_v18")
+    if upgrading:
+        before = data_step("seed_v18" if name == "upgrade_v18" else "seed_v17", data_root, folder / "before.json")
     elif name != "fresh":
         before = data_step("seed", data_root, folder / "before.json")
         _check_seed_options(before)
@@ -506,7 +522,7 @@ def scenario(exe, run_dir, name):
                     setup_seen = True
             errors = [w for w in observed if w["title"] == expected_error and w["responding"]]
             notices = [w for w in observed if w["title"] == UPGRADE_NOTICE_TITLE and w["responding"]]
-            if notices and name != "upgrade":
+            if notices and not upgrading:
                 raise RuntimeError(f"{name}: 업그레이드가 아닌데 업데이트 안내창이 표시됐습니다.")
             app_windows = [w for w in observed if w["width"] >= 350 and w["height"] >= 450
                            and w["responding"] and w["title"] not in
@@ -518,13 +534,13 @@ def scenario(exe, run_dir, name):
                     raise RuntimeError(f"{name}: 정상 데이터로 시작이 차단됐습니다.")
                 ready = bool(app_windows) and any(
                     (data_root / "MyDesktopCalendar" / "backups").glob("calendar_auto_*.cnbak")
-                ) and (name != "upgrade" or bool(notices))
+                ) and (not upgrading or bool(notices))
             if ready:
                 break
             time.sleep(0.2)
         if not ready:
             raise TimeoutError(f"{name}: 창/백업 준비 시간 초과. 관측 창={observed}")
-        if name != "upgrade":
+        if not upgrading:
             # 안내창은 본 창을 띄우고 0.8초 뒤에 열리므로, 준비된 뒤에도 그보다 길게 지켜봐야
             # '업그레이드가 아닌 실행에서 안내창이 뜨면 실패'가 실제로 걸린다.
             settle = time.monotonic() + NOTICE_SETTLE_SECONDS
@@ -540,8 +556,9 @@ def scenario(exe, run_dir, name):
             raise ValueError("시작 차단 후 원본 DB/salt/백업이 변경됐습니다.")
         result["preserved"] = after
     else:
-        if name == "upgrade":
-            after = data_step("inspect_upgrade", data_root, folder / "after.json")
+        if upgrading:
+            after = data_step("inspect_upgrade_v18" if name == "upgrade_v18" else "inspect_upgrade",
+                              data_root, folder / "after.json")
             _check_upgrade(before, after)
             result["data"] = after
             return result
@@ -563,7 +580,7 @@ def main(argv=None):
     report = {"status": "running", "exe_sha256": file_hash(exe), "scenarios": {}}
     write_json(directory / "smoke.json", report)
     try:
-        for name in ("fresh", "existing", "blocked", "upgrade"):
+        for name in ("fresh", "existing", "blocked", "upgrade", "upgrade_v18"):
             print(f"[smoke] {name}", flush=True)
             report["scenarios"][name] = {"status": "running"}
             write_json(directory / "smoke.json", report)

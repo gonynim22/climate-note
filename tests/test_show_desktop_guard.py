@@ -59,6 +59,8 @@ def _set_desktop_predicate(
 
 
 _GW_HWNDNEXT = 2
+_VK_LBUTTON = 0x01
+_VK_RBUTTON = 0x02
 _REAL_SET_WINDOW_POS = guard_module._SetWindowPos
 _REAL_GET_WINDOW = guard_module._GetWindow
 
@@ -338,6 +340,93 @@ def test_reorder_while_other_app_is_active_does_not_pulse(qtbot, monkeypatch):
     assert not _is_topmost(widget)
 
 
+def _show_desktop(qtbot, keeper, widget, desktop, other) -> None:
+    """Win+D: pulse 뒤 셸이 맨 위로 올린 바탕화면 바로 위에 고정된 상태를 만든다."""
+    _place_below(desktop, widget)
+    _place_below(other, desktop)  # 바탕화면 보기로 내려간 일반 창
+    keeper._on_foreground_changed(int(desktop.winId()))
+    assert keeper._pulse_active is True
+    _raise_to_top(desktop)  # 셸이 알림 뒤에 바탕화면을 일반 창 맨 위로 올림
+    qtbot.waitUntil(lambda: not _is_topmost(widget), timeout=1000)
+    assert _is_above(widget, desktop)
+    assert _is_above(desktop, other)
+
+
+def test_show_desktop_restore_follows_desktop_back_down(qtbot, monkeypatch):
+    """바탕화면 보기를 되돌리면 셸은 바탕화면만 맨 아래로 내린다.
+
+    2026-10-25 실측: 되돌릴 때 활성화되는 앱이 없으면(바탕화면이 이미 활성이던
+    Win+D) 캘린더가 되살아난 창들 위에 남아 다른 창을 누를 때까지 가렸다.
+    """
+    widget = _make_window(qtbot)
+    desktop = _make_window(qtbot)
+    other = _make_window(qtbot)
+    keeper = _make_keeper(enabled=True)
+    keeper.guard(widget)
+    keeper._settle_timer.setInterval(60)
+    _set_desktop_predicate(monkeypatch, int(desktop.winId()))
+    _show_desktop(qtbot, keeper, widget, desktop, other)
+
+    _place_below(desktop, other)  # 되돌림: 바탕화면만 되살아난 창 아래로
+    assert _is_above(widget, other)
+    keeper._on_desktop_reordered()
+    assert _is_above(other, widget)
+    assert _is_above(widget, desktop)
+    assert not _is_topmost(widget)
+
+    # 한 번 따라간 뒤에는 다른 '바탕화면 고정' 앱과 서로 밀어내지 않는다.
+    rival = _make_window(qtbot)
+    _place_below(rival, widget)
+    keeper._on_desktop_reordered()
+    assert _is_above(widget, rival)
+
+
+def test_show_desktop_button_restore_follows_desktop_back_down(
+    qtbot,
+    monkeypatch,
+):
+    """'바탕화면 보기' 버튼으로 되돌리면 작업 표시줄이 먼저 활성화된다.
+
+    2026-10-25 실측: 그 순간 고정하면 아직 맨 위인 바탕화면 바로 위(맨 위)로
+    고정되고, 뒤이어 바탕화면이 내려가 캘린더가 창들 위에 남았다.
+    """
+    widget = _make_window(qtbot)
+    desktop = _make_window(qtbot)
+    other = _make_window(qtbot)
+    taskbar = _make_window(qtbot)
+    keeper = _make_keeper(enabled=True)
+    keeper.guard(widget)
+    keeper._settle_timer.setInterval(60)
+    _set_desktop_predicate(monkeypatch, int(desktop.winId()))
+    _show_desktop(qtbot, keeper, widget, desktop, other)
+
+    keeper._on_foreground_changed(int(taskbar.winId()))  # 버튼을 누름
+    assert _is_above(widget, desktop)
+    _place_below(desktop, other)
+    keeper._on_desktop_reordered()
+    assert _is_above(other, widget)
+    assert _is_above(widget, desktop)
+
+
+def test_reorder_without_show_desktop_leaves_windows_below_alone(
+    qtbot,
+    monkeypatch,
+):
+    """바탕화면 보기가 없었으면 감시 창 아래의 창을 이유로 다시 고정하지 않는다."""
+    widget = _make_window(qtbot)
+    desktop = _make_window(qtbot)
+    rival = _make_window(qtbot)
+    keeper = _make_keeper(enabled=True)
+    keeper.guard(widget)
+    _set_desktop_predicate(monkeypatch, int(desktop.winId()), click=True)
+    _place_below(desktop, widget)
+    _place_below(rival, widget)  # 다른 '바탕화면 고정' 앱이 사이에 들어옴
+
+    keeper._on_desktop_reordered()
+    assert _is_above(widget, rival)
+    assert keeper._pulse_active is False
+
+
 def test_enabling_on_desktop_skips_pulse_only_for_desktop_click(
     qtbot,
     monkeypatch,
@@ -381,24 +470,71 @@ def _fake_pointer(monkeypatch, *, down=(), root=0):
     )
 
 
-def test_desktop_click_needs_button_down_over_desktop(monkeypatch):
-    _fake_pointer(monkeypatch, down=(guard_module._VK_LBUTTON,), root=101)
+def test_desktop_click_is_mouse_activation_over_desktop(monkeypatch):
+    """커서 아래가 바탕화면이고 Win 키가 눌려 있지 않으면 바탕화면 클릭이다.
+
+    2026-10-25 실측: 바탕화면 아이콘을 누르면 활성화 알림이 마우스 버튼을
+    뗀 뒤에 와서(`down=[]`) 버튼 눌림을 요구하면 Win+D로 보고 pulse했다.
+    Win+D는 알림 순간 늘 Win 키가 눌려 있었다(커서가 바탕화면 위일 때도).
+    """
+    # 빈 바탕화면 클릭: 알림 순간 버튼이 눌려 있다.
+    _fake_pointer(monkeypatch, down=(_VK_LBUTTON,), root=101)
     assert guard_module._is_desktop_click() is True
 
-    _fake_pointer(monkeypatch, down=(guard_module._VK_RBUTTON,), root=101)
+    _fake_pointer(monkeypatch, down=(_VK_RBUTTON,), root=101)
     assert guard_module._is_desktop_click() is True
 
-    # Win+D: 커서가 바탕화면 위에 있어도 버튼이 눌려 있지 않다.
+    # 바탕화면 아이콘 클릭: 버튼을 뗀 뒤에 알림이 온다.
     _fake_pointer(monkeypatch, down=(), root=101)
+    assert guard_module._is_desktop_click() is True
+
+    # Win+D: 커서가 바탕화면 위에 있어도 Win 키가 눌려 있다.
+    _fake_pointer(monkeypatch, down=(guard_module._VK_LWIN,), root=101)
     assert guard_module._is_desktop_click() is False
 
-    # '바탕화면 보기' 버튼: 누른 곳은 작업 표시줄이다.
-    _fake_pointer(monkeypatch, down=(guard_module._VK_LBUTTON,), root=202)
+    _fake_pointer(monkeypatch, down=(guard_module._VK_RWIN,), root=101)
     assert guard_module._is_desktop_click() is False
+
+    # '바탕화면 보기' 버튼: 누르는 중이든 뗀 뒤든 커서는 작업 표시줄이다.
+    _fake_pointer(monkeypatch, down=(_VK_LBUTTON,), root=202)
+    assert guard_module._is_desktop_click() is False
+
+    _fake_pointer(monkeypatch, down=(), root=202)
+    assert guard_module._is_desktop_click() is False
+
+
+def test_show_desktop_taken_for_click_is_rescued_by_reorder(
+    qtbot,
+    monkeypatch,
+):
+    """키·버튼 없이 바탕화면을 올리는 경로는 클릭으로 볼 수 있다.
+
+    터치패드 제스처나 Win 키를 곧바로 떼는 자동 입력의 Win+D가 그렇다.
+    클릭 settle 전에 셸이 바탕화면을 올려 감시 창을 덮으면 REORDER에서
+    Win+D와 같은 pulse로 되살린다.
+    """
+    widget = _make_window(qtbot)
+    desktop = _make_window(qtbot)
+    keeper = _make_keeper(enabled=True)
+    keeper.guard(widget)
+    keeper._settle_timer.setInterval(60)
+    _set_desktop_predicate(monkeypatch, int(desktop.winId()), click=True)
+    _place_below(desktop, widget)
+
+    keeper._on_foreground_changed(int(desktop.winId()))  # 클릭으로 판단
+    assert keeper._pulse_active is False
+    assert keeper._settle_timer.isActive()
+
+    _raise_to_top(desktop)  # 셸이 뒤늦게 바탕화면을 일반 창 맨 위로 올림
+    keeper._on_desktop_reordered()
+    assert keeper._pulse_active is True
+    assert _is_topmost(widget)
+    qtbot.waitUntil(lambda: not _is_topmost(widget), timeout=1000)
+    assert _is_above(widget, desktop)
 
 
 def test_desktop_click_check_failure_keeps_show_desktop_pulse(monkeypatch):
-    _fake_pointer(monkeypatch, down=(guard_module._VK_LBUTTON,), root=101)
+    _fake_pointer(monkeypatch, down=(_VK_LBUTTON,), root=101)
 
     def fail(_point):
         raise OSError("cursor unavailable")

@@ -295,7 +295,7 @@ def test_transfer_password_policy_legacy_roundtrip_and_wrong_password(app_dir, q
     assert win._validate_transfer_password("새로운 긴 암호 2026")
     for password in ("1234", "새로운 긴 암호 2026"):
         blob = security.encrypt_with_pin(db.export_all_data().encode(), password)
-        assert json.loads(security.decrypt_with_pin(blob, password))["format_version"] == 3
+        assert json.loads(security.decrypt_with_pin(blob, password))["format_version"] == 4
         with pytest.raises(InvalidToken):
             security.decrypt_with_pin(blob, "wrong-password")
     target = app_dir / "old.enc"

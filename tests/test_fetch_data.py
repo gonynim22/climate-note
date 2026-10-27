@@ -5,6 +5,7 @@ import holidays
 import io
 import os
 import re
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,6 +23,7 @@ def _offline_api(monkeypatch):
         pytest.fail("시험이 실제 API를 부르려 했습니다")
 
     monkeypatch.setattr(fetch_data._OPENER, "open", no_network)
+    monkeypatch.setattr(fetch_data.time, "sleep", lambda seconds: None)
 
 
 def test_default_fixture_blocks_real_key_and_network(monkeypatch):
@@ -239,6 +241,54 @@ def test_missing_key_is_environment_failure(monkeypatch, fetch):
     assert calls == []
 
 
+@pytest.mark.parametrize("error", [TimeoutError(), urllib.error.URLError(ConnectionResetError()),
+                                  http.client.IncompleteRead(b""),
+                                  urllib.error.HTTPError("https://x", 503, "busy", {}, None)])
+def test_transient_request_retries_twice_then_succeeds(monkeypatch, error):
+    calls, pauses = [], []
+    def transport(*args, **kwargs):
+        calls.append(True)
+        if len(calls) < 3:
+            raise error
+        return io.BytesIO(api_xml(hol_item()).encode())
+    monkeypatch.setattr(fetch_data, "API_KEY", "fake-key")
+    monkeypatch.setattr(fetch_data._OPENER, "open", transport)
+    monkeypatch.setattr(fetch_data.time, "sleep", pauses.append)
+    assert fetch_data.fetch_holidays(2026, 1) == [{"date": "2026-01-01", "name": "1월1일"}]
+    assert len(calls) == 3 and pauses == [.5, 1.0]
+
+
+@pytest.mark.parametrize("error, attempts", [
+    (TimeoutError(), 3),
+    (urllib.error.URLError(ssl.SSLCertVerificationError("certificate")), 1),
+    (urllib.error.HTTPError("https://x", 403, "denied", {}, None), 1),
+    (urllib.error.URLError("unknown url type"), 1),
+])
+def test_request_retry_is_bounded_and_excludes_permanent_errors(monkeypatch, error, attempts):
+    calls = []
+    def transport(*args, **kwargs):
+        calls.append(True)
+        raise error
+    monkeypatch.setattr(fetch_data, "API_KEY", "fake-key")
+    monkeypatch.setattr(fetch_data._OPENER, "open", transport)
+    with pytest.raises(fetch_data.FetchError):
+        fetch_data.fetch_holidays(2026, 1)
+    assert len(calls) == attempts
+
+
+@pytest.mark.parametrize("body", [b"\xff", b"<invalid", KEY_ERROR.encode()])
+def test_bad_response_is_not_retried(monkeypatch, body):
+    calls = []
+    def transport(*args, **kwargs):
+        calls.append(True)
+        return io.BytesIO(body)
+    monkeypatch.setattr(fetch_data, "API_KEY", "fake-key")
+    monkeypatch.setattr(fetch_data._OPENER, "open", transport)
+    with pytest.raises(fetch_data.FetchError):
+        fetch_data.fetch_holidays(2026, 1)
+    assert len(calls) == 1
+
+
 @BOTH
 @pytest.mark.parametrize("xml", ["<html><body>Proxy error</body></html>", "<html><body>"])
 def test_html_gateway_page_is_failure(monkeypatch, fetch, xml):
@@ -274,7 +324,7 @@ _SYNTHETIC_DAYS = {
 
 
 def synthetic_year(year):
-    """핵심 이름 8개를 모두 갖춘 시험용 한 해 (날짜는 형식만 맞춘 가짜 값)."""
+    """핵심 이름 10개를 모두 갖춘 시험용 한 해 (날짜는 형식만 맞춘 가짜 값)."""
     return {f"{year}-{day}": name for day, name in _SYNTHETIC_DAYS.items()}
 
 
@@ -296,6 +346,16 @@ def test_missing_core_names_accepts_merged_names():
     assert fetch_data.missing_core_names(renamed, 2027) == []
     deleted = {k: v for k, v in y27.items() if k != "2027-03-01"}
     assert fetch_data.missing_core_names(deleted, 2027) == ["삼일절"]
+
+
+@pytest.mark.parametrize("day,name", [("05-05", "어린이날"), ("06-06", "현충일")])
+def test_missing_spring_holiday_blocks_existing_year_but_excludes_new_year(day, name):
+    year = synthetic_year(2027)
+    del year[f"2027-{day}"]
+    assert fetch_data.missing_core_names(year, 2027) == [name]
+    with pytest.raises(fetch_data.FetchError):
+        fetch_data.select_holiday_years({2027: year}, [2027])
+    assert fetch_data.select_holiday_years({2027: year}, []) == ({}, [2027])
 
 
 def test_verify_requires_core_names_every_year():

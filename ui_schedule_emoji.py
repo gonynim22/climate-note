@@ -220,10 +220,13 @@ class ScheduleInlineEditor(QWidget):
     summary_changed = Signal()
 
     def __init__(self, content: str, can_edit, parent=None, *,
-                 options: ScheduleOptions | None = None, start: str = "", occurrence: str = ""):
+                 options: ScheduleOptions | None = None, start: str = "", occurrence: str = "",
+                 occurrence_only=False, color=None, palette=()):
         super().__init__(parent)
         self._active = True
         self._can_edit = can_edit
+        self._occurrence_only = occurrence_only
+        self._color = color
         self.edit = QLineEdit(content, self)
         self.edit.setAttribute(Qt.WA_InputMethodEnabled, True)
         self.edit.setStyleSheet(
@@ -231,7 +234,8 @@ class ScheduleInlineEditor(QWidget):
             "border-radius:3px;padding:1px 4px;"
         )
         self.emoji_button = ScheduleEmojiButton(self.edit, self.can_edit, self)
-        self.options_button = ScheduleOptionsButton(self.edit, self.can_edit, self)
+        self.options_button = ScheduleOptionsButton(self.edit, self.can_edit, self,
+                                                    occurrence_only=occurrence_only)
         self.options_button.set_context(start, occurrence)
         self.options_button.set_options(options or ScheduleOptions())
         self.summary_label = ElidedLabel("", self)
@@ -247,6 +251,26 @@ class ScheduleInlineEditor(QWidget):
         row.addWidget(self.options_button)
         row.addWidget(self.edit, 1)
         column.addLayout(row)
+        self.color_buttons = {}
+        if color is not None:
+            colors = QHBoxLayout()
+            colors.setSpacing(4)
+            for slot, display in palette:
+                button = QPushButton(self)
+                button.setFixedSize(22, 22)
+                button.setCheckable(True)
+                button.setChecked(slot == color)
+                button.setAccessibleName(f"일정 색상 {len(self.color_buttons) + 1}")
+                button.setToolTip(button.accessibleName())
+                button.setStyleSheet(
+                    f"QPushButton{{background:{display};border:2px solid transparent;border-radius:11px;}}"
+                    "QPushButton:checked{border-color:#1E3A8A;} QPushButton:focus{border-color:#EAB308;}")
+                button.clicked.connect(lambda checked=False, value=slot: self._select_color(value))
+                button.installEventFilter(self)
+                self.color_buttons[slot] = button
+                colors.addWidget(button)
+            colors.addStretch(1)
+            column.addLayout(colors)
         column.addWidget(self.summary_label)
         self._focus_timer = QTimer(self)
         self._focus_timer.setSingleShot(True)
@@ -263,6 +287,16 @@ class ScheduleInlineEditor(QWidget):
     def options(self) -> ScheduleOptions:
         return self.options_button.options()
 
+    def color(self):
+        return self._color
+
+    def _select_color(self, color):
+        if not self.can_edit():
+            return
+        self._color = color
+        for slot, button in self.color_buttons.items():
+            button.setChecked(slot == color)
+
     def _sync_summary(self) -> None:
         options = self.options()
         start = self.options_button.start_date()
@@ -276,6 +310,8 @@ class ScheduleInlineEditor(QWidget):
                 summary = ""
             if summary and options.repeat_rule:
                 summary += " · 모든 날에 적용"
+        if self._occurrence_only:
+            summary = "이 날만 수정" + (" · " + summary if summary else "")
         self.summary_label.setText(summary)
         self.summary_label.setToolTip(summary)
         self.summary_label.setVisible(bool(summary))

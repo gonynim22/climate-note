@@ -66,7 +66,7 @@ class ScheduleAlarmScheduler(QObject):
         return self._last_check
 
     def start(self) -> None:
-        """시작: 저장된 처리 시각(최대 12시간 전)부터 지금까지를 확인한다. 키가 없으면 지금부터."""
+        """저장 시각부터 최대 12시간을 확인한다. 키가 없거나 미래이면 지금부터 센다."""
         if self._running:
             self.refresh()
             return
@@ -115,9 +115,10 @@ class ScheduleAlarmScheduler(QObject):
 
     def _check_at(self, now) -> None:
         mark = self._last_check or now
-        if mark - now > LOOKBACK:
-            mark = now  # 시계를 크게 되돌렸으면 지금부터 다시 센다(이미 띄운 것은 _fired가 막는다).
-        # 확인한 가장 늦은 시각(mark)은 되돌리지 않는다: 시계가 조금 뒤로 가도 지난 알림이 다시 울리지 않는다.
+        if mark > now:
+            # 미래 기준을 유지하면 그 시각까지 새 알림이 막힌다. 현재부터 다시
+            # 세되, 같은 실행에서 이미 띄운 알림은 _fired로 계속 제외한다.
+            mark = now
         after = max(mark, now - LOOKBACK)
         found = self._load(after, now) if now > after else []
         fresh = [item for item in found if item.key not in self._fired]
@@ -128,14 +129,14 @@ class ScheduleAlarmScheduler(QObject):
                 fresh_item = self._fresh_item(item)
                 if fresh_item is not None:
                     again.append(fresh_item)  # 다시 알림 사이에 고친 본문·색이 보이도록 최신 값을 쓴다.
-        self._last_check = max(mark, now)
+        self._last_check = now
         self._fired = {key: when for key, when in self._fired.items() if when >= now - LOOKBACK}
         due = fresh + again
         if due:
             due.sort(key=lambda item: (item.due, item.schedule_id))
             self._fired.update((item.key, item.due) for item in due)
             try:
-                # 저장하는 값은 되돌아가지 않는다(확인한 가장 늦은 시각).
+                # 시계를 바로잡았으면 보정된 마지막 확인 시각을 저장한다.
                 db.save_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT,
                                 self._last_check.isoformat(timespec="seconds"))
             except (sqlite3.Error, OSError) as exc:

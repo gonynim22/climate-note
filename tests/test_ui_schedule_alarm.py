@@ -81,6 +81,41 @@ def test_missed_alarms_only_from_last_12_hours(qtbot):
     assert emitted[0][1] is True
 
 
+@pytest.mark.parametrize("ahead", [timedelta(seconds=1), timedelta(hours=6),
+                                   timedelta(hours=12), timedelta(hours=13)])
+def test_future_seen_resumes_from_now_without_rewriting_on_start(qtbot, app_dir, ahead):
+    db.add_schedule("2026-10-15", "앞으로 울릴 회의",
+                    options=ScheduleOptions(start_time="10:01", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 15, 10, 0))
+    saved = (clock.value + ahead).isoformat(timespec="seconds")
+    db.save_setting(KEY, saved)
+    before_export = db.export_all_data()
+    salt = (app_dir / ".salt").read_bytes()
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    assert scheduler.last_check() == clock.value
+    assert db.get_setting(KEY) == saved  # 보정만으로는 DB에 쓰지 않는다.
+    assert emitted == []
+    clock.value += timedelta(minutes=1, seconds=1)
+    scheduler.check()
+    assert [[alarm.content for alarm in items] for items, _missed in emitted] == [["앞으로 울릴 회의"]]
+    assert db.get_setting(KEY) == "2026-10-15T10:01:01"
+    assert db.export_all_data() == before_export
+    assert (app_dir / ".salt").read_bytes() == salt
+    scheduler.stop()
+
+
+def test_future_seen_without_alarms_is_not_persisted(qtbot):
+    db.save_setting(KEY, "2026-10-15T16:00:00")
+    clock = Clock(datetime(2026, 10, 15, 10, 0))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    assert scheduler.last_check() == clock.value
+    scheduler.stop(persist=True)
+    assert emitted == []
+    assert db.get_setting(KEY) == "2026-10-15T16:00:00"
+
+
 def test_clock_jumps_do_not_flood_or_repeat(qtbot):
     """Review Focus 3: 시계가 뒤로 가거나 크게 앞으로 뛰어도 중복·아주 오래된 알림이 없다."""
     for hour in range(8, 18):
@@ -92,11 +127,13 @@ def test_clock_jumps_do_not_flood_or_repeat(qtbot):
     scheduler.check()
     clock.value = datetime(2026, 10, 15, 7, 0)  # 뒤로
     scheduler.check()
+    clock.value = datetime(2026, 10, 15, 8, 0, 1)  # 아직 띄우지 않은 알림은 재개한다.
+    scheduler.check()
     clock.value = datetime(2026, 10, 15, 9, 30)  # 다시 앞으로: 9시는 이미 띄웠다
     scheduler.check()
     clock.value = datetime(2026, 10, 18, 9, 0)  # 3일 뒤로 점프: 12시간 밖이라 알리지 않는다
     scheduler.check()
-    assert [[item.content for item in items] for items, _missed in emitted] == [["9시"]]
+    assert [[item.content for item in items] for items, _missed in emitted] == [["9시"], ["8시"]]
 
 
 def test_snooze_returns_after_five_minutes_unless_deleted(qtbot):
@@ -286,7 +323,7 @@ def test_snoozed_refire_is_not_missed_and_can_be_snoozed_again(qtbot):
         card.close()
 
 
-def test_seen_at_never_moves_backward(qtbot):
+def test_clock_correction_preserves_snooze_and_persists_corrected_seen(qtbot):
     db.add_schedule("2026-10-15", "회의", options=ScheduleOptions(start_time="15:00", alarm_before=0))
     clock = Clock(datetime(2026, 10, 15, 14, 59))
     scheduler, emitted, _host = scheduler_with(qtbot, clock)
@@ -296,11 +333,47 @@ def test_seen_at_never_moves_backward(qtbot):
     assert db.get_setting(KEY, "") == "2026-10-15T15:00:01"
     clock.value = datetime(2026, 10, 15, 14, 0, 0)  # 1시간 뒤로
     scheduler.check()
+    assert scheduler.last_check() == clock.value
+    assert db.get_setting(KEY, "") == "2026-10-15T15:00:01"  # 보정만으로는 쓰지 않는다.
     scheduler.snooze(emitted[0][0])
     clock.value = datetime(2026, 10, 15, 14, 5, 1)
     scheduler.check()
-    assert len(emitted) == 2  # 다시 알림은 돌아왔지만
-    assert db.get_setting(KEY, "") == "2026-10-15T15:00:01"  # 저장한 시각은 되돌아가지 않는다.
+    assert len(emitted) == 2  # 명시적으로 요청한 다시 알림은 유지한다.
+    assert db.get_setting(KEY, "") == "2026-10-15T14:05:01"
+    clock.value = datetime(2026, 10, 15, 15, 0, 2)
+    scheduler.check()
+    assert len(emitted) == 2  # 원래 시각을 다시 지나도 같은 실행의 알림은 중복하지 않는다.
+
+
+def test_clock_correction_is_saved_on_normal_quit_with_alarms(qtbot):
+    db.add_schedule("2026-10-20", "다음 회의", options=ScheduleOptions(alarm_before=0))
+    db.save_setting(KEY, "2026-10-15T16:00:00")
+    clock = Clock(datetime(2026, 10, 15, 10, 0))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value += timedelta(seconds=30)
+    scheduler.check()
+    scheduler.stop(persist=True)
+    assert emitted == []
+    assert db.get_setting(KEY) == "2026-10-15T10:00:30"
+
+
+def test_clock_correction_after_restart_can_repeat_prior_execution_alarm(qtbot):
+    db.add_schedule("2026-10-15", "회의", options=ScheduleOptions(start_time="15:00", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 15, 14, 59))
+    scheduler, emitted, _host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value = datetime(2026, 10, 15, 15, 0, 1)
+    scheduler.check()
+    scheduler.stop(persist=True)
+    clock.value = datetime(2026, 10, 15, 14, 59)
+    restarted, repeated, _new_host = scheduler_with(qtbot, clock)
+    restarted.start()
+    assert repeated == []
+    clock.value = datetime(2026, 10, 15, 15, 0, 1)
+    restarted.check()
+    assert len(emitted) == len(repeated) == 1  # 표시 키는 메모리 전용인 기존 계약.
+    restarted.stop()
 
 
 @pytest.mark.parametrize("value", ["2026-10-15T09:00:00+09:00", "2026-10-15T00:00:00Z", "읽을 수 없는 값"])

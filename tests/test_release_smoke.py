@@ -95,9 +95,9 @@ def test_seed_is_isolated_and_cannot_overwrite_existing_dataset():
     data_root = directory / "synthetic"
     data_root.mkdir()
     before = smoke.data_step("seed", data_root, directory / "seed.json")
-    assert before["version"] == 18
+    assert before["version"] == 19
     assert before["integrity"] == ["ok"]
-    assert len(before["ids"]["schedules"]) == 6  # 색 3개 + 세부 설정 3개
+    assert len(before["ids"]["schedules"]) == 7  # 색 3개 + 세부 설정 3개 + 수정 회차
     assert len(before["ids"]["sticky_notes"]) == 2
     assert len(before["ids"]["focus_sessions"]) == 1
     protected = smoke.protected_hashes(data_root)
@@ -128,18 +128,20 @@ def test_seed_option_check_rejects_missing_kinds():
         [2, "09:30", "", "", "", "", 10],
         [3, "", "2026-01-03", "", "", "", None],
         [4, "", "", "weekly", "2026-03-01", "2026-01-08", None],
-    ]}
+    ], "schedule_links": [[5, 4, "2026-01-15"]]}
     smoke._check_seed_options(full)
     for removed in (1, 2, 3):
-        partial = {"schedule_options": [r for i, r in enumerate(full["schedule_options"]) if i != removed]}
+        partial = {**full, "schedule_options": [r for i, r in enumerate(full["schedule_options"]) if i != removed]}
         with pytest.raises(ValueError, match="세부 설정"):
             smoke._check_seed_options(partial)
+    with pytest.raises(ValueError, match="수정 회차"):
+        smoke._check_seed_options({**full, "schedule_links": []})
 
 
 def test_existing_check_rejects_changed_schedule_options():
     seeded = {"raw_hashes": {"schedules": "a"}, "logical_hashes": {"schedules": "b"},
               "ids": {"schedules": [1]}, "salt_sha256": "c",
-              "schedule_options": [[1, "09:30", "", "", "", "", 10]]}
+              "schedule_options": [[1, "09:30", "", "", "", "", 10]], "schedule_links": [[1, None, ""]]}
     after = copy.deepcopy(seeded)
     after["backups"] = {"calendar_pre_v35_x.cnbak": "v4.4b"}
     smoke._check_existing(seeded, after)
@@ -173,32 +175,34 @@ def test_smoke_failure_and_interruption_are_recorded(tmp_path, monkeypatch):
     assert verify.read_json(tmp_path / "smoke.json")["status"] == "interrupted"
 
 
-def test_upgrade_tooling_detects_kept_values_and_snapshot():
+@pytest.mark.parametrize("version", [17, 18])
+def test_upgrade_tooling_detects_kept_values_and_snapshot(version):
     directory = verify.create_run_dir()
     data_root = directory / "legacy"
     data_root.mkdir()
-    before = smoke.data_step("seed_v17", data_root, directory / "seed_v17.json")
-    assert before["version"] == 17
+    before = smoke.data_step(f"seed_v{version}", data_root, directory / "seed.json")
+    assert before["version"] == version
     conn = sqlite3.connect(data_root / "MyDesktopCalendar" / "calendar.db")
     try:
         assert [r[1] for r in conn.execute("PRAGMA table_info(schedules)")] == [
-            "id", "date", "content", "created_at", "color"]
+            "id", "date", "content", "created_at", "color", *(smoke.V18_COLUMNS if version == 18 else ())]
         # 위젯·집중 표에도 합성 행이 있어야 해시가 손상을 잡는다.
         for table in ("dday_widgets", "focus_widgets", "focus_sessions"):
             assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 1
     finally:
         conn.close()
     # 마이그레이션 전에는 DB 버전이 최신이 아니라서 거절된다.
+    inspect = "inspect_upgrade_v18" if version == 18 else "inspect_upgrade"
     with pytest.raises(RuntimeError, match="DB 버전이 최신이 아닙니다"):
-        smoke.data_step("inspect_upgrade", data_root, directory / "too-early.json")
+        smoke.data_step(inspect, data_root, directory / "too-early.json")
 
     smoke.data_step("upgrade_source", data_root, directory / "upgrade.json")
-    after = smoke.data_step("inspect_upgrade", data_root, directory / "after.json")
-    assert after["version"] == 18
+    after = smoke.data_step(inspect, data_root, directory / "after.json")
+    assert after["version"] == 19
     assert after["privacy_pin_upgraded"] is True
     assert after["tables"] == before["tables"]
     assert after["pre_snapshot"]["tables"] == before["tables"]
-    assert after["pre_snapshot"]["version"] == 17
+    assert after["pre_snapshot"]["version"] == version
     assert after["salt_sha256"] == before["salt_sha256"]
     assert after["integrity"] == ["ok"]
     assert after["error_log_bytes"] == 0

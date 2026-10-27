@@ -309,8 +309,8 @@ def test_preference_roundtrip_and_automatic_recovery_preserve_data(app_dir, qtbo
     assert db.get_setting(db.SETTING_CALENDAR_SCREEN) == saved_screen
     assert win._get_target_screen() is topology.right
     assert security.SALT_FILE.read_bytes() == salt
-    assert db.CURRENT_SCHEMA_VERSION == 18
-    assert json.loads(exported)["format_version"] == 3
+    assert db.CURRENT_SCHEMA_VERSION == 19
+    assert json.loads(exported)["format_version"] == 4
 
 
 def test_floating_widget_coordinates_survive_screen_roundtrip(app_dir, qtbot, monkeypatch):

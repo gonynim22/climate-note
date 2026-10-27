@@ -56,6 +56,149 @@ def texts(win):
     return [row.schedule_text_label.text() for row in rows(win)]
 
 
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_edit_one_occurrence_fields_and_whole_edit_keep_override(qtbot, scale, tmp_path):
+    sid = db.add_schedule("2026-10-05", "원본 회의", options=WEEKLY)
+    win = main_window(qtbot, scale=scale)
+    item = win.schedule_list.item(0)
+    menu = win._build_schedule_context_menu(item)
+    qtbot.addWidget(menu)
+    menu.menuActions()[0].trigger()
+    assert win._schedule_editor is None  # 메뉴 클릭에서 편집기를 동기로 만들지 않음
+    qtbot.waitUntil(lambda: win._schedule_editor is not None)
+    editor = win._schedule_editor
+    assert "이 날만 수정" in editor.summary_label.text()
+    assert editor.options().repeat_rule == ""
+    QApplication.processEvents()
+    row_rect = win.schedule_list.visualItemRect(item)
+    for control in [editor.edit, editor.summary_label, *editor.color_buttons.values()]:
+        top_left = control.mapTo(win.schedule_list.viewport(), QPoint(0, 0))
+        assert row_rect.contains(top_left)
+        bottom_right = top_left + QPoint(control.width() - 1, control.height() - 1)
+        assert row_rect.contains(bottom_right)
+        assert win.schedule_list.viewport().rect().contains(top_left)
+        assert win.schedule_list.viewport().rect().contains(bottom_right)
+    assert win.grab().save(str(tmp_path / (scale + "-occurrence-editor.png")))
+    editor.edit.setText("현장 회의")
+    qtbot.mouseClick(editor.color_buttons["#4CC9F0"], Qt.LeftButton)
+    editor.options_button.open_popup()
+    card = editor.options_button._popup
+    assert not card.row_widgets["repeat"].isVisible()
+    assert not card.row_widgets["period"].isVisible()
+    card._change(ScheduleOptions(start_time="14:00", alarm_before=30))
+    editor.options_button.close_popup()
+    assert win._finish_current_edit(True)
+    qtbot.waitUntil(lambda: texts(win) == ["현장 회의"] and win.schedule_list.item(0).data(Qt.UserRole + 8))
+    result = db.get_schedules("2026-10-12")[0]
+    assert result["options"] == ScheduleOptions(start_time="14:00", alarm_before=30)
+    assert result["color"] == "#4CC9F0"
+    assert "이 날만 수정됨" in rows(win)[0].schedule_text_label.toolTip()
+    win._on_edit_schedule(win.schedule_list.item(0), scope="series")
+    editor = win._schedule_editor
+    assert editor.edit.text() == "원본 회의"
+    assert editor.options() == WEEKLY
+    assert editor.color() == db.DEFAULT_SCHEDULE_COLOR
+    editor.edit.setText("전체 회의")
+    assert win._finish_current_edit(True)
+    qtbot.waitUntil(lambda: texts(win) == ["현장 회의"] and win._schedule_editor is None)
+    assert db.get_schedule(sid)["content"] == "전체 회의"
+    assert db.get_schedules("2026-10-12")[0]["content"] == "현장 회의"
+
+
+def test_occurrence_open_cancel_and_unchanged_save_do_not_create_row(qtbot):
+    db.add_schedule("2026-10-05", "원본", options=WEEKLY)
+    win = main_window(qtbot)
+    before = db.export_all_data()
+    for save in (False, True):
+        win._on_edit_schedule(win.schedule_list.item(0), scope="occurrence")
+        assert win._finish_current_edit(save)
+        assert db.export_all_data() == before
+
+
+def test_failed_occurrence_save_keeps_editor_and_blocks_date_move(qtbot, monkeypatch):
+    db.add_schedule("2026-10-05", "원본", options=WEEKLY)
+    win = main_window(qtbot)
+    win._on_edit_schedule(win.schedule_list.item(0), scope="occurrence")
+    editor = win._schedule_editor
+    editor.edit.setText("저장해야 할 내용")
+    def fail(*args, **kwargs):
+        raise sqlite3.OperationalError("synthetic")
+    monkeypatch.setattr(db, "update_schedule_occurrence", fail)
+    win._on_date_selected("2026-10-13")
+    assert win._selected_date == "2026-10-12"
+    assert win._schedule_editor is editor
+    assert editor.edit.text() == "저장해야 할 내용"
+    assert win._save_schedule_edit() is False
+
+
+@pytest.mark.parametrize("action", ["reload", "lock", "hide"])
+def test_queued_occurrence_edit_is_cancelled_by_lifecycle(qtbot, action):
+    db.add_schedule("2026-10-05", "원본", options=WEEKLY)
+    win = main_window(qtbot)
+    before = db.export_all_data()
+    win._queue_schedule_edit(win.schedule_list.item(0), "occurrence")
+    if action == "reload":
+        win._load_schedules()
+    elif action == "lock":
+        win._is_locked = True
+        win._close_schedule_emoji_popups()
+    else:
+        win.hide()
+    QApplication.processEvents()
+    assert win._schedule_editor is None
+    assert db.export_all_data() == before
+
+
+def test_double_click_repeat_offers_scope_and_cancel_writes_nothing(qtbot, monkeypatch):
+    db.add_schedule("2026-10-05", "원본", options=WEEKLY)
+    win = main_window(qtbot)
+    shown = []
+    monkeypatch.setattr(ui_main.RoundMenu, "exec", lambda self, pos: shown.append(self))
+    before = db.export_all_data()
+    win.schedule_list.itemDoubleClicked.emit(win.schedule_list.item(0))
+    assert [a.text() for a in shown[0].menuActions()] == ["이 날만 수정", "반복 전체 수정"]
+    win._close_schedule_emoji_popups()
+    assert win._schedule_editor is None
+    assert db.export_all_data() == before
+
+
+@pytest.mark.parametrize("keyboard", [False, True])
+def test_actual_scope_menu_input_opens_editor_and_escape_cancels(qtbot, keyboard):
+    db.add_schedule("2026-10-05", "원본 회의", options=WEEKLY)
+    win = main_window(qtbot)
+    before = db.export_all_data()
+    win._on_schedule_double_clicked(win.schedule_list.item(0))
+    menu = win._schedule_menu
+    qtbot.waitUntil(lambda: menu.isVisible())
+    item = menu.view.item(0)
+    if keyboard:
+        menu.view.setCurrentItem(item)
+        menu.view.setFocus()
+        qtbot.keyClick(QApplication.focusWidget(), Qt.Key_Return)
+    else:
+        qtbot.mouseClick(menu.view.viewport(), Qt.LeftButton, pos=menu.view.visualItemRect(item).center())
+    qtbot.waitUntil(lambda: win._schedule_editor is not None)
+    editor = win._schedule_editor
+    assert "이 날만 수정" in editor.summary_label.text()
+    editor.edit.setFocus()
+    qtbot.keyClick(editor.edit, Qt.Key_Escape)
+    assert win._schedule_editor is None
+    assert db.export_all_data() == before
+
+
+def test_tooltip_preserves_html_like_source_and_export(qtbot):
+    from PySide6.QtGui import QTextDocument
+    from ui_text import plain_tooltip
+    source = '<b>그대로</b> &amp; <img src="x">\n두 번째  줄'
+    db.add_schedule("2026-10-12", source)
+    win = main_window(qtbot)
+    doc = QTextDocument()
+    doc.setHtml(rows(win)[0].schedule_text_label.toolTip())
+    assert doc.toPlainText() == source
+    assert db.get_schedules("2026-10-12")[0]["content"] == source
+    assert plain_tooltip("일반 내용") == "일반 내용"
+
+
 def test_all_day_only_day_keeps_old_row_layout(qtbot):
     db.add_schedule("2026-10-12", "종일 일정")
     win = main_window(qtbot)
@@ -159,7 +302,8 @@ def test_turning_off_repeat_from_another_day_explains_first_date(qtbot):
     card = button._popup
     qtbot.mouseClick(card.repeat_chips[""], Qt.LeftButton)
     assert card.series_note.isVisible()
-    assert card.series_note.text() == "반복을 끄면 첫 날짜(10월 5일) 하루만 남습니다"
+    assert "첫 날짜(10월 5일)" in card.series_note.text()
+    assert "따로 수정한 회차는 일반 일정" in card.series_note.text()
 
 
 def test_failed_option_save_keeps_editor_and_blocks_navigation(qtbot, monkeypatch):
@@ -234,7 +378,7 @@ def test_context_menu_for_repeat_and_single_rows(qtbot):
     db.add_schedule("2026-10-05", "주간 회의", options=WEEKLY)
     db.add_schedule("2026-10-12", "하루 일정")
     win = main_window(qtbot)
-    for index, expected in ((0, ["편집", "삭제"]), (1, ["편집", "이 날만 삭제", "반복 전체 삭제"])):
+    for index, expected in ((0, ["편집", "삭제"]), (1, ["이 날만 수정", "반복 전체 수정", "이 날만 삭제", "반복 전체 삭제"])):
         menu = win._build_schedule_context_menu(win.schedule_list.item(index))
         qtbot.addWidget(menu)
         assert [a.text() for a in menu.menuActions() if not a.isSeparator()] == expected

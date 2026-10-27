@@ -8,7 +8,16 @@ def write_json(path, value):
     temporary = path.with_suffix(".pending")
     with open(temporary, "x", encoding="utf-8") as stream:
         json.dump(value, stream, ensure_ascii=False)
-    temporary.replace(path)
+    # 부모의 짧은 progress 읽기와 교체가 겹치면 Windows는 접근/공유 오류를 낸다.
+    # 완성된 pending을 유지한 채 교체만 제한 재시도한다(총 대기 0.62초).
+    for attempt in range(6):
+        try:
+            temporary.replace(path)
+            return
+        except OSError as exc:
+            if getattr(exc, "winerror", None) not in (5, 32, 33) or attempt == 5:
+                raise
+            time.sleep(0.02 * 2 ** attempt)
 
 
 def worker_main(arguments):

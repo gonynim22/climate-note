@@ -310,6 +310,11 @@ def save_report(run_dir, report):
         lines += ["", "## EXE 구성", "",
                   f"- BINARY {bundle['binary_entries']}개, 검증 환경 밖 {len(bundle['outside_environment'])}개",
                   f"- Qt DLL {len(bundle['qt_dlls'])}개: 검증 환경 원본과 바이트 동일"]
+    if report.get("root_dist"):
+        lines += ["", "## 기존 dist 보존", ""]
+        for observation in report["root_dist"]:
+            lines.append(f"- {observation['stage']}: 파일 {len(observation['files'])}개, "
+                         f"소실/변경 {len(observation['changed'])}개")
     lines += ["", "## 실행 단계", "", "| 단계 | 결과 | 실제 종료 코드 | 로그 |",
               "|---|---|---|---|"]
     for step in report["steps"]:
@@ -472,6 +477,25 @@ def refresh_holidays_step(run_dir, report):
         print(chr(10).join(changes), flush=True)
 
 
+def root_dist_snapshot():
+    """기존 루트 dist 파일을 읽기만 한다. release 출력은 실행별 폴더에 둔다."""
+    folder = inside(ROOT / "dist", ROOT)
+    if not folder.exists():
+        return {}
+    return {path.name: {"bytes": path.stat().st_size, "sha256": file_hash(inside(path, folder))}
+            for path in sorted(folder.iterdir()) if path.is_file()}
+
+
+def record_root_dist(report, stage):
+    files = root_dist_snapshot()
+    observations = report.setdefault("root_dist", [])
+    baseline = observations[0]["files"] if observations else files
+    changed = [name for name, value in baseline.items() if files.get(name) != value]
+    observations.append({"stage": stage, "at": utc_now(), "files": files, "changed": changed})
+    if changed:
+        raise VerificationFailure(f"{stage}: 기존 dist 파일 소실/변경 발견: {', '.join(changed)}")
+
+
 def execute(profile, extra=()):
     run_dir = create_run_dir()
     report = {"format_version": 1, "profile": profile, "status": "running",
@@ -487,8 +511,10 @@ def execute(profile, extra=()):
         if report["environment"]["errors"]:
             raise ValueError("; ".join(report["environment"]["errors"]))
         if profile == "release":
+            record_root_dist(report, "before_holidays")
             # 스냅샷 전에 끝나야 inputs_after 비교와 충돌하지 않는다. 뒤 단계가 실패해도 되돌리지 않는다.
             refresh_holidays_step(run_dir, report)
+            record_root_dist(report, "after_holidays")
             save_report(run_dir, report)
         report["inputs_before"] = source_snapshot()
         code = 0
@@ -496,12 +522,15 @@ def execute(profile, extra=()):
             step = run_step("pytest", pytest_command(profile, extra, run_dir), run_dir, env, report=report)
             report["tests"] = junit_result(run_dir / "pytest.xml")
             code = pytest_exit(step["returncode"], report["tests"])
+            if profile == "release":
+                record_root_dist(report, "after_pytest")
             save_report(run_dir, report)
         if code == 0 and profile == "release":
             command = [sys.executable, "-m", "PyInstaller", "--noconfirm",
                        "--distpath", str(run_dir / "dist"), "--workpath",
                        str(run_dir / "build"), "build.spec"]
             step = run_step("build", command, run_dir, env, report=report)
+            record_root_dist(report, "after_build")
             code = 0 if step["returncode"] == 0 else 1
             save_report(run_dir, report)
             if code == 0:
@@ -524,6 +553,7 @@ def execute(profile, extra=()):
                                          "--exe", str(exe), "--run-dir", str(run_dir)],
                                 run_dir, env, timeout=300, report=report)
                 code = 0 if step["returncode"] == 0 else 1
+                record_root_dist(report, "after_smoke")
                 smoke_path = run_dir / "smoke.json"
                 if smoke_path.exists():
                     report["smoke"] = read_json(smoke_path)

@@ -1,10 +1,13 @@
 """실제 QProcess와 Windows Job으로 일괄·취소·시간 초과·정리를 검증."""
 from pathlib import Path
 import sys
+import time
+import threading
 
 import pytest
 
 import file_conversion_runner as module
+from file_conversion_worker import write_json
 
 
 def test_real_batch_worker_outputs_and_isolation(qtbot, tmp_path):
@@ -21,6 +24,54 @@ def test_real_batch_worker_outputs_and_isolation(qtbot, tmp_path):
         assert not list(tmp_path.glob(".climatenote-conv-*"))
     finally:
         runner.shutdown()
+
+
+def test_child_joins_job_before_parent_started_callback(qtbot, tmp_path, monkeypatch):
+    """부모 이벤트 처리가 늦어 자식이 Job에 먼저 가입한 실제 경쟁 순서를 재현한다."""
+    original = module.ConversionJob.assign
+    def delayed_assign(self, pid):
+        time.sleep(0.7)
+        original(self, pid)
+    monkeypatch.setattr(module.ConversionJob, "assign", delayed_assign)
+    source = tmp_path / "race.csv"
+    source.write_bytes("한글\r\n".encode("cp949"))
+    runner = module.FileConversionRunner()
+    try:
+        with qtbot.waitSignal(runner.finished, timeout=20000):
+            runner.start([source], "utf8")
+        assert runner.results[0]["ok"], runner.results
+        assert Path(runner.results[0]["output"]).read_bytes() == "한글\r\n".encode("utf-8-sig")
+    finally:
+        runner.shutdown()
+
+
+def test_progress_publication_survives_parent_read_handle(tmp_path):
+    import json
+    path = tmp_path / "progress.json"
+    write_json(path, {"step": 1})
+    # 부모 poll과 같은 CRT 읽기 핸들. Windows에서 이 핸들이 열린 동안 replace는 WinError 5다.
+    with open(path, "rb") as reading:
+        release = threading.Timer(.05, reading.close)
+        release.start()
+        try:
+            write_json(path, {"step": 2})
+        finally:
+            release.join()
+    assert json.loads(path.read_text()) == {"step": 2}
+    assert not path.with_suffix(".pending").exists()
+
+
+def test_progress_permanent_failure_is_bounded_and_keeps_last_good_file(tmp_path, monkeypatch):
+    import file_conversion_worker as worker
+    path = tmp_path / "progress.json"
+    write_json(path, {"step": 1})
+    pauses = []
+    monkeypatch.setattr(worker.time, "sleep", pauses.append)
+    with open(path, "rb"):
+        with pytest.raises(PermissionError):
+            write_json(path, {"step": 2})
+    assert len(pauses) == 5 and sum(pauses) < 1
+    assert path.read_text() == '{"step": 1}'
 
 
 @pytest.fixture

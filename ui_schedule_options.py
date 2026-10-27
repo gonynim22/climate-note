@@ -218,7 +218,7 @@ class ScheduleOptionsButton(QPushButton):
     options_changed = Signal(object)
     popup_closed = Signal()
 
-    def __init__(self, edit: QLineEdit, can_edit, parent=None):
+    def __init__(self, edit: QLineEdit, can_edit, parent=None, *, occurrence_only=False):
         super().__init__(parent)
         self.edit = edit
         self._can_edit = can_edit
@@ -226,6 +226,7 @@ class ScheduleOptionsButton(QPushButton):
         self._options = ScheduleOptions()
         self._start = ""
         self._occurrence = ""
+        self._occurrence_only = occurrence_only
         self.setFixedSize(26, 26)
         self.setObjectName("scheduleOptionsButton")
         self.setAccessibleName("일정 세부 설정")
@@ -284,7 +285,8 @@ class ScheduleOptionsButton(QPushButton):
                 # 일정 내용(날짜·시각 값)은 남기지 않고 예외 종류만 기록한다.
                 _logger.warning("일정 세부 설정 요약 실패: %s", type(exc).__name__)
                 summary = ""
-        self.setToolTip(f"세부 설정: {summary}" if summary else "시각·알림·기간·반복")
+        self.setToolTip(f"세부 설정: {summary}" if summary else
+                        "시각·알림" if self._occurrence_only else "시각·알림·기간·반복")
 
     def paintEvent(self, event):
         # 클릭/포커스 영역은 26px, 원의 외경은 색 원·스마일과 같은 22px.
@@ -316,7 +318,8 @@ class ScheduleOptionsButton(QPushButton):
         if (not self._can_edit() or not self.isVisible() or not self.isEnabled()
                 or self._popup is not None or not self._start):
             return  # 기준 날짜가 아직 없으면(set_context 전) 카드를 만들지 않는다.
-        popup = ScheduleOptionsPopup(self._options, self._start, self._occurrence, self)
+        popup = ScheduleOptionsPopup(self._options, self._start, self._occurrence, self,
+                                     occurrence_only=self._occurrence_only)
         self._popup = popup
         popup.options_changed.connect(lambda options: self._on_popup_changed(popup, options))
         popup.dismissed.connect(lambda restore: self._dismiss(popup, restore))
@@ -529,7 +532,8 @@ class ScheduleOptionsPopup(QWidget):
     size_changed = Signal()
     shadow_margin = SHADOW_MARGIN
 
-    def __init__(self, options: ScheduleOptions, start: str, occurrence: str = "", parent=None):
+    def __init__(self, options: ScheduleOptions, start: str, occurrence: str = "", parent=None, *,
+                 occurrence_only=False):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setObjectName("scheduleOptionsPopup")
         self.setAccessibleName("일정 세부 설정")
@@ -543,6 +547,7 @@ class ScheduleOptionsPopup(QWidget):
         self._start_day = rules.parse_date(start)
         self._occurrence = occurrence or start
         self._was_repeat = bool(options.repeat_rule)
+        self._occurrence_only = occurrence_only
         self._picker_for = ""
         self._reported_size = QSize()  # 마지막으로 size_changed로 알린 크기
         self._rendering = False  # _render 도중 작은 달력이 내는 month_changed는 마지막 한 번만 배치한다.
@@ -568,7 +573,7 @@ class ScheduleOptionsPopup(QWidget):
         head = QHBoxLayout(header)
         head.setContentsMargins(14, 10, 12, 10)
         head.setSpacing(4)
-        title = QLabel("세부 설정", header)
+        title = QLabel("이 날의 시각·알림" if occurrence_only else "세부 설정", header)
         title.setObjectName("scheduleOptionsTitle")
         head.addWidget(title)
         head.addStretch(1)
@@ -576,7 +581,8 @@ class ScheduleOptionsPopup(QWidget):
         self.clear_button.setObjectName("scheduleOptionsClear")
         self.clear_button.setFixedHeight(26)
         self.clear_button.setCursor(Qt.PointingHandCursor)
-        self.clear_button.setToolTip("시각·알림·기간·반복을 모두 기본값으로 되돌립니다")
+        self.clear_button.setToolTip("시각·알림을 기본값으로 되돌립니다" if occurrence_only else
+                                    "시각·알림·기간·반복을 모두 기본값으로 되돌립니다")
         self.clear_button.clicked.connect(lambda: self._change(ScheduleOptions()))
         head.addWidget(self.clear_button)
         self.done_button = QPushButton("완료", header)
@@ -593,6 +599,7 @@ class ScheduleOptionsPopup(QWidget):
         layout.setContentsMargins(14, 12, 14, 14)
         layout.setSpacing(12)
         self.row_icons = {}
+        self.row_widgets = {}
 
         body = self._row(layout, "time", "시각", "clock")
         line = QHBoxLayout()
@@ -699,12 +706,18 @@ class ScheduleOptionsPopup(QWidget):
         self.series_note = self._note("")
         self.series_note.setObjectName("scheduleOptionsSeriesNote")
         body.addWidget(self.series_note)
+        if occurrence_only:
+            for kind in ("period", "repeat"):
+                self.row_widgets[kind].hide()
         self.ensurePolished()
         self._render()
 
     # ── 만들기 도우미 ──
     def _row(self, layout, kind: str, name: str, icon: str) -> QVBoxLayout:
-        row = QHBoxLayout()
+        container = QWidget(self.card)
+        self.row_widgets[kind] = container
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(10)
         label = QLabel(self.card)
         label.setFixedSize(18, 18)
@@ -721,7 +734,7 @@ class ScheduleOptionsPopup(QWidget):
         body = QVBoxLayout()
         body.setSpacing(7)
         row.addLayout(body, 1)
-        layout.addLayout(row)
+        layout.addWidget(container)
         return body
 
     def _track(self, name: str, group: str, chips, *, equal=False, expand=False) -> QFrame:
@@ -781,6 +794,8 @@ class ScheduleOptionsPopup(QWidget):
         self._render()
 
     def _change(self, options: ScheduleOptions) -> None:
+        if self._occurrence_only and (options.repeat_rule or options.end_date or options.repeat_until or options.repeat_skip):
+            return
         if options.is_default or not options.end_date:
             if self._picker_for == "period":
                 self._picker_for = ""
@@ -917,11 +932,12 @@ class ScheduleOptionsPopup(QWidget):
         if repeat:
             self.repeat_caption.setText(rules.repeat_caption(self._start, options.repeat_rule))
             self.repeat_caption.setToolTip(self.repeat_caption.text())
-        turned_off = self._was_repeat and not repeat and self._occurrence != self._start
+        turned_off = self._was_repeat and not repeat
         self.series_note.setVisible(turned_off)
         if turned_off:
             self.series_note.setText(
-                f"반복을 끄면 첫 날짜({self._start_day.month}월 {self._start_day.day}일) 하루만 남습니다")
+                f"반복을 끄면 원본은 첫 날짜({self._start_day.month}월 {self._start_day.day}일)에 남습니다. "
+                "따로 수정한 회차는 일반 일정으로 남으며, 첫 날짜를 수정했다면 두 일정이 표시됩니다.")
         self.until_row.setVisible(repeat)
         self.forever_chip.setChecked(not options.repeat_until)
         self.until_chip.setChecked(bool(options.repeat_until))
@@ -948,7 +964,8 @@ class ScheduleOptionsPopup(QWidget):
         자식을 보이는 순간 Qt가 창을 먼저 키우기도 해서, 호출 직전 크기가 아니라
         마지막으로 알린 크기와 비교해야 커진 경우에도 위치를 다시 잡는다.
         """
-        for widget in (self.period_picker, self.until_picker, self.until_row, self.body, self.card, self):
+        for widget in (self.period_picker, self.until_picker, self.until_row,
+                       *self.row_widgets.values(), self.body, self.card, self):
             layout = widget.layout()
             layout.invalidate()
             layout.activate()

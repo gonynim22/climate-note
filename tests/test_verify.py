@@ -38,7 +38,24 @@ def runner(tmp_path, monkeypatch):
     monkeypatch.setattr(verify, "source_snapshot", lambda: {"head": "test", "files": {"a.py": "abc"}})
     # 기존 release 시험이 네트워크를 타지 않게 공휴일 단계는 건너뛴다.
     monkeypatch.setattr(verify, "refresh_holidays_step", lambda run_dir, report: None)
+    monkeypatch.setattr(verify, "root_dist_snapshot", lambda: {})
     return directory
+
+
+def test_root_dist_observation_detects_removal_without_touching_other_files(tmp_path, monkeypatch):
+    monkeypatch.setattr(verify, "ROOT", tmp_path)
+    folder = tmp_path / "dist"
+    folder.mkdir()
+    kept = folder / "old.exe"
+    kept.write_bytes(b"synthetic executable")
+    report = {}
+    verify.record_root_dist(report, "before")
+    assert kept.read_bytes() == b"synthetic executable"
+    # 시험이 소유한 파일 하나만 지워 소실 검출을 검사한다.
+    kept.unlink()
+    with pytest.raises(verify.VerificationFailure, match="소실"):
+        verify.record_root_dist(report, "after_build")
+    assert report["root_dist"][-1]["changed"] == ["old.exe"]
 
 
 def mini_pytest(tmp_path, code):

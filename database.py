@@ -24,8 +24,8 @@ from security import APP_DIR, encrypt, decrypt, legacy_decrypt, audit, validate_
 _logger = logging.getLogger("app_error")
 
 DB_FILE = APP_DIR / "calendar.db"
-EXPORT_FORMAT_VERSION = 3
-CURRENT_SCHEMA_VERSION = 18
+EXPORT_FORMAT_VERSION = 4
+CURRENT_SCHEMA_VERSION = 19
 AUTO_BACKUP_FORMAT = "climatenote-auto-backup"
 AUTO_BACKUP_FORMAT_VERSION = 1
 AUTO_BACKUP_KEEP_DAYS = 5
@@ -61,6 +61,10 @@ SCHEDULE_V18_COLUMNS = (
     ("repeat_until", "ALTER TABLE schedules ADD COLUMN repeat_until TEXT NOT NULL DEFAULT ''"),
     ("repeat_skip", "ALTER TABLE schedules ADD COLUMN repeat_skip TEXT NOT NULL DEFAULT ''"),
     ("alarm_before", "ALTER TABLE schedules ADD COLUMN alarm_before INTEGER"),
+)
+SCHEDULE_V19_COLUMNS = (
+    ("series_id", "ALTER TABLE schedules ADD COLUMN series_id INTEGER"),
+    ("original_date", "ALTER TABLE schedules ADD COLUMN original_date TEXT NOT NULL DEFAULT ''"),
 )
 SETTING_SCHEDULE_COLOR_1 = "schedule_color_1"
 SETTING_SCHEDULE_COLOR_2 = "schedule_color_2"
@@ -272,6 +276,13 @@ def inspect_startup_data_health() -> DataHealthReport:
                 }
                 if not {name for name, _sql in SCHEDULE_V18_COLUMNS} <= schedule_columns:
                     return DataHealthReport(False, "schema_invalid", version)
+                if version >= 19:
+                    if not {name for name, _sql in SCHEDULE_V19_COLUMNS} <= schedule_columns:
+                        return DataHealthReport(False, "schema_invalid", version)
+                    try:
+                        _validate_schedule_links(conn.execute("SELECT * FROM schedules").fetchall())
+                    except ValueError:
+                        return DataHealthReport(False, "schema_invalid", version)
 
             for table, column in _PROTECTED_COLUMNS:
                 if table not in tables:
@@ -864,6 +875,21 @@ def migrate(*, initial_calendar_scale: str | None = None) -> None:
                 raise
             version = 18
 
+        if version == 18:
+            # 연결 열만 추가한다. 기존 본문·옵션·ID는 읽거나 다시 쓰지 않는다.
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = {row[1] for row in conn.execute("PRAGMA table_info(schedules)")}
+                for name, statement in SCHEDULE_V19_COLUMNS:
+                    if name not in existing:
+                        conn.execute(statement)
+                conn.execute("PRAGMA user_version = 19")
+                conn.execute("COMMIT")
+            except sqlite3.Error:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+
     # 암호화 키 마이그레이션 (MAC → MachineGuid)
     _try_migrate_encryption()
 
@@ -871,7 +897,7 @@ def migrate(*, initial_calendar_scale: str | None = None) -> None:
 # ─── schedules CRUD ───────────────────────────────────────────
 _SCHEDULE_SELECT = (
     "SELECT id, date, content, created_at, color, start_time, end_date, "
-    "repeat_rule, repeat_until, repeat_skip, alarm_before FROM schedules "
+    "repeat_rule, repeat_until, repeat_skip, alarm_before, series_id, original_date FROM schedules "
 )
 _SCHEDULE_INSERT = (
     "INSERT INTO schedules (date, content, created_at, color, start_time, end_date, "
@@ -884,7 +910,37 @@ def _decrypt_schedule(ciphertext: str) -> tuple[str, bool]:
     return _safe_decrypt_with_status(ciphertext, "[복호화 오류]")
 
 
-_ALARM_ONLY = "alarm_before IS NOT NULL"
+def _validate_schedule_links(rows, *, id_field="id", parent_field="series_id") -> None:
+    """DB 건강 검사와 v4 Import가 공유하는 수정 회차 관계 계약."""
+    by_id = {}
+    for row in rows:
+        sid = row[id_field]
+        if type(sid) is not int or sid <= 0 or sid in by_id:
+            raise ValueError("일정 ID가 올바르지 않습니다.")
+        by_id[sid] = row
+    pairs = set()
+    for row in rows:
+        parent_id = row[parent_field]
+        original = row["original_date"]
+        if parent_id is None:
+            if original != "":
+                raise ValueError("일반 일정에 수정 회차 날짜가 있습니다.")
+            continue
+        if type(parent_id) is not int or parent_id not in by_id or parent_id == row[id_field]:
+            raise ValueError("수정 회차의 원본이 올바르지 않습니다.")
+        parent = by_id[parent_id]
+        if parent[parent_field] is not None or not parent["repeat_rule"]:
+            raise ValueError("수정 회차의 원본은 반복 일정이어야 합니다.")
+        validate_options(parent["date"], ScheduleOptions(repeat_rule=parent["repeat_rule"], end_date=parent["end_date"]))
+        if original != row["date"] or parse_date(original) < parse_date(parent["date"]):
+            raise ValueError("수정 회차 날짜가 올바르지 않습니다.")
+        if any(row[field] for field in ("end_date", "repeat_rule", "repeat_until", "repeat_skip")):
+            raise ValueError("수정 회차에는 반복·기간을 지정할 수 없습니다.")
+        validate_options(original, ScheduleOptions(start_time=row["start_time"], alarm_before=row["alarm_before"]))
+        pair = (parent_id, original)
+        if pair in pairs:
+            raise ValueError("같은 날짜의 수정 회차가 중복되었습니다.")
+        pairs.add(pair)
 
 
 def _candidate_rows(conn, first: str, last: str, extra: str = "") -> list:
@@ -940,6 +996,8 @@ def _schedule_entry(row, day: str, options: ScheduleOptions, content: str, faile
         "start_time": options.start_time,
         # 기간은 첫날에만 시각을 보이고, 반복은 나타나는 날마다 보인다.
         "shows_time": bool(options.start_time) and (not is_period or day == row["date"]),
+        "series_id": row["series_id"] or (row["id"] if options.repeat_rule else None),
+        "is_override": row["series_id"] is not None,
     }
 
 
@@ -949,12 +1007,15 @@ def _expand_rows(rows, first: str, last: str) -> dict[str, list[dict]]:
     except ValueError:
         window = None
     result: dict[str, list[dict]] = {}
+    overridden = {(row["series_id"], row["original_date"]) for row in rows if row["series_id"] is not None}
     for row in rows:
         options, found = _occurrence_days(row, first, last, window)
         if not found:
             continue
         content, failed = _decrypt_schedule(row["content"])
         for day in found:
+            if (row["id"], day) in overridden:
+                continue
             result.setdefault(day, []).append(_schedule_entry(row, day, options, content, failed))
     for entries in result.values():
         entries.sort(key=lambda e: occurrence_sort_key(e["shows_time"], e["start_time"], e["id"]))
@@ -973,6 +1034,16 @@ def get_occurrences(start: str, end: str) -> dict[str, list[dict]]:
     with _connection() as conn:
         rows = _candidate_rows(conn, start, end)
     return _expand_rows(rows, start, end)
+
+
+def get_schedule(schedule_id: int) -> dict:
+    """전체 편집은 현재 표시 회차 대신 원본 행의 본문·옵션을 읽는다."""
+    with _connection() as conn:
+        row = conn.execute(_SCHEDULE_SELECT + "WHERE id = ?", (schedule_id,)).fetchone()
+    if row is None:
+        raise ValueError("일정이 없습니다.")
+    content, failed = _decrypt_schedule(row["content"])
+    return _schedule_entry(row, row["date"], ScheduleOptions.from_row(row), content, failed)
 
 
 def get_all_schedule_dates() -> set[str]:
@@ -1043,12 +1114,18 @@ def update_schedule(schedule_id: int, content: str = None, color: str = None, *,
                     options: ScheduleOptions | None = None) -> None:
     """일정 수정. options를 주면 세부 설정 여섯 칸을 한 번에 바꾼다(검증 실패 시 아무것도 안 씀)."""
     with _connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         if options is not None:
-            row = conn.execute("SELECT date FROM schedules WHERE id = ?", (schedule_id,)).fetchone()
+            row = conn.execute(_SCHEDULE_SELECT + "WHERE id = ?", (schedule_id,)).fetchone()
             if row is None:
                 raise ValueError("수정할 일정이 없습니다.")
             if not options.is_default:
                 options = validate_options(row["date"], options)
+            if row["series_id"] is not None and (options.repeat_rule or options.end_date):
+                raise ValueError("수정 회차에는 반복·기간을 지정할 수 없습니다.")
+            if row["repeat_rule"] and not options.repeat_rule:
+                conn.execute("UPDATE schedules SET series_id = NULL, original_date = '' WHERE series_id = ?",
+                             (schedule_id,))
         if content is not None:
             conn.execute(
                 "UPDATE schedules SET content = ? WHERE id = ?",
@@ -1068,6 +1145,37 @@ def update_schedule(schedule_id: int, content: str = None, color: str = None, *,
         conn.commit()
 
 
+def update_schedule_occurrence(series_id: int, day: str, content: str, color: str, *,
+                               options: ScheduleOptions) -> int:
+    """그 날의 본문·색상·시각·알림 스냅샷을 저장한다. 전체 변경 뒤에도 독립적으로 유지한다."""
+    options = validate_options(day, options)
+    if options.repeat_rule or options.end_date:
+        raise ValueError("이 날만 수정에서는 반복·기간을 바꿀 수 없습니다.")
+    with _connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        parent = conn.execute(_SCHEDULE_SELECT + "WHERE id = ?", (series_id,)).fetchone()
+        if parent is None or parent["series_id"] is not None or not parent["repeat_rule"]:
+            raise ValueError("반복 원본이 없습니다.")
+        current = conn.execute(_SCHEDULE_SELECT + "WHERE series_id = ? AND original_date = ?",
+                               (series_id, day)).fetchone()
+        if current is None:
+            target = parse_date(day)
+            if not occurrence_dates(parent["date"], ScheduleOptions.from_row(parent), target, target):
+                raise ValueError("그 날에는 이 일정이 없습니다.")
+            cursor = conn.execute(
+                "INSERT INTO schedules (date, content, created_at, color, start_time, alarm_before, "
+                "series_id, original_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (day, encrypt(content), _now_str(), color, options.start_time, options.alarm_before, series_id, day),
+            )
+            sid = cursor.lastrowid
+        else:
+            sid = current["id"]
+            conn.execute("UPDATE schedules SET content = ?, color = ?, start_time = ?, alarm_before = ? WHERE id = ?",
+                         (encrypt(content), color, options.start_time, options.alarm_before, sid))
+        conn.commit()
+        return sid
+
+
 def skip_schedule_occurrence(schedule_id: int, day: str) -> None:
     """반복 일정의 그 날 하나만 지운다(건너뛴 날에 더함).
 
@@ -1075,6 +1183,7 @@ def skip_schedule_occurrence(schedule_id: int, day: str) -> None:
     같은 트랜잭션에서 행도 지운다. 끝 날짜가 없는 반복은 행을 그대로 둔다.
     """
     with _connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(_SCHEDULE_SELECT + "WHERE id = ?", (schedule_id,)).fetchone()
         if row is None:
             raise ValueError("일정이 없습니다.")
@@ -1082,10 +1191,15 @@ def skip_schedule_occurrence(schedule_id: int, day: str) -> None:
         if not options.repeat_rule:
             raise ValueError("반복 일정이 아닙니다.")
         target = parse_date(day)
-        if not occurrence_dates(row["date"], options, target, target):
+        modified = conn.execute("SELECT id FROM schedules WHERE series_id = ? AND original_date = ?",
+                                (schedule_id, day)).fetchone()
+        if modified is None and not occurrence_dates(row["date"], options, target, target):
             raise ValueError("그 날에는 이 일정이 없습니다.")
         updated = validate_options(row["date"], replace(options, repeat_skip=options.repeat_skip + (day,)))
-        if updated.repeat_until and next(iter_occurrence_dates(
+        if modified is not None:
+            conn.execute("DELETE FROM schedules WHERE id = ?", (modified["id"],))
+        has_children = conn.execute("SELECT 1 FROM schedules WHERE series_id = ? LIMIT 1", (schedule_id,)).fetchone()
+        if not has_children and updated.repeat_until and next(iter_occurrence_dates(
                 row["date"], updated, parse_date(row["date"]), parse_date(updated.repeat_until)), None) is None:
             conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
         else:
@@ -1103,7 +1217,9 @@ def get_alarm_occurrences(after: datetime, until: datetime) -> list[AlarmItem]:
     first = date.fromordinal(max(date.min.toordinal(), after.date().toordinal() - 1)).isoformat()
     last = date.fromordinal(min(date.max.toordinal(), until.date().toordinal() + 2)).isoformat()
     with _connection() as conn:
-        rows = _candidate_rows(conn, first, last, _ALARM_ONLY)
+        # 알림 OFF 수정 회차도 원본 알림을 억제하므로 필터 전에 함께 읽는다.
+        rows = _candidate_rows(conn, first, last)
+    overridden = {(row["series_id"], row["original_date"]) for row in rows if row["series_id"] is not None}
     items = []
     for row in rows:
         options = ScheduleOptions.from_row(row)
@@ -1118,6 +1234,8 @@ def get_alarm_occurrences(after: datetime, until: datetime) -> list[AlarmItem]:
             continue
         content, failed = _decrypt_schedule(row["content"])
         for day, due in dues:
+            if (row["id"], day.isoformat()) in overridden:
+                continue
             items.append(AlarmItem(
                 row["id"], day.isoformat(), due, content,
                 row["color"] or DEFAULT_SCHEDULE_COLOR, options.start_time, failed,
@@ -1135,9 +1253,13 @@ def has_schedule_alarms() -> bool:
 
 
 def delete_schedule(schedule_id: int) -> None:
-    """일정 삭제"""
+    """일반 일정 또는 반복 전체 삭제. 수정 회차 단독 삭제는 skip API만 사용한다."""
     with _connection() as conn:
-        conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT series_id FROM schedules WHERE id = ?", (schedule_id,)).fetchone()
+        if row is not None and row["series_id"] is not None:
+            raise ValueError("수정 회차는 이 날만 삭제를 사용해야 합니다.")
+        conn.execute("DELETE FROM schedules WHERE id = ? OR series_id = ?", (schedule_id, schedule_id))
         conn.commit()
 
 
@@ -1173,6 +1295,7 @@ def search_all(keyword: str, limit: int = 500) -> list[dict]:
                     "color": row["color"] or DEFAULT_SCHEDULE_COLOR,
                     "end_date": options.end_date,
                     "repeat_rule": options.repeat_rule,
+                    "is_override": row["series_id"] is not None,
                 })
                 if len(results) >= limit:
                     break
@@ -1601,9 +1724,14 @@ def export_all_data() -> str:
         # 여러 테이블을 하나의 시점으로 읽어 Export 중 변경이 섞이지 않게 한다.
         conn.execute("BEGIN")
         schedules = []
-        for row in conn.execute("SELECT * FROM schedules ORDER BY id ASC"):
+        schedule_rows = conn.execute("SELECT * FROM schedules ORDER BY id ASC").fetchall()
+        _validate_schedule_links(schedule_rows)
+        for row in schedule_rows:
             options = _export_options(row)
             schedules.append({
+                "source_id": row["id"],
+                "series_source_id": row["series_id"],
+                "original_date": row["original_date"],
                 "date": row["date"],
                 "content": _decrypt_for_export(row["content"], "schedules", row["id"]),
                 "created_at": row["created_at"],
@@ -1815,6 +1943,17 @@ def _validate_import_payload(data) -> dict:
                 except ValueError as exc:
                     raise ValueError(f"schedules[{index}] 세부 설정이 올바르지 않습니다: {exc}") from exc
 
+    if version >= 4:
+        schedules = data.get("schedules", [])
+        for index, item in enumerate(schedules):
+            _validate_import_field(item, "schedules", index, "source_id", int, required=True)
+            _validate_import_field(item, "schedules", index, "series_source_id", int, required=True, allow_none=True)
+            _validate_import_field(item, "schedules", index, "original_date", str, required=True)
+        # v3의 선택 필드는 v4에서도 기본값을 허용하되 관계 검증에는 명시적으로 채운다.
+        normalized = [dict(start_time="", end_date="", repeat_rule="", repeat_until="",
+                           repeat_skip=[], alarm_before=None) | item for item in schedules]
+        _validate_schedule_links(normalized, id_field="source_id", parent_field="series_source_id")
+
     for index, item in enumerate(data.get("memos", [])):
         for field in ("date", "content"):
             _validate_import_field(
@@ -1974,15 +2113,24 @@ def import_all_data(json_str: str) -> dict[str, int]:
             counts[table] += 1
             return 1
 
-        for s in data.get("schedules", []):
+        schedule_id_map = {}
+        schedule_items = data.get("schedules", [])
+        if data["format_version"] >= 4:
+            schedule_items = sorted(schedule_items, key=lambda s: s["series_source_id"] is not None)
+        for s in schedule_items:
             options = _import_options(s) if data["format_version"] >= 3 else ScheduleOptions()
             if not options.is_default:
                 options = validate_options(s["date"], options)
-            conn.execute(
+            cursor = conn.execute(
                 _SCHEDULE_INSERT,
                 (s["date"], encrypt(s["content"]), s.get("created_at", now),
                  s.get("color", DEFAULT_SCHEDULE_COLOR), *options.to_db_values()),
             )
+            if data["format_version"] >= 4:
+                schedule_id_map[s["source_id"]] = cursor.lastrowid
+                if s["series_source_id"] is not None:
+                    conn.execute("UPDATE schedules SET series_id = ?, original_date = ? WHERE id = ?",
+                                 (schedule_id_map[s["series_source_id"]], s["original_date"], cursor.lastrowid))
 
         for m in data.get("memos", []):
             exists = conn.execute(
