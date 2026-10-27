@@ -53,6 +53,7 @@ class ScheduleAlarmScheduler(QObject):
         self._now = now or datetime.now
         self._running = False
         self._last_check = None
+        self._started_at = None
         self._fired = {}  # 이미 띄운 알림 키 -> 알림 시각(확인 창 12시간이 지나면 지운다)
         self._snoozed = {}
         self._timer = QTimer(self)
@@ -70,13 +71,8 @@ class ScheduleAlarmScheduler(QObject):
         if self._running:
             self.refresh()
             return
-        now = self._now()
-        try:
-            seen = _parse_seen(db.get_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT, ""))
-        except (sqlite3.Error, OSError) as exc:
-            _logger.error("일정 알림 처리 시각 읽기 실패: %s", exc)
-            seen = None
-        self._last_check = max(seen, now - LOOKBACK) if seen is not None else now
+        self._started_at = self._now()
+        self._last_check = None
         self._running = True
         self.check()
 
@@ -110,11 +106,18 @@ class ScheduleAlarmScheduler(QObject):
         now = self._now()
         try:
             self._check_at(now)
+        except (sqlite3.Error, OSError) as exc:
+            # 빈 목록과 조회 실패를 구분한다. 확인 시각/다시 알림은 유지해 다음에 재시도한다.
+            _logger.error("일정 알림 확인 실패: %s", exc)
         finally:
             self._schedule_next(now)  # 중간에 예외가 나도 단발 타이머는 반드시 다시 건다.
 
     def _check_at(self, now) -> None:
-        mark = self._last_check or now
+        mark = self._last_check
+        if mark is None:
+            # 읽기 실패는 키 없음이 아니다. 성공할 때까지 시작 기준/저장값을 보존한다.
+            seen = _parse_seen(db.get_setting(db.SETTING_SCHEDULE_ALARM_SEEN_AT, ""))
+            mark = seen if seen is not None else self._started_at
         if mark > now:
             # 미래 기준을 유지하면 그 시각까지 새 알림이 막힌다. 현재부터 다시
             # 세되, 같은 실행에서 이미 띄운 알림은 _fired로 계속 제외한다.
@@ -123,12 +126,16 @@ class ScheduleAlarmScheduler(QObject):
         found = self._load(after, now) if now > after else []
         fresh = [item for item in found if item.key not in self._fired]
         again = []  # '5분 뒤 다시'로 돌아온 알림: 놓친 알림이 아니다.
+        completed_snoozes = []
         for key, (item, until) in list(self._snoozed.items()):
             if until <= now:
-                del self._snoozed[key]
                 fresh_item = self._fresh_item(item)
+                completed_snoozes.append(key)
                 if fresh_item is not None:
                     again.append(fresh_item)  # 다시 알림 사이에 고친 본문·색이 보이도록 최신 값을 쓴다.
+        # 모든 조회가 성공한 뒤에만 상태를 반영한다. 중간 오류로 앞 항목도 잃지 않는다.
+        for key in completed_snoozes:
+            del self._snoozed[key]
         self._last_check = now
         self._fired = {key: when for key, when in self._fired.items() if when >= now - LOOKBACK}
         due = fresh + again
@@ -155,11 +162,7 @@ class ScheduleAlarmScheduler(QObject):
         self._schedule_next(self._now())
 
     def _load(self, after, until) -> list:
-        try:
-            return db.get_alarm_occurrences(after, until)
-        except (sqlite3.Error, OSError) as exc:
-            _logger.error("일정 알림 확인 실패: %s", exc)
-            return []
+        return db.get_alarm_occurrences(after, until)
 
     def _fresh_item(self, item):
         """다시 알릴 때 그 일정·날짜·알림 시각이 아직 그대로면 저장된 최신 항목을, 아니면 None을 준다(삭제·변경 반영)."""
@@ -177,6 +180,8 @@ class ScheduleAlarmScheduler(QObject):
             if candidates:
                 wait = (min(candidates) - now).total_seconds() * 1000 + 50
                 interval = max(50, min(MAX_INTERVAL_MS, int(wait)))
+        except (sqlite3.Error, OSError) as exc:
+            _logger.error("다음 일정 알림 조회 실패: %s", exc)
         finally:
             self._timer.start(interval)
 

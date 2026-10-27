@@ -521,3 +521,112 @@ def test_card_stripe_uses_users_display_palette_read_once(qtbot, monkeypatch):
     assert "border-left:4px solid #80CFA9" in card.frame.styleSheet()
     assert "#FFD166" not in card.frame.styleSheet()
     assert [i.color for i in card.items()] == ["#80CFA9", "#FF9F68", "#123456"]  # 팔레트 밖 색은 그대로
+
+
+@pytest.mark.parametrize("snooze", [False, True])
+def test_transient_query_failure_retries_due_alarm_without_advancing(qtbot, monkeypatch, snooze):
+    import sqlite3
+    db.add_schedule("2026-10-27", "중요 알림", options=ScheduleOptions(start_time="10:00", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 27, 9, 59, 59))
+    scheduler, emitted, host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value += timedelta(seconds=2)
+    if snooze:
+        scheduler.check()
+        scheduler.snooze(emitted[-1][0])
+        clock.value += timedelta(minutes=5)
+    previous = scheduler.last_check()
+    initial_count = len(emitted)
+    original = db.get_alarm_occurrences
+    attempts = []
+    def fail_query(*args):
+        attempts.append(args)
+        raise sqlite3.OperationalError("synthetic database locked")
+    monkeypatch.setattr(db, "get_alarm_occurrences", fail_query)
+    scheduler.check()
+    assert attempts and scheduler._timer.isActive()
+    assert scheduler.last_check() == previous
+    assert len(emitted) == initial_count
+    monkeypatch.setattr(db, "get_alarm_occurrences", original)
+    clock.value += timedelta(seconds=1)
+    scheduler.check()
+    assert len(emitted) == initial_count + 1
+    assert emitted[-1][0][0].content == "중요 알림"
+    scheduler.check()
+    assert len(emitted) == initial_count + 1
+    scheduler.stop()
+
+
+def test_snooze_partial_query_failure_preserves_every_pending_item(qtbot, monkeypatch):
+    for content in ("첫 알림", "둘째 알림"):
+        db.add_schedule("2026-10-27", content,
+                        options=ScheduleOptions(start_time="10:00", alarm_before=0))
+    clock = Clock(datetime(2026, 10, 27, 9, 59, 59))
+    scheduler, emitted, host = scheduler_with(qtbot, clock)
+    scheduler.start()
+    clock.value += timedelta(seconds=2)
+    scheduler.check()
+    scheduler.snooze(emitted[-1][0])
+    previous = scheduler.last_check()
+    pending = dict(scheduler._snoozed)
+    clock.value += timedelta(minutes=5)
+    original = db.get_alarm_occurrences
+    calls = []
+
+    def fail_second_snooze(after, until):
+        if until == datetime(2026, 10, 27, 10, 0):
+            calls.append(until)
+            if len(calls) == 2:
+                raise OSError("synthetic transient read failure")
+        return original(after, until)
+
+    monkeypatch.setattr(db, "get_alarm_occurrences", fail_second_snooze)
+    scheduler.check()
+    assert len(calls) == 2
+    assert len(emitted) == 1
+    assert scheduler.last_check() == previous
+    assert scheduler._snoozed == pending
+    assert scheduler._timer.isActive()
+    monkeypatch.setattr(db, "get_alarm_occurrences", original)
+    clock.value += timedelta(seconds=1)
+    scheduler.check()
+    assert len(emitted) == 2
+    assert [item.content for item in emitted[-1][0]] == ["첫 알림", "둘째 알림"]
+    assert not scheduler._snoozed
+    scheduler.check()
+    assert len(emitted) == 2
+    scheduler.stop()
+
+
+@pytest.mark.parametrize("stored_seen", ["2026-10-27T09:58:00", ""])
+def test_start_read_failure_retries_saved_mark_or_original_start(qtbot, monkeypatch, stored_seen):
+    import sqlite3
+    db.add_schedule("2026-10-27", "시작 전 놓친 알림",
+                    options=ScheduleOptions(start_time="09:59", alarm_before=0))
+    db.add_schedule("2026-10-27", "시작 후 알림",
+                    options=ScheduleOptions(start_time="10:00", alarm_before=0))
+    if stored_seen:
+        db.save_setting(KEY, stored_seen)
+    clock = Clock(datetime(2026, 10, 27, 9, 59, 59))
+    scheduler, emitted, host = scheduler_with(qtbot, clock)
+    original = db.get_setting
+
+    def unavailable(*args):
+        raise sqlite3.OperationalError("synthetic initial read failure")
+
+    monkeypatch.setattr(db, "get_setting", unavailable)
+    scheduler.start()
+    assert scheduler.last_check() is None
+    assert scheduler._timer.isActive()
+    clock.value += timedelta(seconds=2)
+    scheduler.check()
+    assert not emitted
+    assert scheduler.last_check() is None
+    assert original(KEY, "") == stored_seen
+    monkeypatch.setattr(db, "get_setting", original)
+    scheduler.check()
+    expected = ["시작 전 놓친 알림", "시작 후 알림"] if stored_seen else ["시작 후 알림"]
+    assert [item.content for item in emitted[-1][0]] == expected
+    scheduler.check()
+    assert len(emitted) == 1
+    scheduler.stop()

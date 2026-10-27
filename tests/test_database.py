@@ -1689,3 +1689,45 @@ class TestFactoryReset:
         db.reset_database()
         sid = db.add_schedule("2025-03-01", "리셋 후 일정")
         assert sid > 0
+
+
+@pytest.mark.parametrize("section,field,value", [
+    ("sticky_notes", "x_pos", 2 ** 31),
+    ("sticky_notes", "y_pos", -(2 ** 31) - 1),
+    ("sticky_notes", "width", 2 ** 31),
+    ("sticky_notes", "height", 2 ** 31),
+    ("dday_widgets", "x_pos", 2 ** 31),
+    ("focus_widgets", "y_pos", -(2 ** 31) - 1),
+])
+def test_import_rejects_unrenderable_widget_geometry_before_writes(app_dir, section, field, value):
+    db.add_schedule("2026-10-27", "기존 일정 보존")
+    before = db.export_all_data()
+    payload = {"format_version": db.EXPORT_FORMAT_VERSION, section: [{
+        "type": "memo", "content": "가져올 본문", "name": "가져올 이름",
+        "target_date": "2026-12-01", "source_id": 99,
+        "x_pos": -1920, "y_pos": 100, "width": 300, "height": 400,
+        "is_open": 1, "is_pinned": 0, field: value,
+    }]}
+    with pytest.raises(ValueError):
+        db.import_all_data(json.dumps(payload))
+    assert db.export_all_data() == before
+
+
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
+def test_import_preserves_negative_monitor_coordinates(app_dir, version):
+    payload = {"format_version": version,
+               "sticky_notes": [{"type": "memo", "content": "원본 메모",
+                                 "x_pos": -1920, "y_pos": -1080, "width": 300, "height": 400,
+                                 "is_open": 1, "is_pinned": 0}],
+               "dday_widgets": [{"name": "원본 D-Day", "target_date": "2026-12-01",
+                                 "x_pos": -1920, "y_pos": -1080}],
+               "focus_widgets": [{"source_id": 99, "goal": "원본 집중",
+                                  "x_pos": -1920, "y_pos": -1080}]}
+    db.import_all_data(json.dumps(payload))
+    exported = json.loads(db.export_all_data())
+    for section in ("sticky_notes", "dday_widgets", "focus_widgets"):
+        assert exported[section][0]["x_pos"] == -1920
+        assert exported[section][0]["y_pos"] == -1080
+    assert exported["sticky_notes"][0]["content"] == "원본 메모"
+    assert exported["dday_widgets"][0]["name"] == "원본 D-Day"
+    assert exported["focus_widgets"][0]["goal"] == "원본 집중"

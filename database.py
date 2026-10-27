@@ -1880,6 +1880,15 @@ def _validate_import_flag(
         )
 
 
+def _validate_import_geometry(item: dict, section: str, index: int, fields) -> None:
+    """SQLite int64로 저장돼도 Qt의 int32 좌표/크기로 복원할 수 있어야 한다."""
+    for field in fields:
+        if field in item and not -(2 ** 31) <= item[field] <= 2 ** 31 - 1:
+            raise ValueError(
+                f"{section}[{index}].{field} 값이 화면 좌표/크기 범위를 벗어났습니다."
+            )
+
+
 def _import_options(item: dict) -> ScheduleOptions:
     """v3 일정 항목의 세부 설정(없는 키는 기본값)."""
     return ScheduleOptions(
@@ -1971,6 +1980,9 @@ def _validate_import_payload(data) -> dict:
             _validate_import_field(
                 item, "sticky_notes", index, field, int, required=True
             )
+        _validate_import_geometry(
+            item, "sticky_notes", index, ("x_pos", "y_pos", "width", "height")
+        )
         for field in ("width", "height"):
             if item[field] <= 0:
                 raise ValueError(
@@ -2000,6 +2012,7 @@ def _validate_import_payload(data) -> dict:
             _validate_import_field(
                 item, "dday_widgets", index, field, int
             )
+        _validate_import_geometry(item, "dday_widgets", index, ("x_pos", "y_pos"))
         _validate_import_flag(
             item, "dday_widgets", index, "is_open"
         )
@@ -2011,6 +2024,7 @@ def _validate_import_payload(data) -> dict:
             _validate_import_field(
                 item, "focus_widgets", index, field, int
             )
+        _validate_import_geometry(item, "focus_widgets", index, ("x_pos", "y_pos"))
         for field in ("goal", "mode_key", "created_at"):
             _validate_import_field(
                 item, "focus_widgets", index, field, str
