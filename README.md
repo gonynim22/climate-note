@@ -5,8 +5,6 @@ Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위
 
 <img src="readme/app.png" alt="기후노트 — 늘 보이는 곳에, 오늘 할 일. 일정·메모·D-Day·집중 모드를 함께 펼치는 v4.5 크게 모드 화면과 바로가기 사이드바가 있는 기본 크기 화면">
 
-현재 소스는 **v4.5**이며 최종 검토용 EXE 검증을 완료했습니다. 공개 릴리즈 게시는 별도이며 배포 여부와 검증 기록은 [상세 안내](README_detail.md)를 확인하세요.
-
 ## 받기
 
 - 최신 실행 파일은 **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 에서 받습니다. 설치 없이 실행하는 EXE 파일 하나입니다.
