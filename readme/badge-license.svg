@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="124" height="24" viewBox="0 0 124 24" role="img" aria-label="라이선스 GPL-3.0">
+  <rect width="124" height="24" rx="4" fill="#33476B"/>
+  <path d="M62 0h58a4 4 0 0 1 4 4v16a4 4 0 0 1-4 4h-58z" fill="#6741D9"/>
+  <g font-family="'Segoe UI','Malgun Gothic','Apple SD Gothic Neo',sans-serif" font-size="12" fill="#FFFFFF" text-anchor="middle">
+    <text x="31" y="16">라이선스</text>
+    <text x="93" y="16" font-weight="700">GPL-3.0</text>
+  </g>
+</svg>

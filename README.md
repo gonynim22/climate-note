@@ -1,48 +1,81 @@
-# 기후노트
-
-Windows 바탕화면에서 쓰는 **오프라인 전용** 캘린더·메모·위젯 앱입니다.
-일정과 메모를 이 PC에만 암호화해 저장하며, 외부 서버로 아무것도 보내지 않습니다.
-
 <img src="readme/app.png" alt="기후노트 — 늘 보이는 곳에, 오늘 할 일. 일정·메모·D-Day·집중 모드를 함께 펼치는 v4.5 크게 모드 화면과 바로가기 사이드바가 있는 기본 크기 화면">
 
-## 받기
+<p align="center">
+  <img src="readme/badge-version.svg" alt="버전 v4.5">
+  <img src="readme/badge-windows.svg" alt="Windows 10 · 11">
+  <img src="readme/badge-offline.svg" alt="네트워크 오프라인 전용">
+  <img src="readme/badge-license.svg" alt="라이선스 GPL-3.0">
+</p>
 
-- 최신 실행 파일은 **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 에서 받습니다. 설치 없이 실행하는 EXE 파일 하나입니다.
-- 받은 파일은 릴리스 설명의 SHA-256과 비교할 수 있습니다: `Get-FileHash <파일명> -Algorithm SHA256`
-- 처음 실행할 때 Windows SmartScreen 경고가 뜨면 `추가 정보` → `실행`을 누르세요. 코드 서명이 없어서 나타나는 경고입니다.
+<p align="center">
+  <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases"><img src="readme/button-download.svg" alt="최신 버전 받기"></a>
+  <a href="README_detail.md"><img src="readme/button-detail.svg" alt="상세 안내"></a>
+</p>
 
-## 업데이트
+<p align="center">
+  Windows 바탕화면에서 쓰는 <b>오프라인 전용</b> 캘린더·메모·위젯 앱입니다.<br>
+  일정과 메모를 이 PC에만 암호화해 저장하며, 외부 서버로 아무것도 보내지 않습니다.
+</p>
 
-- 실행 중인 기후노트를 트레이에서 **완전히 종료**한 뒤 새 EXE로 바꿔 실행합니다.
-- 데이터는 `%LOCALAPPDATA%\MyDesktopCalendar\`에 그대로 남습니다. 초기화나 가져오기는 필요 없습니다.
-- 데이터는 이 PC와 Windows 계정에 묶여 있습니다. 다른 PC로 옮길 때는 설정의 **내보내기/가져오기**를 쓰세요.
+## <img src="readme/icon-features.svg" width="32" height="32" align="absmiddle" alt=""> 주요 기능
+
+<table>
+  <tr><td><b>캘린더</b></td><td>기본·중간·크게 3단계 크기, 일정·메모, 전역 검색, AI 법령정보 검색</td></tr>
+  <tr><td><b>일정</b></td><td>시작 시각·알림·반복(매일·평일·매주·매월·매년)·여러 날 기간, 반복 일정의 이 날만 수정(v4.5)</td></tr>
+  <tr><td><b>위젯</b></td><td>스티키 노트, D-Day, 집중 모드(포모도로)</td></tr>
+  <tr><td><b>바탕화면</b></td><td><kbd>Win</kbd> + <kbd>D</kbd>에도 남는 바탕화면 고정, 바로가기 사이드바, 트레이 상주</td></tr>
+  <tr><td><b>보안</b></td><td>PIN 잠금, 이 PC에만 암호화 저장</td></tr>
+  <tr><td><b>내장 자료</b></td><td>공휴일·음력 데이터(인터넷 연결 불필요)</td></tr>
+</table>
+
+<table>
+  <tr>
+    <td><b>미니앱</b></td>
+    <td><img src="resources/icons/mini_apps/unit_converter.svg" width="26" height="26" align="absmiddle" alt=""> 단위 환산</td>
+    <td><img src="resources/icons/mini_apps/date_time.svg" width="26" height="26" align="absmiddle" alt=""> 날짜/시간 계산</td>
+    <td><img src="resources/icons/mini_apps/money_notation.svg" width="26" height="26" align="absmiddle" alt=""> 금액 표기</td>
+    <td><img src="resources/icons/mini_apps/document_converter.svg" width="26" height="26" align="absmiddle" alt=""> 파일 변환</td>
+    <td><img src="screen_text/icon.svg" width="26" height="26" align="absmiddle" alt=""> 화면 글자 따기</td>
+  </tr>
+</table>
+
+## <img src="readme/icon-download.svg" width="32" height="32" align="absmiddle" alt=""> 받기
+
+1. **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 에서 EXE 파일 하나를 받습니다. 설치 없이 실행합니다.
+2. 처음 실행할 때 Windows SmartScreen 경고가 뜨면 <kbd>추가 정보</kbd> → <kbd>실행</kbd>을 누르세요. 코드 서명이 없어서 나타나는 경고입니다.
+3. 받은 파일은 릴리스 설명의 SHA-256과 비교할 수 있습니다: `Get-FileHash <파일명> -Algorithm SHA256`
+
+## <img src="readme/icon-update.svg" width="32" height="32" align="absmiddle" alt=""> 업데이트
+
+실행 중인 기후노트를 트레이에서 **완전히 종료**한 뒤 새 EXE로 바꿔 실행합니다. 데이터는 `%LOCALAPPDATA%\MyDesktopCalendar\`에 그대로 남습니다. 초기화나 가져오기는 필요 없습니다.
+
+<details>
+<summary><b>다른 PC로 옮기기</b></summary>
+
+데이터는 이 PC와 Windows 계정에 묶여 있습니다. 다른 PC로 옮길 때는 설정의 **내보내기/가져오기**를 쓰세요.
+
+</details>
+
+<details>
+<summary><b>버전별 주의사항 (v4.3 · v4.5)</b></summary>
+
 - v4.3부터 새 내보내기는 12자 이상 암호를 사용하고 기존 4자리 PIN 파일도 읽습니다. 잠금 PIN의 검증값 저장으로 바뀐 뒤에는 v4.3 이상을 사용하세요. 소스·EXE 구분과 호환 안내는 [상세 안내](README_detail.md)를 참고하세요.
 - v4.5로 처음 실행하면 DB가 v19로 바뀝니다. v4.4b 이하 EXE는 새 데이터를 변경하지 않고 실행을 중단하므로 v4.5로 여세요. 새 내보내기는 v4 형식이며 기존 v1~v3 파일도 가져올 수 있습니다. 되돌리기 보호본과 주의사항은 [상세 안내](README_detail.md)에 있습니다.
 
-## 주요 기능
+</details>
 
-- 캘린더(기본·중간·크게 3단계 크기), 일정·메모, 전역 검색, AI 법령정보 검색
-- 일정 시작 시각·알림·반복(매일·평일·매주·매월·매년)·여러 날 기간, 반복 일정의 이 날만 수정(v4.5)
-- 스티키 노트, D-Day, 집중 모드(포모도로)
-- 바로가기 사이드바, 미니앱(단위 환산·날짜/시간 계산·금액 표기·파일 변환·화면 글자 따기)
-- PIN 잠금, `Win+D`에도 남는 바탕화면 고정, 트레이 상주
-- 공휴일·음력 데이터 내장(인터넷 연결 불필요)
-
-## 요구 환경
+## <img src="readme/icon-shield.svg" width="32" height="32" align="absmiddle" alt=""> 요구 환경 · 라이선스
 
 Windows 10 이상(Windows 11 권장). Windows 전용입니다.
-
-## 더 보기
-
-- 기능 상세, 버전별 변경·검증, 소스 실행·테스트·빌드: **[README_detail.md](README_detail.md)**
-- 개발 규칙: [AGENTS.md](AGENTS.md)
-
-## 라이선스
 
 GNU GPL v3.0 — [LICENSE](LICENSE). 제3자 구성요소 고지는 [licenses/](licenses/)에 있습니다.
 
 설정 → 라이선스에서 구성요소별 원문과 출처를 오프라인으로 열람·복사할 수 있습니다. [기본 목록](licenses/components.json), [소스 제공 안내](licenses/APP-NOTICE.txt)를 참조하세요.
 
 본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. 한글·HWPX 변환기는 별도 설치 제품으로 해당 사용권이 적용됩니다.
+
+---
+
+기능 상세, 버전별 변경·검증, 소스 실행·테스트·빌드는 **[README_detail.md](README_detail.md)**, 개발 규칙은 [AGENTS.md](AGENTS.md)에 있습니다.
 
 만든이: 기후에너지환경부 보문산불주먹
