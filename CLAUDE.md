@@ -12,3 +12,7 @@ Project instructions live in [`AGENTS.md`](AGENTS.md).
 - testing expectations
 
 Follow `AGENTS.md` unless it conflicts with a direct user request or higher-priority system/developer instructions.
+
+The import below loads `AGENTS.md` into every Claude Code session automatically.
+
+@AGENTS.md
