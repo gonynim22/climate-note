@@ -1,23 +1,23 @@
-<img src="readme/app.png" alt="기후노트 — 늘 보이는 곳에, 오늘 할 일. 일정·메모·D-Day·집중 모드를 함께 펼치는 v4.5 크게 모드 화면과 바로가기 사이드바가 있는 기본 크기 화면">
+<img src="readme/app.png" alt="기후노트 — 늘 보이는 곳에, 오늘 할 일. 일정·메모·D-Day·집중 모드를 함께 펼치는 크게 모드 화면과 바로가기 사이드바가 있는 기본 크기 화면">
 
-<p align="center">
+<div align="center">
   <img src="readme/badge-version.svg" alt="버전 v4.5a">
   <img src="readme/badge-windows.svg" alt="Windows 10 · 11">
   <img src="readme/badge-offline.svg" alt="네트워크 오프라인 전용">
   <img src="readme/badge-license.svg" alt="라이선스 GPL-3.0">
-</p>
-
-<p align="center">
+</div>
+<br>
+<div align="center">
   <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases"><img src="readme/button-download.svg" alt="최신 버전 받기"></a>
   <a href="README_detail.md"><img src="readme/button-detail.svg" alt="상세 안내"></a>
-</p>
-
-<p align="center">
+</div>
+<br>
+<div align="center">
   Windows 바탕화면에서 쓰는 <b>오프라인 전용</b> 캘린더·메모·위젯 앱입니다.<br>
   일정과 메모를 이 PC에만 암호화해 저장하며, 외부 서버로 아무것도 보내지 않습니다.
-</p>
+</div>
 
-## <img src="readme/icon-features.svg" width="32" height="32" align="absmiddle" alt=""> 주요 기능
+## <sub><img src="readme/icon-features.svg" width="26" height="26" alt=""></sub> 주요 기능
 
 <table>
   <tr><td><b>캘린더</b></td><td>기본·중간·크게 3단계 크기, 일정·메모, 전역 검색, AI 법령정보 검색</td></tr>
@@ -30,22 +30,22 @@
 
 <table>
   <tr>
-    <td><b>미니앱</b></td>
-    <td><img src="resources/icons/mini_apps/unit_converter.svg" width="26" height="26" align="absmiddle" alt=""> 단위 환산</td>
-    <td><img src="resources/icons/mini_apps/date_time.svg" width="26" height="26" align="absmiddle" alt=""> 날짜/시간 계산</td>
-    <td><img src="resources/icons/mini_apps/money_notation.svg" width="26" height="26" align="absmiddle" alt=""> 금액 표기</td>
-    <td><img src="resources/icons/mini_apps/document_converter.svg" width="26" height="26" align="absmiddle" alt=""> 파일 변환</td>
-    <td><img src="screen_text/icon.svg" width="26" height="26" align="absmiddle" alt=""> 화면 글자 따기</td>
+    <td><sub><sub><img src="readme/icon-miniapps.svg" width="22" height="22" alt=""></sub></sub> <b>미니앱</b></td>
+    <td><sub><sub><img src="resources/icons/mini_apps/unit_converter.svg" width="22" height="22" alt=""></sub></sub> 단위 환산</td>
+    <td><sub><sub><img src="resources/icons/mini_apps/date_time.svg" width="22" height="22" alt=""></sub></sub> 날짜/시간 계산</td>
+    <td><sub><sub><img src="resources/icons/mini_apps/money_notation.svg" width="22" height="22" alt=""></sub></sub> 금액 표기</td>
+    <td><sub><sub><img src="resources/icons/mini_apps/document_converter.svg" width="22" height="22" alt=""></sub></sub> 파일 변환</td>
+    <td><sub><sub><img src="screen_text/icon.svg" width="22" height="22" alt=""></sub></sub> 화면 글자 따기</td>
   </tr>
 </table>
 
-## <img src="readme/icon-download.svg" width="32" height="32" align="absmiddle" alt=""> 받기
+## <sub><img src="readme/icon-download.svg" width="26" height="26" alt=""></sub> 받기
 
 1. **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 에서 EXE 파일 하나를 받습니다. 설치 없이 실행합니다.
 2. 처음 실행할 때 Windows SmartScreen 경고가 뜨면 <kbd>추가 정보</kbd> → <kbd>실행</kbd>을 누르세요. 코드 서명이 없어서 나타나는 경고입니다.
 3. 받은 파일은 릴리스 설명의 SHA-256과 비교할 수 있습니다: `Get-FileHash <파일명> -Algorithm SHA256`
 
-## <img src="readme/icon-update.svg" width="32" height="32" align="absmiddle" alt=""> 업데이트
+## <sub><img src="readme/icon-update.svg" width="26" height="26" alt=""></sub> 업데이트
 
 실행 중인 기후노트를 트레이에서 **완전히 종료**한 뒤 새 EXE로 바꿔 실행합니다. 데이터는 `%LOCALAPPDATA%\MyDesktopCalendar\`에 그대로 남습니다. 초기화나 가져오기는 필요 없습니다.
 
@@ -64,7 +64,7 @@
 
 </details>
 
-## <img src="readme/icon-shield.svg" width="32" height="32" align="absmiddle" alt=""> 요구 환경 · 라이선스
+## <sub><img src="readme/icon-shield.svg" width="26" height="26" alt=""></sub> 요구 환경 · 라이선스
 
 Windows 10 이상(Windows 11 권장). Windows 전용입니다.
 
