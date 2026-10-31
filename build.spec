@@ -17,7 +17,8 @@ dist_name = f"{APP_DISPLAY_NAME}_{APP_VERSION}"
 version_info = make_windows_version_info()
 
 # 화면 글자 따기(걷어낼 수 있는 선택형 미니앱): 폴더가 있을 때만 모델·onnxruntime·numpy를 넣는다.
-# 폴더가 있으면 html도 제외하지 않는다(screen_text/layout.py가 html.escape를 쓴다).
+# html은 폴더와 무관하게 넣는다. src/ui_text.py(v4.5)와 screen_text/layout.py가 html.escape를 쓴다.
+# 걷어낸 빌드에서 html을 빼면 빌드는 성공하고 EXE만 시작하지 못했다(2026-10-31 실측).
 _SCREEN_TEXT = (_SPEC_DIR / "screen_text").is_dir()
 _SCREEN_TEXT_DATAS = [
     ('screen_text/models', 'screen_text/models'),
@@ -135,7 +136,7 @@ a = Analysis(
         'PySide6.QtConcurrent',
         'PySide6.QtDBus',
         'PySide6.QtHttpServer',
-    ] + ([] if _SCREEN_TEXT else ['numpy', 'html']),
+    ] + ([] if _SCREEN_TEXT else ['numpy']),
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

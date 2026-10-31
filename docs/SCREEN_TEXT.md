@@ -65,4 +65,4 @@
 3. `tests/test_screen_text_*.py` 삭제
 4. `AGENTS.md`·`README_detail.md`·`docs/ARCHITECTURE.md`·`docs/TESTING.md`의 해당 항목, `.gitattributes`의 모델 줄, 이 문서 삭제. 라이선스 목록·원문은 1번의 폴더 삭제에 포함되며 기본 `licenses/components.json`을 수정할 필요는 없다.
 5. (선택) `requirements.txt`·`requirements-lock.txt`·`tools/verify.py`·`tests/test_packaging.py`에서 onnxruntime·flatbuffers·protobuf 제거
-6. `full` 검증 → 빌드 → EXE 크기 원복과 numpy 미포함 확인. `build.spec`은 폴더가 없으면 자동으로 원래 빌드가 된다.
+6. `full` 검증 → PowerShell `release`(빌드·격리 실행) → EXE 크기 감소와 numpy 미포함 확인. `build.spec`은 폴더가 없으면 자동으로 모델·onnxruntime·numpy를 뺀다(`html`은 앱 본체도 쓰므로 빼지 않는다). 일반 빌드는 EXE가 켜지는지 확인하지 않으므로 격리 실행까지 본다(2026-10-31, `html`을 뺀 빌드가 성공 후 시작 실패한 사례).

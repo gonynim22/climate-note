@@ -247,9 +247,9 @@ def test_build_spec_bundles_screen_text_only_when_folder_exists(tmp_path):
     assert "onnxruntime" in present["hiddenimports"]
     assert "numpy" in present["hiddenimports"]
     assert "numpy" not in present["excludes"]
-    assert "html" not in present["excludes"]  # layout.py가 html.escape를 쓴다(제외하면 EXE에서 import 실패)
+    assert "html" not in present["excludes"]  # layout.py·ui_text가 html.escape를 쓴다(제외하면 EXE에서 import 실패)
     absent = _spec_analysis(absent_dir)  # 걷어낸 뒤: 폴더가 없으면 원래 빌드
     assert not any("screen_text" in source for source, _ in absent["datas"])
     assert "onnxruntime" not in absent["hiddenimports"]
     assert "numpy" in absent["excludes"]
-    assert "html" in absent["excludes"]
+    assert "html" not in absent["excludes"]  # 걷어내도 src/ui_text.py가 html.escape를 쓴다
