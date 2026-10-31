@@ -333,6 +333,7 @@
   - 영향 범위: 현재 배포 EXE(screen_text 포함)는 영향이 없다. OCR을 걷어낸 배포가 필요할 때 드러난다.
   - `tests/test_packaging.py:254`가 이 구성(`"html" in absent["excludes"]`)을 기대값으로 고정하고 있다. 걷어내기 절차(`docs/SCREEN_TEXT.md:68`)에는 EXE 실행 확인이 없다.
 - 고칠 방향(별도 작업): html을 항상 포함하거나 ui_text의 html 의존을 없앤다. `tests/test_packaging.py:254` 기대값과 걷어내기 절차의 EXE 실행 확인도 함께 고친다.
+- 해결(2026-11-01): 사용자가 OCR을 계속 넣기로 하면서도 걷어내기 약속을 지키기 위해 html을 항상 포함하도록 고쳤다(`build.spec` 제외 목록에서 `html` 제거, 시험 기대값·`docs/SCREEN_TEXT.md` 6단계 수정). screen_text가 있는 빌드의 제외 목록은 그대로다. quick `20261101-011102-63d551e77c` 통과. [실측] 걷어낸 복사본(폴더 삭제 + 등록부 `()`)을 PowerShell에서 빌드한 EXE(59,517,353 bytes, PYZ 378개, html·ui_text 포함, numpy·onnxruntime·screen_text 없음)가 smoke 5개 시나리오를 통과했다.
 
 ## 10. 미확인·결정 필요
 
