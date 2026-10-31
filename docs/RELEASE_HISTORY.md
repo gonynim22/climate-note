@@ -1,5 +1,12 @@
 # 릴리스 검증 이력과 보류 과제
 
+## v4.5a (2026-11-01, 소스 배치 정리)
+
+- 앱 모듈 52개를 패키지가 아닌 `src/`로 옮겨 GitLab 루트 목록을 79줄에서 28줄로 줄였다. 기능·화면·DB v19·Export v4·salt·설정 키·의존성은 v4.5와 같다. 순수 이동 `fc2c09a`(52개 100% rename)와 경로 수정·보호 검사 `2d00b77`로 나눴다. 분석은 [위험도 문서](work/2026-10-31-root-file-cleanup-risk.md), 진행과 증거는 [작업 기록](work/2026-11-01-v4.5a-src-layout.md)을 따른다.
+- 검증: full `20261101-002458-cd559ed625` 3,118개, PowerShell release `20261101-003147-cbecc9e0ba`의 3,118개·새 빌드·EXE 구성(BINARY 64·검증 환경 밖 0·Qt DLL 15 원본 일치·`src/` 앱 모듈 52개 PYZ 포함)·격리 실행 5개(fresh·existing·blocked·upgrade·upgrade_v18) 통과, 새 clone full `20261101-004741-90b8ba8641` 3,118개 통과.
+- EXE `dist/기후노트_v4.5a.exe` 94,309,501 bytes, Windows 4.5.1.0, SHA-256 `36E81F1ED25C715078E221D785CCBAE5185FECB5F461F122922DD3A16F43A4E0`. 배포된 v4.5 EXE(`799FA8C5…`, 그대로 보존)와 PYZ 541개 이름이 같고, 코드가 다른 것은 `app_info`(버전 문자)·`app_paths`(소스 기준점)·`ui_settings._get_startup_cmd`(소스 실행 분기)와 진입 스크립트뿐이다. 그 밖의 번들 차이는 아이콘 SVG 줄바꿈(LF→CRLF 체크아웃)과 `base_library.zip` 압축 정보(내용 동일)뿐이다.
+- 수동 미확인: 소스 실행 자동 시작 레지스트리 값, HWP 변환 1회, 실험실 명령 1회, push 뒤 GitLab 첫 화면. GitLab Release 게시는 사용자가 한다.
+
 ## v4.5 (2026-10-26, 내부 검토)
 
 2026-10-27 릴리스 전 재검토에서 잘못된 위젯 좌표 Import 후 시작 실패와 일시 DB 조회 오류 뒤 알림 누락을 재현해 수정했다. PowerShell release `20261027-224108-db8112b8fd`에서 3,110개·빌드·격리 EXE 5개를 통과했다. 수정 함수·구 EXE 차단·v18 보호본 복구·아이콘도 확인했다. 최신 내부 검토본은 **`dist/기후노트_v4.5.exe`**, 94,307,316 bytes, SHA-256 `799FA8C5…`다. 재검토 직후에는 WinError 5로 별도 배치했고, 후속 push 준비에서 표준 경로의 최신 해시 일치를 확인했다. 아래 10월 26일 EXE는 수정 전 내부 검토본이며 최신 검증·산출물·남은 한계는 [재검토 기록](work/2026-10-27-v4.5-critical-review.md)을 따른다.
