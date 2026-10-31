@@ -12,8 +12,8 @@
 from pathlib import Path
 import sys
 
-# 소스 실행 기준 프로젝트 루트. 이 파일이 루트에 있다는 전제다.
-_SOURCE_ROOT = Path(__file__).resolve().parent
+# 소스 실행 기준 프로젝트 루트. 이 파일이 루트의 src/에 있다는 전제다(v4.5a).
+_SOURCE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def resource_root() -> Path:

@@ -6,6 +6,7 @@ import sys
 
 _SPEC_DIR = Path(SPECPATH) if "SPECPATH" in globals() else Path.cwd()
 sys.path.insert(0, str(_SPEC_DIR))
+sys.path.insert(0, str(_SPEC_DIR / "src"))  # 앱 모듈(B안)
 
 from app_info import APP_DISPLAY_NAME, APP_VERSION
 from build_app import make_windows_version_info
@@ -27,7 +28,7 @@ _SCREEN_TEXT_IMPORTS = ['onnxruntime', 'numpy'] if _SCREEN_TEXT else []
 
 a = Analysis(
     ['main.py'],
-    pathex=['.'],
+    pathex=[str(_SPEC_DIR), str(_SPEC_DIR / "src")],
     binaries=[],
     datas=[
         ('icon', 'icon'),

@@ -25,6 +25,7 @@
 - 루트 79줄 → 1단계 28줄 → 2단계 25줄.
 - [실측] B안 수정(20개 파일, +63/−29줄) 뒤 시험 3,110개의 결과가 원본 복사본과 같았다(차이 0).
 - [실측] B안으로 만든 EXE는 모듈 541개의 이름·코드 객체가 원본 빌드와 같고, 이름 집합은 배포된 `dist/기후노트_v4.5.exe`와 같다. 저장소 smoke 5개 시나리오도 통과했다.
+  - 정정(2026-10-31): 이 EXE(V3)에는 소스 실행 전용 수정 F5·F6이 빠져 있었다. 넣으면 `app_paths`·`ui_settings` 2개 모듈의 코드 객체가 달라진다. 바뀐 줄은 EXE에서 결과를 쓰지 않는다[판독](6.2).
 - 사용자 데이터 영향 없음: 데이터 위치와 암호화 키가 코드 위치와 무관하다.
 - 위험은 개별 파일보다 공통 장치에 있다.
   - 보호 시험의 빈 통과: 옮기면 `screen_text` 걷어내기 계약 시험이 앱 모듈을 보지 않고 통과한다(실측).
@@ -196,7 +197,9 @@
 - F4 `build_app.py`: `:7`의 `from app_info import` 앞에 `src`를 넣는다(이미 있으면 넣지 않는다).
   - [실측] 빠뜨리면 pytest는 통과하고, 실제 빌드가 `build_app.py:7`에서 실패한다.
   - "없을 때만 넣기"는 `tools/verify.py:366-371`의 `insert(0)`·`pop(0)` 짝이 엉키지 않게 하려는 것이다.
-- F5 `src/app_paths.py:16` → `parents[1]`.
+- F5 `src/app_paths.py:16` → `parents[1]`. 실제 이동 때는 `.parent.parent`를 권장한다.
+  - 이 줄은 모듈 수준이라 EXE에서도 import 때 실행된다(값은 frozen에서 쓰지 않음). `parents[1]`은 경로 깊이가 얕으면 IndexError를 내지만 `.parent.parent`는 예외가 없다.
+  - 현재 `build.spec:159`는 `runtime_tmpdir=None`이라 `_MEIPASS`가 임시 폴더 아래여서 실제로는 둘 다 안전하다[판독].
 - F6 `src/ui_settings.py:82` → `Path(__file__).parent.parent / "main.py"`. [실측] `main.py:89`가 만드는 문자열과 같다.
 - F7 `tools/verify.py`: doctor 목록(`:151-152`), runpy 경로(`:364·537`), `:366` 경로, 공휴일 경로(`:449`)를 `src` 기준으로 바꾼다.
   - 앱 소스 폴더는 상대 상수(`"src"`)로 두고 호출할 때 `ROOT`와 합친다.
@@ -287,7 +290,8 @@
 ### 6.2 빌드·EXE (PowerShell, PyInstaller 6.19.0)
 
 - V0 원본: EXE 94,308,767 bytes, PYZ 모듈 541개. 이름 집합이 배포된 `dist/기후노트_v4.5.exe`와 같다.
-- V3 B안 전체(일반 빌드 경로 `python build_app.py`):
+- V3 B안 빌드 경로 수정(이동 + F1·F3·F4·doctor 목록, F5·F6 제외, 일반 빌드 경로 `python build_app.py`):
+  - F5·F6을 넣은 EXE는 빌드하지 않았다. 넣으면 `app_paths`·`ui_settings`의 코드 객체만 달라진다. `app_paths.resource_root()`는 frozen이면 `_MEIPASS`를 돌려주고 `_SOURCE_ROOT`는 쓰지 않는다. `ui_settings._get_startup_cmd()`는 frozen 분기에서 먼저 반환한다[판독, `app_paths.py:16·25-27`, `ui_settings.py:80-82`].
   - doctor를 통과했다. PYZ 541개의 이름·코드 객체가 V0과 같다(차이는 진입 스크립트의 B안 4줄뿐).
   - 격리 실행에서 최초 설정 → 본 창이 떴고 error.log는 0바이트다.
   - 저장소 smoke 5개 시나리오(fresh·existing·blocked·upgrade·upgrade_v18)를 통과했다. 단, smoke는 원본 복사본의 하네스로 돌렸다. B안 배치의 자체 release에는 F7·F11이 필요하다.
@@ -309,12 +313,15 @@
 
 ## 8. 옮길 때 검증 계획
 
-1. 브랜치에서 `git mv`만 담은 커밋 → F1~F13·G1~G5 커밋.
+원칙: 이동 따로, 기능 따로. 이동은 v4.6 기능 개발보다 먼저 기능 변경 0·DB 버전 그대로(v19)인 단계로 끝낸다. 이 단계의 EXE가 v4.5와 같은 프로그램임을 확인한 뒤에 기능을 얹어, 이후 문제의 원인이 이동인지 기능인지 갈리게 한다. DB 버전이 그대로이므로 이 단계 EXE와 v4.5 EXE는 같은 데이터를 서로 바꿔 써도 된다.
+
+1. 브랜치에서 `git mv`만 담은 커밋 → F1~F13·G1~G5 커밋. 이 단계에는 기능 변경을 섞지 않는다.
 2. `tools/verify.py full` (quick·data로는 부족, X-7).
 3. PowerShell `tools/verify.py release` (EXE 빌드·격리 실행 5개).
-4. G3: 새 EXE의 PYZ에 `src/` 모듈이 모두 있는지, 코드 객체가 직전 빌드와 같은지 확인한다.
+4. G3: 새 EXE의 PYZ에 `src/` 모듈이 모두 있는지 확인하고, 배포된 `dist/기후노트_v4.5.exe`와 코드 객체를 대조한다. 예상 차이는 `app_paths`·`ui_settings` 2개(F5·F6)와 진입 스크립트뿐이다. 그 밖의 차이가 있으면 원인을 밝히기 전에 기능 개발로 넘어가지 않는다.
 5. 별도 폴더에 새로 clone해서 `full`을 한 번 더 돌린다(`.gitattributes`·줄바꿈).
 6. 수동: 소스 실행 자동 시작 토글 → 레지스트리 값, HWP 변환 1회, 실험실 명령 1회, push 뒤 GitLab 첫 화면.
+7. 이동 단계 EXE는 따로 배포하지 않아도 된다. 그 위에서 v4.6 기능을 개발하고, 데이터 변경이 있으면 기존 규칙(열 추가만·마이그레이션 전 보호본·구 EXE 차단·왕복 시험)을 따른다.
 
 ## 9. 부수 발견: 걷어내기 빌드의 `html` 결함 (이동과 무관)
 
@@ -344,6 +351,7 @@
   - G1~G6 보호 시험 자체.
   - 다른 PC의 `core.autocrlf`.
   - 실제 `tools/verify.py release` 실행.
+  - F5·F6까지 넣은 EXE의 빌드·smoke·v4.5 대조(예상 차이: `app_paths`·`ui_settings` 2개).
 
 ## 11. 다른 모델이 검증하는 법
 

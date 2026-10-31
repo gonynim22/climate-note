@@ -1,5 +1,12 @@
 # Testing & Security Audit Reference
 
+## v4.5a 추가 검증 계약 (src/ 배치)
+
+- 앱 모듈은 `src/`에 있다. `tests/test_source_layout.py`가 루트 `*.py` 허용 목록(main·build_app·fetch_data, 미추적 파일 포함)·`src/__init__.py` 없음·`src.` 접두 import 금지(`build.spec` 포함)·`src/`의 `__file__` 사용처(`app_paths`·`ui_settings`)·공휴일 갱신 대상과 소스 실행 자동 시작 명령의 경로를 검사한다.
+- `test_screen_text_ui.py`의 걷어내기 보호 시험은 추적 `.py` 전체(`git ls-files`)를 훑고 등록부가 실제로 잡히는지 단언한다. 폴더를 옮겨도 아무것도 검사하지 않고 통과하지 않는다.
+- release는 빌드 뒤 `app_module_check`로 추적 중인 `src/*.py` 모듈이 모두 EXE PYZ에 들었는지 확인한다. `build.spec`이 `src/`를 못 보면 빌드는 성공하고 EXE만 시작 오류를 내며, 경고 파일에는 빠진 모듈 일부만 남는다(2026-10-31 실측). 일반 빌드(`build_app.py`)에는 이 검사가 없으므로 배포 EXE는 release로 만든다.
+- quick·data에는 `test_packaging`·`test_build_app`·`test_ui_licenses`·`test_screen_text_ui`가 없다. 배치·빌드 경로를 바꾸면 `full`과 PowerShell `release`로 검증한다.
+
 ## v4.5 추가 검증 계약
 
 - 알림 시작의 처리 시각 읽기 실패도 재시도한다. 저장값이 있는 경우 시작 전 놓친 알림, 키가 없는 경우 앱을 켠 뒤 알림을 복구하는 두 경우를 가짜 시계로 검사한다.

@@ -23,6 +23,7 @@ from defusedxml import ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
+APP_SOURCE_DIR = "src"  # 앱 모듈 위치(B안). ROOT 기준 상대 경로로 두어 ROOT monkeypatch를 따른다.
 DIRECT_DEPENDENCIES = (
     "PySide6", "PySide6-Fluent-Widgets", "cryptography", "python-dotenv",
     "pytest", "pytest-qt", "pytest-timeout", "PyInstaller", "pywin32", "defusedxml",
@@ -148,8 +149,9 @@ def doctor(root=ROOT):
         result["dependencies"][name] = {"expected": expected, "actual": actual}
         if expected is None or actual != expected:
             result["errors"].append(f"{name}: 설치={actual}, lock={expected}")
-    for name in ("pytest.ini", "tests/conftest.py", "main.py", "security.py",
-                 "database.py", "app_info.py", "build.spec", "holidays.py"):
+    for name in ("pytest.ini", "tests/conftest.py", "main.py", f"{APP_SOURCE_DIR}/security.py",
+                 f"{APP_SOURCE_DIR}/database.py", f"{APP_SOURCE_DIR}/app_info.py", "build.spec",
+                 f"{APP_SOURCE_DIR}/holidays.py"):
         if not (Path(root) / name).is_file():
             result["errors"].append(f"필수 파일 없음: {name}")
     return result
@@ -310,6 +312,8 @@ def save_report(run_dir, report):
         lines += ["", "## EXE 구성", "",
                   f"- BINARY {bundle['binary_entries']}개, 검증 환경 밖 {len(bundle['outside_environment'])}개",
                   f"- Qt DLL {len(bundle['qt_dlls'])}개: 검증 환경 원본과 바이트 동일"]
+        if "app_modules" in bundle:
+            lines.append(f"- src/ 앱 모듈 {bundle['app_modules']['expected']}개: 모두 EXE PYZ에 포함")
     if report.get("root_dist"):
         lines += ["", "## 기존 dist 보존", ""]
         for observation in report["root_dist"]:
@@ -361,14 +365,14 @@ def artifact_metadata(exe, env):
     if not meta.get("signature_status"):
         raise VerificationFailure("EXE 서명 상태를 확인하지 못했습니다.")
     meta.update(path=str(exe), size=exe.stat().st_size, sha256=file_hash(exe))
-    info = runpy.run_path(str(ROOT / "app_info.py"))
+    info = runpy.run_path(str(ROOT / APP_SOURCE_DIR / "app_info.py"))
     # build_app와 동일한 버전 변환 함수를 쓰되 앱 초기화는 실행하지 않는다.
-    sys.path.insert(0, str(ROOT))
+    sys.path[:0] = [str(ROOT), str(ROOT / APP_SOURCE_DIR)]
     try:
         from build_app import _windows_version_parts
         expected = ".".join(map(str, _windows_version_parts(info["APP_VERSION"])))
     finally:
-        sys.path.pop(0)
+        del sys.path[:2]
     if (meta["file_version"] != expected or meta["product_version"] != expected
             or meta["original_filename"] != info["app_exe_name"]()):
         raise VerificationFailure("EXE 버전 정보가 현재 app_info와 다릅니다.")
@@ -432,6 +436,33 @@ def bundle_check(toc_path, exe):
     return {"binary_entries": len(entries), "outside_environment": outside, "qt_dlls": qt}
 
 
+def _pyz_module_names(exe):
+    # PyInstaller는 release 단계에서만 가져온다.
+    from PyInstaller.archive.readers import CArchiveReader
+    archive = CArchiveReader(str(exe))
+    pyz = [name for name, entry in archive.toc.items() if entry[-1] == "z"]
+    if len(pyz) != 1:
+        raise VerificationFailure("EXE에서 PYZ 묶음을 하나로 찾지 못했습니다.")
+    return set(archive.open_embedded_archive(pyz[0]).toc)
+
+
+def app_module_check(exe, root=ROOT):
+    """추적 중인 src/ 앱 모듈이 모두 EXE의 PYZ에 들어갔는지 확인한다.
+
+    build.spec이 src/를 검색 경로에 넣지 못해도 빌드는 성공으로 끝나고, 경고 파일에는
+    빠진 모듈 일부만 남는다(2026-10-31 실측). 빠진 모듈은 EXE를 켤 때에야 오류 창으로
+    드러나므로 이번 EXE의 PYZ 목록을 직접 대조한다.
+    """
+    expected = sorted(Path(name).stem for name in
+                      git_output("ls-files", "--", f"{APP_SOURCE_DIR}/*.py", root=root).splitlines())
+    if not expected:
+        raise VerificationFailure("추적 중인 src/ 앱 모듈을 찾지 못했습니다.")
+    missing = sorted(set(expected) - _pyz_module_names(exe))
+    if missing:
+        raise VerificationFailure(f"EXE에 없는 앱 모듈: {missing}")
+    return {"expected": len(expected), "missing": missing}
+
+
 def _fetch_data_module():
     # 모듈 import 때는 가져오지 않고 release 단계에서만 가져온다.
     sys.path.insert(0, str(ROOT))
@@ -446,7 +477,7 @@ def refresh_holidays_step(run_dir, report):
     fd = _fetch_data_module()
     print("공휴일 데이터를 API에서 확인하는 중... (1~3분)", flush=True)
     try:
-        result = fd.refresh_holidays(ROOT / "holidays.py", backup_dir=run_dir / "holidays-backup")
+        result = fd.refresh_holidays(ROOT / APP_SOURCE_DIR / "holidays.py", backup_dir=run_dir / "holidays-backup")
     except fd.FetchError as exc:
         report["holidays"] = {"status": "failed", "error": str(exc)}
         print(f"공휴일: 받기 실패 ({exc})", flush=True)
@@ -534,7 +565,7 @@ def execute(profile, extra=()):
             code = 0 if step["returncode"] == 0 else 1
             save_report(run_dir, report)
             if code == 0:
-                info = runpy.run_path(str(ROOT / "app_info.py"))
+                info = runpy.run_path(str(ROOT / APP_SOURCE_DIR / "app_info.py"))
                 exe = run_dir / "dist" / info["app_exe_name"]()
                 report["artifact"] = artifact_metadata(exe, env)
                 report["build_toc"] = {
@@ -547,6 +578,7 @@ def execute(profile, extra=()):
                 if len(analysis) != 1:
                     raise VerificationFailure("이번 빌드의 Analysis TOC를 하나로 찾지 못했습니다.")
                 report["bundle"] = bundle_check(analysis[0], exe)
+                report["bundle"]["app_modules"] = app_module_check(exe)
                 save_report(run_dir, report)
                 print("격리된 EXE 창이 잠시 표시됩니다. 검사 후 전용 프로세스를 정리합니다.", flush=True)
                 step = run_step("smoke", [sys.executable, str(ROOT / "tools/smoke_release.py"),

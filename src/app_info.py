@@ -1,8 +1,8 @@
 """Application metadata shared by UI and build scripts."""
 
 APP_DISPLAY_NAME = "기후노트"
-APP_VERSION = "v4.5"
-APP_RELEASE_DATE = "2026. 10. 26."
+APP_VERSION = "v4.5a"
+APP_RELEASE_DATE = "2026. 11. 1."
 APP_CONTACT_EMAIL = "ggjo@korea.kr"
 APP_AUTHOR = f"기후에너지환경부 보문산불주먹 ({APP_CONTACT_EMAIL})"
 

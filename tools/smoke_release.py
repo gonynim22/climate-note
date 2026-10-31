@@ -270,6 +270,7 @@ def _data_worker(action, data_root, result_path):
     os.environ["LOCALAPPDATA"] = str(directory)
     os.environ["CLIMATENOTE_SKIP_STARTUP_REFRESH"] = "1"
     sys.path.insert(0, str(ROOT))
+    sys.path.insert(0, str(ROOT / "src"))  # 앱 모듈(B안)
     import database as db
     import security
 

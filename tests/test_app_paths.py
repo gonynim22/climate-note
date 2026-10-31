@@ -114,7 +114,8 @@ def test_modules_do_not_rebuild_resource_paths_from_dunder_file():
     bundled_dirs = ("fonts", "icon", "resources", "licenses")
     offenders = []
 
-    for module in ("main.py", "app_fonts.py", "fluent_icons.py", "ui_focus.py"):
+    modules = ["main.py", *sorted(path.relative_to(ROOT).as_posix() for path in (ROOT / "src").glob("*.py"))]
+    for module in modules:
         with open(ROOT / module, encoding="utf-8") as f:
             for lineno, line in enumerate(f, 1):
                 if "__file__" not in line:

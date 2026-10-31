@@ -8,6 +8,7 @@ import traceback
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))  # 앱 모듈(B안)
 
 
 def run(directory: Path, operation: str, outcome: str) -> int:

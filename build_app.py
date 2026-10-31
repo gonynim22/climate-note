@@ -4,6 +4,11 @@ import subprocess
 import sys
 import os
 
+# 앱 모듈은 src/에 있다(B안). build.spec·verify가 import해도 app_info를 찾게 한다.
+_SRC_DIR = Path(__file__).resolve().parent / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
 from app_info import APP_AUTHOR, APP_DISPLAY_NAME, APP_VERSION, app_exe_name
 
 

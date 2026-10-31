@@ -229,7 +229,7 @@ def verify_holiday_data(hol) -> tuple[bool, str]:
     return True, f"OK (공휴일 {len(kh)}건, 음력 {len(lm)}건)"
 
 
-HOLIDAYS_PATH = ROOT / "holidays.py"
+HOLIDAYS_PATH = ROOT / "src" / "holidays.py"
 
 _MODULE_FUNCTIONS = '''def get_lunar_date(date_str: str) -> str:
     return LUNAR_MAPPING.get(date_str, "")

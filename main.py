@@ -1,5 +1,9 @@
 # main.py - 진입점, 앱 초기화, Boss Key 등록
 import sys
+if not getattr(sys, "frozen", False):
+    # 앱 모듈은 src/에 있다(패키지 아님). 실행 위치와 무관하게 이 파일 기준으로 찾는다.
+    import os
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--file-convert-worker":
     from file_conversion_worker import worker_main
     sys.exit(worker_main(sys.argv[2:]))

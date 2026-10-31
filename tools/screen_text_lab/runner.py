@@ -15,7 +15,7 @@ from .metrics import METRIC_VERSION, score_case, summarize
 def source_inputs():
     from tools.verify import ROOT, git_output
     # 고정 이미지 OCR의 실제 입력을 추적한다. 무관한 캘린더 UI 작업을 실험 입력으로 취급하지 않는다.
-    names = ("app_paths.py", "requirements.txt", "requirements-lock.txt", "tools/__init__.py",
+    names = ("src/app_paths.py", "requirements.txt", "requirements-lock.txt", "tools/__init__.py",
              "tools/verify.py", "tools/smoke_release.py", "screen_text/__init__.py",
              "screen_text/engine.py", "screen_text/layout.py", "tests/test_screen_text_lab.py")
     snapshot = {"head": git_output("rev-parse", "HEAD").strip(),

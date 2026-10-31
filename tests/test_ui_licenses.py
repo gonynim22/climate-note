@@ -41,7 +41,7 @@ def test_catalog_documents_exist_and_preserve_attribution():
 
 
 def test_hancom_notice_in_existing_product_documentation_and_source():
-    for filename in ("hwp_conversion.py", "README.md", "README_detail.md", "docs/DOCUMENT_CONVERSION.md"):
+    for filename in ("src/hwp_conversion.py", "README.md", "README_detail.md", "docs/DOCUMENT_CONVERSION.md"):
         assert HANCOM in (ROOT / filename).read_text(encoding="utf-8")
 
 

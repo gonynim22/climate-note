@@ -490,7 +490,8 @@ def use_real_fetch(monkeypatch, tmp_path, holidays_bytes, key, opener):
     """실제 fetch_data 받기 경로를 쓰되 holidays.py 위치·키·네트워크만 시험용으로 바꾼다."""
     root = tmp_path / "root"
     root.mkdir()
-    (root / "holidays.py").write_bytes(holidays_bytes)
+    (root / "src").mkdir()
+    (root / "src" / "holidays.py").write_bytes(holidays_bytes)
     monkeypatch.setattr(verify, "ROOT", root)
     monkeypatch.setattr(verify, "refresh_holidays_step", REAL_HOLIDAY_STEP)
     monkeypatch.setattr(fetch_data, "API_KEY", key)
@@ -505,7 +506,7 @@ def test_release_real_fetch_failure_keeps_key_out_of_reports(runner, tmp_path, m
         seen.append(url)
         raise urllib.error.URLError(f"no route: {url}")  # 오류 문자열에 키가 든 URL이 있다
 
-    use_real_fetch(monkeypatch, tmp_path, (verify.ROOT / "holidays.py").read_bytes(), key, failing_open)
+    use_real_fetch(monkeypatch, tmp_path, (verify.ROOT / "src" / "holidays.py").read_bytes(), key, failing_open)
     assert verify.execute("release") == 2
     report = verify.read_json(runner / "result.json")
     assert report["holidays"]["status"] == "failed"
@@ -537,7 +538,7 @@ def test_release_corrupt_holidays_file_is_data_failure(runner, tmp_path, monkeyp
     assert report["holidays"]["status"] == "failed"
     assert "SyntaxError" in report["holidays"]["error"]
     assert report["steps"] == []
-    assert (tmp_path / "root" / "holidays.py").read_bytes() == conflict
+    assert (tmp_path / "root" / "src" / "holidays.py").read_bytes() == conflict
 
 
 def test_isolated_env_drops_api_key(tmp_path, monkeypatch):
@@ -610,6 +611,26 @@ def test_bundle_check_rejects_qt_dll_that_differs_from_environment(tmp_path, mon
     monkeypatch.setattr(verify, "_embedded_reader", lambda _exe: lambda _name: b"other Qt build")
     with pytest.raises(verify.VerificationFailure, match="Qt6Core.dll"):
         verify.bundle_check(toc, tmp_path / "app.exe")
+
+
+def test_app_module_check_accepts_exe_with_every_tracked_src_module(tmp_path, monkeypatch):
+    monkeypatch.setattr(verify, "git_output", lambda *args, root: "src/app_info.py\nsrc/ui_main.py\n")
+    monkeypatch.setattr(verify, "_pyz_module_names", lambda _exe: {"app_info", "ui_main", "json"})
+    assert verify.app_module_check(tmp_path / "app.exe") == {"expected": 2, "missing": []}
+
+
+def test_app_module_check_rejects_exe_missing_src_modules(tmp_path, monkeypatch):
+    # build.spec이 src/를 못 보면 빌드는 성공하고 진입 스크립트가 직접 부른 모듈만 남는다.
+    monkeypatch.setattr(verify, "git_output", lambda *args, root: "src/app_fonts.py\nsrc/app_info.py\n")
+    monkeypatch.setattr(verify, "_pyz_module_names", lambda _exe: {"app_info"})
+    with pytest.raises(verify.VerificationFailure, match="app_fonts"):
+        verify.app_module_check(tmp_path / "app.exe")
+
+
+def test_app_module_check_lists_tracked_src_modules_of_this_repository():
+    # 위 두 시험이 가짜로 바꾼 git 목록이 실제 저장소에서도 앱 모듈을 돌려주는지 확인한다.
+    names = verify.git_output("ls-files", "--", f"{verify.APP_SOURCE_DIR}/*.py").splitlines()
+    assert "src/app_info.py" in names and "src/database.py" in names
 
 
 def test_release_bundle_failure_has_exit_one_and_skips_smoke(runner, monkeypatch):

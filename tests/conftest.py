@@ -21,6 +21,10 @@ else:
     _BOOTSTRAP_APPDATA = _PROJECT_ROOT / ".pytest-localappdata"
 _BOOTSTRAP_APPDATA.mkdir(parents=True, exist_ok=True)
 os.environ["LOCALAPPDATA"] = str(_BOOTSTRAP_APPDATA)
+# 앱 모듈은 src/에 있다(B안). runpy로 이 파일만 실행하는 하위 프로세스도 찾게 한다.
+import sys
+if str(_PROJECT_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 import security
 import database as db

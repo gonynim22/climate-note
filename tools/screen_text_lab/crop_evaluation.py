@@ -103,7 +103,7 @@ def validate_worker_records(cases, records):
 
 
 def dependency_snapshot(root):
-    names = ["app_paths.py", "screen_text/__init__.py", "screen_text/engine.py", "screen_text/layout.py",
+    names = ["src/app_paths.py", "screen_text/__init__.py", "screen_text/engine.py", "screen_text/layout.py",
              "tools/verify.py", "tools/smoke_release.py", "tools/screen_text_lab/__init__.py",
              "tools/screen_text_lab/crop_evaluation.py", "tools/screen_text_lab/corpus.py",
              "tools/screen_text_lab/metrics.py", "tools/screen_text_lab/runner.py",

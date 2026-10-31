@@ -79,7 +79,7 @@ def _atomic_write_bytes(path: Path, payload: bytes) -> None:
 def _get_startup_cmd() -> str:
     if getattr(sys, "frozen", False):
         return f'"{sys.executable}"'
-    return f'"{sys.executable}" "{Path(__file__).parent / "main.py"}"'
+    return f'"{sys.executable}" "{Path(__file__).parent.parent / "main.py"}"'
 
 
 def _is_startup_enabled() -> bool:

@@ -564,16 +564,26 @@ def test_icon_follows_mini_app_icon_rules(qapp, scale):
 
 
 def test_screen_text_is_imported_only_from_registry_build_spec_and_own_tests():
+    import subprocess
     pattern = re.compile(r"^\s*(from|import)\s+screen_text\b", re.M)
-    candidates = list(ROOT.glob("*.py")) + list((ROOT / "tests").glob("*.py")) + list((ROOT / "tools").glob("*.py"))
-    offenders = []
-    for path in candidates:
-        relative = path.relative_to(ROOT).as_posix()
-        if relative == "optional_mini_apps.py" or relative.startswith("tests/test_screen_text_"):
+    # 추적 .py 전체(tests/test_security_scan_rules.py:13 방식). 폴더 위치가 바뀌어도 빈 통과가 되지 않는다.
+    names = subprocess.run(["git", "ls-files", "-z", "*.py"], cwd=ROOT, check=True,
+                           capture_output=True).stdout.decode("utf-8").split("\0")
+    registry = "src/optional_mini_apps.py"
+    offenders, scanned, registry_hit = [], 0, False
+    for relative in filter(None, names):
+        with open(ROOT / relative, encoding="utf-8") as stream:
+            found = bool(pattern.search(stream.read()))
+        if relative == registry:
+            registry_hit = found
             continue
-        with open(path, encoding="utf-8") as stream:
-            if pattern.search(stream.read()):
-                offenders.append(relative)
+        if relative.startswith(("tests/test_screen_text_", "screen_text/", "tools/screen_text_lab/")):
+            continue
+        scanned += 1
+        if found:
+            offenders.append(relative)
+    assert scanned > 0
+    assert registry_hit, "등록부가 검사 대상에 없거나 screen_text를 등록하지 않는다"
     assert offenders == []
 
 

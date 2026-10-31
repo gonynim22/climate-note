@@ -29,6 +29,7 @@ def main():
     os.environ["CLIMATENOTE_SKIP_STARTUP_REFRESH"] = "1"
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
     sys.path.insert(0, str(root))
+    sys.path.insert(0, str(root / "src"))  # 앱 모듈(B안)
 
     from PySide6.QtCore import QRect, QTimer, QCoreApplication, QEvent
     from PySide6.QtTest import QTest
@@ -134,7 +135,7 @@ def main():
     report = {
         "run_id": run_id, "arguments": vars(args), "platform": app.platformName(),
         "qt_scale_factor": os.environ.get("QT_SCALE_FACTOR", "default"),
-        "source_sha256": hashlib.sha256((root / "ui_main.py").read_bytes()).hexdigest(),
+        "source_sha256": hashlib.sha256((root / "src" / "ui_main.py").read_bytes()).hexdigest(),
         "probe_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "snapshots": snapshots,
         "manual_unverified": "Actual company monitor, native Windows layout, mixed DPI and KVM",

@@ -1,7 +1,7 @@
 <img src="readme/app.png" alt="기후노트 — 늘 보이는 곳에, 오늘 할 일. 일정·메모·D-Day·집중 모드를 함께 펼치는 v4.5 크게 모드 화면과 바로가기 사이드바가 있는 기본 크기 화면">
 
 <p align="center">
-  <img src="readme/badge-version.svg" alt="버전 v4.5">
+  <img src="readme/badge-version.svg" alt="버전 v4.5a">
   <img src="readme/badge-windows.svg" alt="Windows 10 · 11">
   <img src="readme/badge-offline.svg" alt="네트워크 오프라인 전용">
   <img src="readme/badge-license.svg" alt="라이선스 GPL-3.0">

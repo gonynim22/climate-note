@@ -61,7 +61,7 @@
 
 ## 걷어내기
 1. `screen_text/` 폴더 삭제
-2. `optional_mini_apps.py`의 등록 줄 삭제(`OPTIONAL_MINI_APPS = ()`)
+2. `src/optional_mini_apps.py`의 등록 줄 삭제(`OPTIONAL_MINI_APPS = ()`)
 3. `tests/test_screen_text_*.py` 삭제
 4. `AGENTS.md`·`README_detail.md`·`docs/ARCHITECTURE.md`·`docs/TESTING.md`의 해당 항목, `.gitattributes`의 모델 줄, 이 문서 삭제. 라이선스 목록·원문은 1번의 폴더 삭제에 포함되며 기본 `licenses/components.json`을 수정할 필요는 없다.
 5. (선택) `requirements.txt`·`requirements-lock.txt`·`tools/verify.py`·`tests/test_packaging.py`에서 onnxruntime·flatbuffers·protobuf 제거

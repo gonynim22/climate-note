@@ -1,7 +1,7 @@
 # AGENTS.md
 
 기후노트 개발 지침의 정본입니다. `CLAUDE.md`는 이 파일의 안내 포인터입니다.
-앱 표시 버전·출시일·EXE 이름은 `app_info.py`, DB 버전은 `database.CURRENT_SCHEMA_VERSION`을 기준으로 합니다.
+앱 표시 버전·출시일·EXE 이름은 `src/app_info.py`, DB 버전은 `database.CURRENT_SCHEMA_VERSION`을 기준으로 합니다.
 
 ## 다음 버전부터의 개발 절차
 
@@ -47,7 +47,8 @@
 - 암호화 변경: 기존 데이터 복호화 → 재암호화 경로 제공. 자동 삭제 금지.
 - 설정 변경: 기존 `app_settings` 키 삭제 금지. 새 키 추가 + 기본값 fallback 처리.
 - 데이터 변경 기능 추가 시: `tests/`에 왕복 검증 테스트 필수.
-- 현재 v4.5는 DB v19·Export v4다. v4.1~v4.4b는 DB v18·Export v3였다. v18→v19는 일정 표에 연결 열 2개만 추가하고 기존 행·암호문·salt를 재작성하지 않는다. v4.4b 이하 EXE는 v19 DB를 변경하지 않고 시작을 멈춘다. v18에서 올린 경우 되돌리기 보호본은 `backups/calendar_pre_v19_v18.db`이며 업데이트 후 입력분은 포함하지 않는다. 아래 이전 항목의 'DB v17·Export v2 유지'는 그 기능이 형식을 바꾸지 않았다는 당시 기록이다. v18 마이그레이션은 일정 표에 열 6개만 한 트랜잭션으로 더하고 기존 값은 읽거나 쓰지 않는다. v4.0a 이하 EXE는 v18 DB를 보면 데이터를 바꾸지 않고 시작을 멈춘다(되돌리기는 `backups/calendar_pre_v18_v17.db`, 그 뒤 입력분 제외).
+- 현재 v4.5a는 DB v19·Export v4다(v4.5와 같다. v4.5a는 소스 배치만 바꿨다). v4.1~v4.4b는 DB v18·Export v3였다. v18→v19는 일정 표에 연결 열 2개만 추가하고 기존 행·암호문·salt를 재작성하지 않는다. v4.4b 이하 EXE는 v19 DB를 변경하지 않고 시작을 멈춘다. v18에서 올린 경우 되돌리기 보호본은 `backups/calendar_pre_v19_v18.db`이며 업데이트 후 입력분은 포함하지 않는다. 아래 이전 항목의 'DB v17·Export v2 유지'는 그 기능이 형식을 바꾸지 않았다는 당시 기록이다. v18 마이그레이션은 일정 표에 열 6개만 한 트랜잭션으로 더하고 기존 값은 읽거나 쓰지 않는다. v4.0a 이하 EXE는 v18 DB를 보면 데이터를 바꾸지 않고 시작을 멈춘다(되돌리기는 `backups/calendar_pre_v18_v17.db`, 그 뒤 입력분 제외).
+- 소스 배치(v4.5a): 앱 모듈은 패키지가 아닌 `src/`에 두고 루트에는 진입 스크립트 `main.py`·`build_app.py`·`fetch_data.py`만 둔다. 새 앱 모듈도 `src/`에 만들고 `import database`처럼 이름으로 import하며 `src.` 접두는 쓰지 않는다. `src` 경로는 `main.py` 맨 위(frozen 제외)·`tests/conftest.py`·`build.spec`·`build_app.py`·`tools/screen_text_lab/__init__.py`에서만 넣는다. 리소스는 `app_paths.resource_root()`로 찾고 `__file__` 경로를 늘리지 않는다. 일반 빌드는 앱 모듈이 빠진 EXE도 성공으로 끝내므로 배포 EXE는 release로 만든다. 상세는 [아키텍처](docs/ARCHITECTURE.md)·[검증](docs/TESTING.md)·[작업 기록](docs/work/2026-11-01-v4.5a-src-layout.md)을 따른다.
 
 ## 반드시 보존할 계약
 
