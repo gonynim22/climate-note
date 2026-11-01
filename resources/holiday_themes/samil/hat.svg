@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -30 100 130">
+<!-- 삼일절: 흰 머리띠와 태극 무늬 -->
+<path d="M12 34 Q50 10 88 34 L88 42 Q50 18 12 42 Z" fill="#FFFFFF" stroke="#DADADA" stroke-width="1"/>
+<circle cx="50" cy="26" r="6.5" fill="#2B4FA0"/>
+<path d="M43.5 26 A6.5 6.5 0 0 1 56.5 26 A3.25 3.25 0 0 1 50 26 A3.25 3.25 0 0 0 43.5 26 Z" fill="#CD2E3A" transform="rotate(33.7 50 26)"/>
+</svg>

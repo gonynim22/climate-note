@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -30 100 130">
+<!-- 부처님오신날: 연꽃 -->
+<ellipse cx="50" cy="25" rx="21" ry="4.5" fill="#81C784"/>
+<path d="M50 24 C30 22 20 12 18 4 C30 6 42 12 50 24 Z" fill="#F8BBD0"/>
+<path d="M50 24 C70 22 80 12 82 4 C70 6 58 12 50 24 Z" fill="#F8BBD0"/>
+<path d="M50 24 C38 18 32 6 34 -6 C44 0 50 12 50 24 Z" fill="#F48FB1"/>
+<path d="M50 24 C62 18 68 6 66 -6 C56 0 50 12 50 24 Z" fill="#F48FB1"/>
+<path d="M50 24 C42 14 42 0 50 -12 C58 0 58 14 50 24 Z" fill="#F06292"/>
+<path d="M50 20 V0" stroke="#FCE4EC" stroke-width="1.2"/>
+</svg>

@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QLabel, QHBoxLayout, QVBoxLayout, QWidget
 
 from qfluentwidgets import TransparentToolButton, FluentIcon as FIF
 
-from ui_focus import FOCUS_ACCENT_COLOR, FocusGoalLabel, FocusProgressRing
+from ui_focus import FOCUS_ACCENT_COLOR, FocusGoalLabel, FocusProgressRing, focus_card_gradient
 
 
 class FocusMiniCard(QWidget):
@@ -15,12 +15,10 @@ class FocusMiniCard(QWidget):
     def __init__(self, source_window, parent=None):
         super().__init__(parent)
         self._source = source_window
+        self._holiday_theme = None  # 공휴일 테마(표시 전용). 카드 바탕에만 쓴다
         self.setObjectName("focusMiniCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(
-            "#focusMiniCard{background:rgba(255,255,255,235);"
-            "border:1px solid rgba(255,90,69,90);border-radius:8px;}"
-        )
+        self._render_background()
 
         row = QHBoxLayout(self)
         row.setContentsMargins(10, 8, 10, 8)
@@ -66,6 +64,23 @@ class FocusMiniCard(QWidget):
         self._timer.start()
         self._sync()
 
+    def _render_background(self) -> None:
+        """카드 바탕을 그린다. 테마가 있으면 흰색→연한색→끝색 그라데이션, 없으면 기존 반투명 흰색.
+
+        테두리·진행 고리·퍼센트(토마토 빨강)는 테마와 무관하게 그대로다.
+        """
+        theme = self._holiday_theme
+        background = "rgba(255,255,255,235)" if theme is None else focus_card_gradient(theme)
+        self.setStyleSheet(
+            f"#focusMiniCard{{background:{background};"
+            "border:1px solid rgba(255,90,69,90);border-radius:8px;}"
+        )
+
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 화면에만 입힌다. DB에는 쓰지 않는다."""
+        self._holiday_theme = theme
+        self._render_background()
+
     def _sync(self):
         src = self._source
         if src is None:
@@ -92,6 +107,7 @@ class FocusSidePanel(QWidget):
             "border-top:none;}"
         )
         self._card = None
+        self._holiday_theme = None  # bind()로 새로 만드는 카드에도 입히려고 기억한다
 
         self._outer = QVBoxLayout(self)
         self._outer.setContentsMargins(12, 10, 12, 10)
@@ -106,9 +122,16 @@ class FocusSidePanel(QWidget):
         self._outer.addWidget(self._empty_label)
         self._outer.addStretch()
 
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 기억하고 지금 있는 카드에 입힌다. 화면 전용."""
+        self._holiday_theme = theme
+        if self._card is not None:
+            self._card.set_holiday_theme(theme)
+
     def bind(self, source_window):
         self.clear()
         self._card = FocusMiniCard(source_window, self)
+        self._card.set_holiday_theme(self._holiday_theme)
         self._card.close_requested.connect(self.close_requested.emit)
         self._outer.insertWidget(2, self._card)
         self._empty_label.hide()

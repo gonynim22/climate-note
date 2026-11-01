@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -30 100 130">
+<!-- 기독탄신일: 산타 모자 -->
+<path d="M22 24 C24 4 40 -8 58 -9 C72 -10 83 -3 88 8 C82 7 76 6 71 8 C74 13 77 19 78 24 Z" fill="#D9343E"/>
+<path d="M30 20 C33 6 44 -2 56 -4" stroke="#EF5A63" stroke-width="3" fill="none" stroke-linecap="round"/>
+<rect x="15" y="17" width="70" height="13" rx="6.5" fill="#FFFFFF" stroke="#E3DDD5" stroke-width="1"/>
+<circle cx="89" cy="9" r="7" fill="#FFFFFF" stroke="#E3DDD5" stroke-width="1"/>
+</svg>

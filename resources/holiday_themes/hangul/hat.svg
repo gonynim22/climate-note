@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -30 100 130">
+<!-- 한글날: 'ㅎ' 모양 모자 -->
+<path d="M44 -19 H56" stroke="#2B2A2F" stroke-width="6" stroke-linecap="round"/>
+<path d="M30 -8 H70" stroke="#2B2A2F" stroke-width="6.5" stroke-linecap="round"/>
+<circle cx="50" cy="15" r="13" fill="none" stroke="#2B2A2F" stroke-width="7"/>
+<path d="M40 6 Q44 2 49 2" stroke="#5A5862" stroke-width="2" fill="none" stroke-linecap="round"/>
+</svg>

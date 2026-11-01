@@ -3508,8 +3508,8 @@ class MainCalendarWindow(QWidget):
     def _apply_holiday_theme(self, match) -> None:
         """테마 판정 결과(None이면 해제)를 화면에 입힌다. DB에는 아무것도 쓰지 않는다.
 
-        지금은 머리줄·달력·인사말과 D-Day·스티키(떠 있는 창·크게 보기 패널)까지다.
-        집중 위젯과 장식은 같은 자리에서 더해진다.
+        지금은 머리줄·달력·인사말과 D-Day·스티키·집중(떠 있는 창·크게 보기 패널)까지다.
+        장식은 같은 자리에서 더해진다.
         """
         theme = match.theme if match is not None else None
         self._header_section.setStyleSheet(
@@ -3526,11 +3526,11 @@ class MainCalendarWindow(QWidget):
         # 오늘 칸 색과 공휴일 칸 바탕·점은 칸을 만들 때 정해지므로 달력을 다시 그린다.
         self._refresh_calendar()
 
-        # D-Day·스티키: 숨겨 둔 창과 크게 보기 패널까지 모두(표시 전용, 저장색·본문은 그대로).
-        for registry in (self._sticky_windows, self._dday_windows):
+        # D-Day·스티키·집중: 숨겨 둔 창과 크게 보기 패널까지 모두(표시 전용, 저장색·본문은 그대로).
+        for registry in (self._sticky_windows, self._dday_windows, self._focus_windows):
             for win in registry.values():
                 win.set_holiday_theme(theme)
-        for panel in (self._sticky_side_panel, self._dday_side_panel):
+        for panel in (self._sticky_side_panel, self._dday_side_panel, self._focus_side_panel):
             if panel is not None:
                 panel.set_holiday_theme(theme)
 
@@ -3880,6 +3880,7 @@ class MainCalendarWindow(QWidget):
             if self._focus_side_panel is None:
                 from ui_focus_panel import FocusSidePanel
                 self._focus_side_panel = FocusSidePanel(self._expanded_row)
+                self._focus_side_panel.set_holiday_theme(self._holiday_theme.theme())
                 self._focus_side_panel.close_requested.connect(self._on_panel_focus_close)
             self._refresh_focus_panel()
             self._focus_in_panel_mode = True

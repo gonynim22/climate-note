@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -30 100 130">
+<!-- 설날: 복건 -->
+<path d="M17 28 C17 6 33 -4 50 -4 C67 -4 83 6 83 28 Z" fill="#3A2346"/>
+<path d="M25 14 C30 5 40 0 50 0" stroke="#5A3A6A" stroke-width="3" fill="none" stroke-linecap="round"/>
+<rect x="17" y="21" width="13.2" height="7" fill="#E5484D"/>
+<rect x="30.2" y="21" width="13.2" height="7" fill="#F5C542"/>
+<rect x="43.4" y="21" width="13.2" height="7" fill="#3FA36B"/>
+<rect x="56.6" y="21" width="13.2" height="7" fill="#3A7BD5"/>
+<rect x="69.8" y="21" width="13.2" height="7" fill="#F08BB5"/>
+<circle cx="50" cy="-5" r="4" fill="#F08BB5"/>
+<path d="M50 28 V35" stroke="#E5484D" stroke-width="1.6"/>
+<path d="M47 35 L50 43 L53 35 Z" fill="#E5484D"/>
+</svg>

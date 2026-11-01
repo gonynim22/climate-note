@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -30 100 130">
+<!-- 신정: 금색 고깔 -->
+<path d="M33 24 L50 -20 L67 24 Q50 29 33 24 Z" fill="#F2C14E"/>
+<path d="M38.4 10 L61.6 10 L59.3 4 L40.7 4 Z" fill="#24315E"/>
+<path d="M44.6 -6 L55.4 -6 L53.9 -10 L46.1 -10 Z" fill="#24315E"/>
+<path d="M33 24 Q50 29 67 24" stroke="#D9A632" stroke-width="2" fill="none"/>
+<circle cx="50" cy="-21" r="5" fill="#E85D4A"/>
+<path d="M74 -2 l1.5 3.5 3.5 1.5 -3.5 1.5 -1.5 3.5 -1.5 -3.5 -3.5 -1.5 3.5 -1.5 Z" fill="#F2C14E"/>
+</svg>

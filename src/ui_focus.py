@@ -18,6 +18,7 @@ from qfluentwidgets import (
 
 import database as db
 from app_paths import resource_root
+from ui_holiday_theme import HAT_OFFSET_UNITS, hat_pixmap
 
 
 FOCUS_DISTRACTIONS = ["없음", "알림", "피로", "난이도", "기타"]
@@ -35,6 +36,20 @@ FOCUS_CARD_GRADIENT = (
     ")"
 )
 FOCUS_ACCENT_COLOR = "#FF5A45"
+
+
+def focus_card_gradient(theme=None) -> str:
+    """집중 위젯 normal 바탕 그라데이션. 공휴일 테마가 있으면 그 연한색·끝색으로 그린다(화면 전용)."""
+    if theme is None:
+        return FOCUS_CARD_GRADIENT
+    return (
+        "qlineargradient("
+        "x1:0, y1:0, x2:1, y2:1, "
+        f"stop:0 #FFFFFF, stop:0.48 {theme.tint}, stop:1 {theme.focus_end}"
+        ")"
+    )
+
+
 _IMAGE_DIR = resource_root() / "resources" / "images"
 TOMATO_MINI_IMAGE_PATH = _IMAGE_DIR / "tomato_mini.png"
 TOMATO_IMAGE_PATH = _IMAGE_DIR / "tomato.png"
@@ -418,6 +433,8 @@ class FocusWidgetWindow(QWidget):
         self._display_mode = "ambient"
         self._session_saved = False
         self._visual_state = "normal"
+        self._holiday_theme = None   # 공휴일 테마(표시 전용). 집중 세션·저장값과 따로 쥔다
+        self._hat_drawn = {}         # 모자 레이블 이름 -> 마지막으로 그린 (테마 키, 장치 배율)
 
         x = data.get("x_pos", 160)
         y = data.get("y_pos", 160)
@@ -538,7 +555,8 @@ class FocusWidgetWindow(QWidget):
         self.tomato_label.setAlignment(Qt.AlignRight | Qt.AlignBottom)
         self.tomato_label.setStyleSheet("background: transparent;")
         tomato = QPixmap(str(TOMATO_IMAGE_PATH))
-        if not tomato.isNull():
+        self._has_tomato = not tomato.isNull()
+        if self._has_tomato:
             self.tomato_label.setCursor(Qt.PointingHandCursor)
             self.tomato_label.setPixmap(
                 tomato.scaled(
@@ -552,6 +570,10 @@ class FocusWidgetWindow(QWidget):
         self.tomato_label.clicked.connect(self._show_encouragement_bubble)
         glance_root.addWidget(self.tomato_label, 0, Qt.AlignRight | Qt.AlignBottom)
         layout.addWidget(self.glance_panel)
+
+        # 공휴일 모자: 토마토 레이블 위에 겹쳐 놓는 마우스 투과 레이블(레이아웃 밖).
+        self._hat_mini_label = self._make_hat_label("focusHatMini")
+        self._hat_label = self._make_hat_label("focusHat")
 
         self.encouragement_bubble = QLabel(self)
         self.encouragement_bubble.setObjectName("focusEncouragementBubble")
@@ -585,7 +607,7 @@ class FocusWidgetWindow(QWidget):
 
     def _apply_visual_state(self, state: str) -> None:
         styles = {
-            "normal": (FOCUS_CARD_GRADIENT, "rgba(255, 255, 255, 180)"),
+            "normal": (focus_card_gradient(self._holiday_theme), "rgba(255, 255, 255, 180)"),
             "complete": (
                 "qlineargradient("
                 "x1:0, y1:0, x2:1, y2:1, "
@@ -630,6 +652,77 @@ class FocusWidgetWindow(QWidget):
             self.tomato_mini_label.setVisible(self._has_tomato_mini)
             self.glance_panel.setVisible(False)
         self._update_view()
+        self._place_hats()
+
+    def _make_hat_label(self, name: str) -> QLabel:
+        """모자를 얹을 투명 레이블. 마우스를 통과시켜 토마토 클릭을 가로채지 않는다."""
+        label = QLabel(self.container)
+        label.setObjectName(name)
+        label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        label.setStyleSheet("background: transparent;")
+        label.hide()
+        return label
+
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 화면에만 입힌다. DB에는 쓰지 않는다.
+
+        normal 상태 바탕만 테마 색이고 complete·break는 그대로다. 모자는 상태와 무관하게
+        토마토 위에 얹는다. 같은 테마로 여러 번 불려도 레이블·연결이 늘지 않는다.
+        """
+        self._holiday_theme = theme
+        self._apply_visual_state(self._visual_state)
+        self._place_hats()
+
+    def _hat_spec(self):
+        """(모자 레이블, 토마토 레이블, 토마토 상자 크기, 오프셋 단위, 보일지) 둘을 돌려준다."""
+        glance = self._display_mode == "glance"
+        return (
+            (self._hat_mini_label, self.tomato_mini_label, TOMATO_MINI_IMAGE_SIZE,
+             HAT_OFFSET_UNITS["tomato_mini.png"], (not glance) and self._has_tomato_mini),
+            (self._hat_label, self.tomato_label, TOMATO_IMAGE_SIZE,
+             HAT_OFFSET_UNITS["tomato.png"], glance and self._has_tomato),
+        )
+
+    def _place_hats(self) -> None:
+        """지금 보이는 토마토 위에만 모자를 얹고(아래 끝·x를 토마토 레이블에 맞춤) 나머지는 숨긴다."""
+        theme = self._holiday_theme
+        specs = self._hat_spec()
+        if theme is None:
+            for hat, _tomato, _box, _offset, _visible in specs:
+                hat.hide()
+            return
+        # 보이기 전·모드 전환 직후에도 토마토 위치를 최신으로 읽는다.
+        self.layout().activate()
+        self._content_layout.activate()
+        dpr = self.devicePixelRatioF()
+        drawn = (theme.key, dpr)
+        for hat, tomato, box, offset, visible in specs:
+            if not visible:
+                hat.hide()
+                continue
+            if self._hat_drawn.get(hat.objectName()) != drawn:  # 테마·배율이 달라졌을 때만 다시 그린다
+                hat.setPixmap(hat_pixmap(theme.key, box, offset, dpr))
+                self._hat_drawn[hat.objectName()] = drawn
+            hat.setFixedSize(box, round(box * 1.3))
+            bottom_left = tomato.mapTo(self.container, QPoint(0, tomato.height()))
+            hat.move(bottom_left.x(), bottom_left.y() - hat.height())
+            hat.show()
+            hat.raise_()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._place_hats()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_hats()
+
+    def event(self, event):
+        if event.type() == QEvent.Type.DevicePixelRatioChange:
+            self._hat_drawn.clear()  # 화면 배율이 달라졌으니 모자를 다시 그린다
+            self._place_hats()
+        return super().event(event)
 
     def _show_encouragement_bubble(self) -> None:
         if self._display_mode != "glance" or self.tomato_label.isHidden():
