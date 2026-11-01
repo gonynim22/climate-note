@@ -3,6 +3,7 @@
 떠 있는 창과 크게 보기 패널(미니 카드)이 테마 색을 입는지, 그리고 그것이 화면에만 있고
 DB·본문·저장색을 건드리지 않는지 확인한다. 모든 검사는 합성 데이터(app_dir)에서 한다.
 """
+import re
 from datetime import date
 
 import pytest
@@ -186,13 +187,21 @@ def test_seollal_band_uses_five_stripes(app_dir, qtbot):
     for color in THEMES["seollal"].band_stripes:
         assert color in qss
 
-    # 위에서부터 6px 단위로 단단한 경계의 줄이 나온다(빈 곳 x=200을 읽는다).
+    # 멈춤점은 1/5 단위다(줄 경계마다 같은 위치에서 아주 조금 어긋나게 쌍으로 둔다).
+    positions = [float(v) for v in re.findall(r"stop:([0-9.]+)", qss)]
+    assert len(positions) == 10
+    for boundary, (end, start) in zip((0.2, 0.4, 0.6, 0.8),
+                                      zip(positions[1:9:2], positions[2:9:2])):
+        assert end == pytest.approx(boundary, abs=1e-4)
+        assert start == pytest.approx(boundary, abs=1e-4) and start > end
+
+    # 띠 높이 전체를 다섯 줄이 같은 두께로 나눠 갖고 경계는 단단하다(빈 곳 x=200을 읽는다).
     image = win.header_widget.grab().toImage().convertToFormat(QImage.Format_ARGB32)
+    height = image.height()
     x = 200
     for index, color in enumerate(THEMES["seollal"].band_stripes):
-        for y in (index * 6 + 1, index * 6 + 4):
-            if y >= image.height():
-                continue
+        top, bottom = index * height / 5, (index + 1) * height / 5
+        for y in (int(top) + 1, int((top + bottom) / 2), int(bottom) - 2):
             assert _close(QColor.fromRgba(image.pixel(x, y)), color), (index, y)
 
 

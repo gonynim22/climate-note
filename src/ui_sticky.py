@@ -71,9 +71,8 @@ _FMT_BUTTON_QSS = """
             QPushButton:checked { background: rgba(0,120,212,60); border: 1px solid #0078D4; }
         """
 
-# 공휴일 테마의 설날 색동 띠: 위에서부터 이 높이(px)씩 단단한 경계로 칠한다.
-_BAND_STRIPE_PX = 6
-_BAND_EDGE = 0.00001  # 줄 경계의 멈춤점 간격(띠 높이의 비율, 사실상 0px)
+# 공휴일 테마의 설날 색동 띠 줄 경계에서 멈춤점을 띄우는 간격(띠 높이의 비율, 사실상 0px).
+_BAND_EDGE = 0.00001
 
 
 def _fmt_button_qss(icon_color: str | None = None) -> str:
@@ -93,20 +92,22 @@ def _fmt_button_qss(icon_color: str | None = None) -> str:
     return _FMT_BUTTON_QSS + f"QPushButton {{ color: {icon_color}; }}"
 
 
-def _band_background(theme, height: int) -> str:
-    """머리띠 바탕(QSS background 값). 설날은 band_stripes를 6px 단위 세로 줄무늬로 칠한다."""
+def _band_background(theme) -> str:
+    """머리띠 바탕(QSS background 값). 설날은 band_stripes를 띠 높이 전체에 같은 두께로 칠한다.
+
+    설계의 6px 줄은 30px 띠의 1/5이다. 실제 머리띠는 높이가 달라질 수 있어 px가 아니라
+    비율(1/줄 수)로 나눈다.
+    """
     stripes = theme.band_stripes
     if not stripes:
         return theme.band
-    height = max(int(height), 1)
+    count = len(stripes)
     stops = []
     for index, color in enumerate(stripes):
         # 같은 위치에 멈춤점을 두 번 쓰면 Qt가 하나로 합쳐 부드러운 그라데이션이 되므로,
         # 다음 줄은 _BAND_EDGE만큼 뒤에서 시작해 경계를 단단하게 만든다.
-        top = 0.0 if index == 0 else min(1.0, index * _BAND_STRIPE_PX / height + _BAND_EDGE)
-        # 마지막 줄은 띠 끝까지 이어 간다(남는 높이가 빈 바탕으로 비지 않게).
-        bottom = 1.0 if index == len(stripes) - 1 else min(
-            1.0, (index + 1) * _BAND_STRIPE_PX / height)
+        top = 0.0 if index == 0 else index / count + _BAND_EDGE
+        bottom = (index + 1) / count
         stops.append(f"stop:{top:.6f} {color}")
         stops.append(f"stop:{bottom:.6f} {color}")
     return f"qlineargradient(x1:0, y1:0, x2:0, y2:1, {', '.join(stops)})"
@@ -894,7 +895,7 @@ class StickyNoteWindow(QWidget):
         if theme is None:
             background = self._header_color_bg
         else:
-            background = _band_background(theme, self.header_widget.sizeHint().height())
+            background = _band_background(theme)
         self.header_widget.setStyleSheet(_header_qss(background, self._header_border))
 
     def set_holiday_theme(self, theme) -> None:
