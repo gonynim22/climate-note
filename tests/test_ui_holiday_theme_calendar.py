@@ -7,6 +7,7 @@ from datetime import date
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 
 import database as db
@@ -346,11 +347,12 @@ def test_controller_paused_state_and_signal(app_dir, qtbot):
     assert seen == [True, False]
 
 
-# ── 인사말 자리 규칙: 전체가 들어가면 보이고, 모자라면 숨긴다 ───────────────────
+# ── 인사말 자리 규칙: 날짜 줄에 들어가면 거기, 아니면 아래 둘째 줄(숨기지 않는다) ─────────
 # 중간·크게의 일정 패널 폭은 창이 자리를 잡는 동안 300~343px로 달라지므로, 폭을 가정하지 않는
 # 내용(들어가는 날 / 확실히 안 들어가는 날)을 고르고 창이 자리 잡은 뒤에 확인한다.
 
 DATE_ROW_LABELS = ("selected_date_label", "lunar_info_label", "holiday_info_label", "count_label")
+GREETING = "새해 복 많이 받으세요"
 
 
 def _window_at(qtbot, scale, show_lunar):
@@ -387,6 +389,22 @@ def _widths_without_greeting(w):
     return widths
 
 
+def _in_date_row(w):
+    return w._date_row.indexOf(w.holiday_greeting_label) >= 0
+
+
+def _input_gap(w):
+    """날짜 줄 아래~일정 입력 줄 사이 간격. 패널 세로 간격 8px이면 둘 사이에 다른 줄이 없다."""
+    layout = w.schedule_panel.layout()
+    input_row = next(
+        layout.itemAt(i) for i in range(layout.count())
+        if layout.itemAt(i).layout() is not None
+        and layout.itemAt(i).layout().itemAt(0) is not None
+        and layout.itemAt(i).layout().itemAt(0).widget() is w.schedule_color_btn
+    )
+    return input_row.geometry().top() - w._date_row.geometry().bottom() - 1
+
+
 def _accent_pixels(label, accent):
     image = label.grab().toImage()
     ar, ag, ab = (int(accent[i:i + 2], 16) for i in (1, 3, 5))
@@ -400,26 +418,8 @@ def _accent_pixels(label, accent):
     return count
 
 
-@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
-def test_greeting_shown_in_full_when_it_fits(monkeypatch, app_dir, qtbot, scale):
-    """오늘이 설날이고 고른 날이 평범한 날(공휴일명·음력·개수 없음)이면 인사말이 전체로 들어간다."""
-    w = _window_at(qtbot, scale, show_lunar=False)
-    _patch_only(monkeypatch, "2027-02-07")
-    w._holiday_theme.refresh()
-    _select_day(w, "2027-02-10")
-    label = w.holiday_greeting_label
-    qtbot.waitUntil(label.isVisible, timeout=3000)
-    assert label.text() == "새해 복 많이 받으세요"
-    assert label.width() >= label.sizeHint().width()  # 말줄임 없이 전체 폭
-    assert _accent_pixels(label, "#8E2A4E") > 0
-    assert label.toolTip() == ""  # 전체가 보이므로 툴팁은 필요 없다
-    assert _label_widths(w) == _widths_without_greeting(w)  # 날짜 줄 다른 글자는 줄지 않는다
-
-
-@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
-def test_greeting_hidden_when_it_does_not_fit_and_dates_unchanged(
-        monkeypatch, app_dir, qtbot, scale):
-    """음력 켬 + 공휴일 당일 + 일정이 있으면 인사말이 안 들어간다: 토막 없이 숨기고 날짜 줄은 그대로."""
+def _crowded_window(monkeypatch, qtbot, scale):
+    """음력 켬 + 성탄 당일 + 일정 3개: 날짜 줄에 인사말이 확실히 안 들어가는 날."""
     for index in range(3):
         db.add_schedule("2026-12-25", f"일정 {index}", "#4CC9F0")
     w = _window_at(qtbot, scale, show_lunar=True)
@@ -427,10 +427,45 @@ def test_greeting_hidden_when_it_does_not_fit_and_dates_unchanged(
     w._holiday_theme.refresh()
     _select_day(w, "2026-12-25")
     qtbot.wait(300)
+    return w
+
+
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_greeting_shown_in_full_in_row_when_it_fits(monkeypatch, app_dir, qtbot, scale):
+    """오늘이 설날이고 고른 날이 평범한 날(공휴일명·음력·개수 없음)이면 날짜 줄에 전체로 들어간다."""
+    w = _window_at(qtbot, scale, show_lunar=False)
+    _patch_only(monkeypatch, "2027-02-07")
+    w._holiday_theme.refresh()
+    _select_day(w, "2027-02-10")
     label = w.holiday_greeting_label
-    assert label.text() == "메리 크리스마스"  # 문구는 그대로 두고 보이기만 끈다
-    assert label.isHidden() and not label.isVisible()
+    qtbot.waitUntil(label.isVisible, timeout=3000)
+    assert label.text() == GREETING
+    assert _in_date_row(w)
+    assert label.width() >= label.sizeHint().width()  # 말줄임 없이 전체 폭
+    assert label.geometry().bottom() <= w._date_row.geometry().bottom()
+    assert _accent_pixels(label, "#8E2A4E") > 0
+    assert label.toolTip() == ""
+    assert _label_widths(w) == _widths_without_greeting(w)  # 날짜 줄 다른 글자는 줄지 않는다
+    assert _input_gap(w) == 8  # 둘째 줄이 없다
+
+
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_greeting_on_own_line_when_it_does_not_fit_and_dates_unchanged(
+        monkeypatch, app_dir, qtbot, scale):
+    """날짜 줄에 안 들어가는 날은 숨기지 않고 바로 아래 줄에 오른쪽 정렬로 전체를 보인다."""
+    w = _crowded_window(monkeypatch, qtbot, scale)
+    label = w.holiday_greeting_label
+    assert label.text() == "메리 크리스마스"
+    assert label.isVisible() and not _in_date_row(w)
     assert w.count_label.text() == "총 3개" and w.holiday_info_label.text()
+    row = w._date_row.geometry()
+    box = label.geometry()
+    assert box.top() > row.bottom()  # 날짜 줄 아래
+    assert box.top() - row.bottom() - 1 == 8  # 바로 아래(패널 세로 간격)
+    assert abs(box.right() - row.right()) <= 1  # 오른쪽 정렬
+    assert label.width() >= label.sizeHint().width()  # 말줄임 없는 전체 폭
+    assert _accent_pixels(label, "#2F6A50") > 0
+    assert "font-weight: bold" in label.styleSheet() and "font-size: 11px" in label.styleSheet()
     assert _label_widths(w) == _widths_without_greeting(w)  # 날짜·음력·공휴일명·개수는 그대로
     if scale == "compact":  # 기본 크기 패널은 인사말 없이는 네 글자가 다 들어간다
         for name in DATE_ROW_LABELS:
@@ -439,19 +474,19 @@ def test_greeting_hidden_when_it_does_not_fit_and_dates_unchanged(
 
 
 def test_greeting_follows_row_content_and_panel_width(monkeypatch, app_dir, qtbot):
-    """날짜 줄 글자(일정 추가·삭제)나 패널 폭이 바뀌면 인사말이 다시 보이거나 숨는다."""
+    """날짜 줄 글자(일정 추가·삭제)나 패널 폭이 바뀌면 인사말이 날짜 줄과 둘째 줄을 오간다."""
     w = _window_at(qtbot, "compact", show_lunar=True)
     _patch_only(monkeypatch, "2027-02-07")
     w._holiday_theme.refresh()
     _select_day(w, "2027-02-07")
     label = w.holiday_greeting_label
-    assert label.isVisible()  # 설날 + 음력만이면 들어간다
+    assert label.isVisible() and _in_date_row(w)  # 설날 + 음력만이면 날짜 줄에 들어간다
 
     db.add_schedule("2027-02-07", "일정", "#4CC9F0")
     w._load_schedules()
     QApplication.processEvents()
     assert w.count_label.text() == "총 1개"
-    assert label.isHidden()
+    assert label.isVisible() and not _in_date_row(w)  # 안 들어가니 둘째 줄
 
     ids = [w.schedule_list.item(index).data(Qt.UserRole)
            for index in range(w.schedule_list.count())]
@@ -460,19 +495,80 @@ def test_greeting_follows_row_content_and_panel_width(monkeypatch, app_dir, qtbo
     w._load_schedules()
     QApplication.processEvents()
     assert w.count_label.text() == ""
-    assert label.isVisible()
+    assert label.isVisible() and _in_date_row(w)  # 다시 날짜 줄로
 
-    # 패널 폭이 좁아지면 숨고, 다시 넓어지면 나타난다.
+    # 패널 폭이 좁아지면 둘째 줄로 내려가고, 다시 넓어지면 날짜 줄로 돌아온다.
     _select_day(w, "2027-02-10")
-    assert label.isVisible()
+    assert label.isVisible() and _in_date_row(w)
     w.schedule_panel.setFixedWidth(230)
     QApplication.processEvents()
-    assert label.isHidden()
+    assert label.isVisible() and not _in_date_row(w)
+    assert label.width() >= label.sizeHint().width()
     w.schedule_panel.setMinimumWidth(0)
     w.schedule_panel.setMaximumWidth(16777215)
     w.layout().activate()
     QApplication.processEvents()
-    qtbot.waitUntil(label.isVisible, timeout=3000)
+    qtbot.waitUntil(lambda: label.isVisible() and _in_date_row(w), timeout=3000)
+
+
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_no_second_line_outside_in_holiday_days(monkeypatch, app_dir, qtbot, scale):
+    """공휴일 당일이 아니면(테마 없음·예고 기간·스위치 끔) 인사말은 자리를 전혀 차지하지 않는다."""
+    for index in range(3):
+        db.add_schedule("2026-12-25", f"일정 {index}", "#4CC9F0")
+    w = _window_at(qtbot, scale, show_lunar=True)
+    _select_day(w, "2026-12-25")
+    qtbot.wait(300)
+    label = w.holiday_greeting_label
+    baseline = _input_gap(w)
+    assert baseline == 8  # 테마 없음: 날짜 줄 바로 아래가 입력 줄(둘째 줄 자리가 비어 있다)
+
+    for name, day in (("예고 기간", "2026-12-22"), ("테마 없음", "2026-12-21")):
+        _patch_only(monkeypatch, day)
+        w._holiday_theme.refresh()
+        QApplication.processEvents()
+        assert label.text() == "" and label.isHidden(), name
+        assert _in_date_row(w) and _input_gap(w) == baseline, name
+
+    _patch_only(monkeypatch, "2026-12-25")  # 당일: 둘째 줄이 생긴다
+    w._holiday_theme.refresh()
+    QApplication.processEvents()
+    assert label.isVisible() and not _in_date_row(w)
+    assert _input_gap(w) > baseline
+
+    db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "0")  # 스위치 끔: 다시 비워진다
+    w._holiday_theme.refresh()
+    QApplication.processEvents()
+    assert label.isHidden() and _in_date_row(w) and _input_gap(w) == baseline
+
+
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_second_line_keeps_inline_edit_and_list_layout(monkeypatch, app_dir, qtbot, scale):
+    """둘째 줄이 생겨도 일정 목록과 인라인 편집기 행 배치(버튼 전체 포함)가 그대로다."""
+    w = _crowded_window(monkeypatch, qtbot, scale)
+    w.activateWindow()
+    assert QTest.qWaitForWindowActive(w)  # 편집기 포커스 검사는 실제 활성 창이어야 한다
+    assert w.holiday_greeting_label.isVisible() and not _in_date_row(w)
+    assert w.schedule_list.height() > 0 and w.schedule_list.count() == 3
+    item = w.schedule_list.item(0)
+    row = w.schedule_list.itemWidget(item)
+    for save in (False, True):
+        w._on_edit_schedule(item)
+        editor = w._schedule_editor
+        qtbot.waitUntil(lambda: editor.edit.hasFocus())
+        QApplication.processEvents()
+        assert editor.rect().contains(editor.emoji_button.geometry())
+        assert row.rect().contains(editor.geometry())
+        assert editor.edit.height() >= editor.edit.sizeHint().height()
+        editor.edit.setText("변경한 일정")
+        assert w._finish_current_edit(save)
+        QApplication.processEvents()
+        assert row.rect().contains(row.schedule_text_label.geometry())
+    assert db.get_schedules("2026-12-25")[0]["content"] == "변경한 일정"
+    viewport = w.schedule_list.viewport().rect()
+    for index in range(w.schedule_list.count()):
+        rect = w.schedule_list.visualItemRect(w.schedule_list.item(index))
+        assert rect.height() > 0 and rect.left() >= viewport.left()
 
 
 def test_greeting_label_paints_nothing_when_narrower_than_text(app_dir, qtbot):
