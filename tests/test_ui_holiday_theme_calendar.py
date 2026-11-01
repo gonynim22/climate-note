@@ -346,24 +346,143 @@ def test_controller_paused_state_and_signal(app_dir, qtbot):
     assert seen == [True, False]
 
 
-@pytest.mark.parametrize("scale", ["compact", "medium"])
-def test_long_greeting_does_not_squeeze_date_labels(monkeypatch, app_dir, qtbot, scale):
-    """음력·공휴일명·일정 수가 겹쳐 자리가 모자라도 줄어드는 건 인사말뿐이다(날짜 글자는 안 잘린다)."""
+# ── 인사말 자리 규칙: 전체가 들어가면 보이고, 모자라면 숨긴다 ───────────────────
+# 중간·크게의 일정 패널 폭은 창이 자리를 잡는 동안 300~343px로 달라지므로, 폭을 가정하지 않는
+# 내용(들어가는 날 / 확실히 안 들어가는 날)을 고르고 창이 자리 잡은 뒤에 확인한다.
+
+DATE_ROW_LABELS = ("selected_date_label", "lunar_info_label", "holiday_info_label", "count_label")
+
+
+def _window_at(qtbot, scale, show_lunar):
     db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
-    db.save_setting(db.SETTING_SHOW_LUNAR, "1")
-    for index in range(3):
-        db.add_schedule("2026-12-25", f"일정 {index}", "#4CC9F0")
+    db.save_setting(db.SETTING_SHOW_LUNAR, "1" if show_lunar else "0")
     w = MainCalendarWindow()
     qtbot.addWidget(w)
     w.show()
     qtbot.waitExposed(w)
-    _patch_only(monkeypatch, "2026-12-25")
-    w._selected_date = "2026-12-25"
-    w._current_year, w._current_month = 2026, 12
-    w._holiday_theme.refresh()
+    qtbot.wait(500)  # 크게 보기는 시작 직후 늦게 도는 정리가 있어 끝난 뒤에 시작한다
+    return w
+
+
+def _select_day(w, day):
+    """그 달로 가서 그 날을 고른다(날짜·음력·공휴일명·개수 라벨이 바뀐다)."""
+    parsed = date.fromisoformat(day)
+    _go_to_month(w, parsed.year, parsed.month)
+    w._on_date_selected(day)
     QApplication.processEvents()
-    assert w.holiday_greeting_label.text() == "메리 크리스마스"
-    assert w.holiday_greeting_label.minimumSizeHint().width() == 0
-    for label in (w.selected_date_label, w.lunar_info_label, w.holiday_info_label, w.count_label):
-        assert label.width() >= label.sizeHint().width(), label.text()
-    assert w.holiday_greeting_label.toolTip() == "메리 크리스마스"
+
+
+def _label_widths(w):
+    return {name: getattr(w, name).width() for name in DATE_ROW_LABELS}
+
+
+def _widths_without_greeting(w):
+    """인사말 문구를 비운 같은 배치에서의 날짜 줄 폭(인사말이 다른 글자를 줄였는지 비교용)."""
+    text = w.holiday_greeting_label.text()
+    w.holiday_greeting_label.setText("")
+    QApplication.processEvents()
+    widths = _label_widths(w)
+    w.holiday_greeting_label.setText(text)
+    QApplication.processEvents()
+    return widths
+
+
+def _accent_pixels(label, accent):
+    image = label.grab().toImage()
+    ar, ag, ab = (int(accent[i:i + 2], 16) for i in (1, 3, 5))
+    count = 0
+    for x in range(image.width()):
+        for y in range(image.height()):
+            color = image.pixelColor(x, y)
+            if (abs(color.red() - ar) < 40 and abs(color.green() - ag) < 40
+                    and abs(color.blue() - ab) < 40):
+                count += 1
+    return count
+
+
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_greeting_shown_in_full_when_it_fits(monkeypatch, app_dir, qtbot, scale):
+    """오늘이 설날이고 고른 날이 평범한 날(공휴일명·음력·개수 없음)이면 인사말이 전체로 들어간다."""
+    w = _window_at(qtbot, scale, show_lunar=False)
+    _patch_only(monkeypatch, "2027-02-07")
+    w._holiday_theme.refresh()
+    _select_day(w, "2027-02-10")
+    label = w.holiday_greeting_label
+    qtbot.waitUntil(label.isVisible, timeout=3000)
+    assert label.text() == "새해 복 많이 받으세요"
+    assert label.width() >= label.sizeHint().width()  # 말줄임 없이 전체 폭
+    assert _accent_pixels(label, "#8E2A4E") > 0
+    assert label.toolTip() == ""  # 전체가 보이므로 툴팁은 필요 없다
+    assert _label_widths(w) == _widths_without_greeting(w)  # 날짜 줄 다른 글자는 줄지 않는다
+
+
+@pytest.mark.parametrize("scale", ["compact", "medium", "large"])
+def test_greeting_hidden_when_it_does_not_fit_and_dates_unchanged(
+        monkeypatch, app_dir, qtbot, scale):
+    """음력 켬 + 공휴일 당일 + 일정이 있으면 인사말이 안 들어간다: 토막 없이 숨기고 날짜 줄은 그대로."""
+    for index in range(3):
+        db.add_schedule("2026-12-25", f"일정 {index}", "#4CC9F0")
+    w = _window_at(qtbot, scale, show_lunar=True)
+    _patch_only(monkeypatch, "2026-12-25")
+    w._holiday_theme.refresh()
+    _select_day(w, "2026-12-25")
+    qtbot.wait(300)
+    label = w.holiday_greeting_label
+    assert label.text() == "메리 크리스마스"  # 문구는 그대로 두고 보이기만 끈다
+    assert label.isHidden() and not label.isVisible()
+    assert w.count_label.text() == "총 3개" and w.holiday_info_label.text()
+    assert _label_widths(w) == _widths_without_greeting(w)  # 날짜·음력·공휴일명·개수는 그대로
+    if scale == "compact":  # 기본 크기 패널은 인사말 없이는 네 글자가 다 들어간다
+        for name in DATE_ROW_LABELS:
+            widget = getattr(w, name)
+            assert widget.width() >= widget.sizeHint().width(), name
+
+
+def test_greeting_follows_row_content_and_panel_width(monkeypatch, app_dir, qtbot):
+    """날짜 줄 글자(일정 추가·삭제)나 패널 폭이 바뀌면 인사말이 다시 보이거나 숨는다."""
+    w = _window_at(qtbot, "compact", show_lunar=True)
+    _patch_only(monkeypatch, "2027-02-07")
+    w._holiday_theme.refresh()
+    _select_day(w, "2027-02-07")
+    label = w.holiday_greeting_label
+    assert label.isVisible()  # 설날 + 음력만이면 들어간다
+
+    db.add_schedule("2027-02-07", "일정", "#4CC9F0")
+    w._load_schedules()
+    QApplication.processEvents()
+    assert w.count_label.text() == "총 1개"
+    assert label.isHidden()
+
+    ids = [w.schedule_list.item(index).data(Qt.UserRole)
+           for index in range(w.schedule_list.count())]
+    for schedule_id in ids:
+        db.delete_schedule(schedule_id)
+    w._load_schedules()
+    QApplication.processEvents()
+    assert w.count_label.text() == ""
+    assert label.isVisible()
+
+    # 패널 폭이 좁아지면 숨고, 다시 넓어지면 나타난다.
+    _select_day(w, "2027-02-10")
+    assert label.isVisible()
+    w.schedule_panel.setFixedWidth(230)
+    QApplication.processEvents()
+    assert label.isHidden()
+    w.schedule_panel.setMinimumWidth(0)
+    w.schedule_panel.setMaximumWidth(16777215)
+    w.layout().activate()
+    QApplication.processEvents()
+    qtbot.waitUntil(label.isVisible, timeout=3000)
+
+
+def test_greeting_label_paints_nothing_when_narrower_than_text(app_dir, qtbot):
+    """자리 판단이 늦는 순간에도 토막 글자나 말줄임 표시를 그리지 않는다."""
+    from ui_main import HolidayGreetingLabel
+    label = HolidayGreetingLabel("메리 크리스마스")
+    qtbot.addWidget(label)
+    label.setStyleSheet("color: #8E2A4E; background: white; font-weight: bold; font-size: 11px;")
+    assert label.minimumSizeHint().width() == 0
+    label.resize(label.sizeHint())
+    assert _accent_pixels(label, "#8E2A4E") > 0
+    label.resize(label.sizeHint().width() - 6, label.sizeHint().height())
+    assert _accent_pixels(label, "#8E2A4E") == 0

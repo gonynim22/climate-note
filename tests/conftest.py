@@ -71,6 +71,10 @@ def app_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "APP_DIR", d)
     monkeypatch.setattr(db, "DB_FILE", d / "calendar.db")
 
+    # 공휴일 테마는 기본으로 끈다: 실제 오늘 날짜가 테마 기간이어도 UI 테스트 결과가 변하지 않게 한다.
+    import holiday_theme
+    monkeypatch.setattr(holiday_theme, "current_match", lambda today=None: None)
+
     # Fernet 캐시 초기화 (이전 테스트의 키 오염 방지)
     monkeypatch.setattr(security, "_fernet_cache", None)
     monkeypatch.setattr(security, "_legacy_fernet_cache", None)

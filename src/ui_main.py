@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QLineEdit, QPushButton, QDialog, QFileDialog, QInputDialog,
     QScrollArea, QFrame,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QUrl, QPoint, QPointF, QRect, QRectF
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent, QUrl, QPoint, QPointF, QRect, QRectF, QObject
 from PySide6.QtGui import (
     QFont, QFontMetrics, QDesktopServices, QPainter, QBrush, QPen, QColor, QRegion, QIcon,
 )
@@ -1492,13 +1492,33 @@ class ScheduleTextLabel(ElidePaintMixin, BodyLabel):
     """일정 목록 본문. text()는 전체 본문이고 좁으면 그릴 때만 말줄임한다."""
 
 
-class HolidayGreetingLabel(ElidePaintMixin, BodyLabel):
-    """공휴일 테마 인사말. 음력·공휴일명이 길어 자리가 모자라면 날짜 글자를 줄이지 않고
-    이 라벨만 그릴 때 말줄임한다. text()는 전체 인사말이고 말줄임되면 툴팁으로 보인다."""
+class HolidayGreetingLabel(BodyLabel):
+    """공휴일 테마 인사말. 날짜 줄에서 우선순위가 가장 낮다: 전체 문구가 들어가거나 아예 안 그린다.
 
-    def setText(self, text):
-        super().setText(text)
-        self.setToolTip(plain_tooltip(text) if text else "")
+    자리가 모자랄 때 날짜·음력·공휴일명 라벨을 줄이지 않도록 최소 폭은 0이고, 말줄임 대신
+    전체 폭이 안 되면 그리지 않는다(메인 창의 _fit_holiday_greeting이 숨겨 자리도 비운다).
+    """
+
+    def minimumSizeHint(self):
+        return QSize(0, super().minimumSizeHint().height())
+
+    def paintEvent(self, event):
+        if self.width() < self.sizeHint().width():
+            return  # 일부만 보이는 토막 글자를 남기지 않는다
+        super().paintEvent(event)
+
+
+class _SizeEventFilter(QObject):
+    """대상 위젯의 크기·배치 요청 때마다 콜백을 부른다(값은 바꾸지 않고 이벤트는 그대로 통과)."""
+
+    def __init__(self, callback, parent=None):
+        super().__init__(parent)
+        self._callback = callback
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Resize, QEvent.LayoutRequest):
+            self._callback()
+        return False
 
 
 class ScheduleRow(QWidget):
@@ -2455,6 +2475,7 @@ class MainCalendarWindow(QWidget):
 
         # 선택 날짜 라벨 + 일정 개수
         date_row = QHBoxLayout()
+        self._date_row = date_row
         self.selected_date_label = BodyLabel("날짜를 선택하세요", self)
         self.selected_date_label.setStyleSheet("color: #1a1a1a;")
         date_row.addWidget(self.selected_date_label)
@@ -2482,6 +2503,9 @@ class MainCalendarWindow(QWidget):
         self.count_label.setStyleSheet("color: #757575; font-size: 11px;")
         date_row.addWidget(self.count_label)
         panel_layout.addLayout(date_row)
+        # 날짜 줄 라벨 글자나 패널 폭이 바뀔 때마다 인사말이 들어가는지 다시 본다.
+        self._greeting_fit_filter = _SizeEventFilter(self._fit_holiday_greeting, self)
+        self.schedule_panel.installEventFilter(self._greeting_fit_filter)
 
         # 일정 입력: [색 원][스마일][시계][입력칸][추가], 아래 줄 알약은 입력칸 왼쪽에 맞춘다.
         # 격자로 두어 알약이 입력칸과 같은 열에 놓이고, 알약이 없으면 줄도 생기지 않는다.
@@ -3412,6 +3436,27 @@ class MainCalendarWindow(QWidget):
         """설정창의 '공휴일 테마' 스위치가 바뀌었다. 저장은 설정창이 끝냈으니 다시 판정만 한다."""
         self._holiday_theme.refresh()
 
+    def _fit_holiday_greeting(self) -> None:
+        """인사말은 날짜 줄에서 우선순위가 가장 낮다: 전체가 들어갈 때만 보이고 아니면 숨긴다.
+
+        날짜·음력·공휴일명·개수 라벨은 어떤 경우에도 줄지 않는다. 판단은 라벨 글자 폭(sizeHint)으로만
+        하므로 인사말을 보이고 숨기는 것이 판단을 되돌리지 않는다(깜빡임 없음).
+        """
+        label = self.holiday_greeting_label
+        if not label.text():
+            show = False
+        else:
+            others = [w for w in (self.selected_date_label, self.lunar_info_label,
+                                  self.holiday_info_label, self.count_label)
+                      if not w.isHidden()]
+            margins = self.schedule_panel.layout().contentsMargins()
+            available = self.schedule_panel.width() - margins.left() - margins.right()
+            needed = (label.sizeHint().width() + sum(w.sizeHint().width() for w in others)
+                      + self._date_row.spacing() * len(others))
+            show = needed <= available
+        if label.isHidden() == show:  # 바뀔 때만 건드려 배치를 다시 요청하지 않는다
+            label.setVisible(show)
+
     def _apply_holiday_theme(self, match) -> None:
         """테마 판정 결과(None이면 해제)를 화면에 입힌다. DB에는 아무것도 쓰지 않는다.
 
@@ -3427,7 +3472,7 @@ class MainCalendarWindow(QWidget):
         self.holiday_greeting_label.setStyleSheet(
             f"color: {theme.accent if greeting else '#757575'}; "
             "font-weight: bold; font-size: 11px;")
-        self.holiday_greeting_label.setVisible(bool(greeting))  # 없을 땐 칸도 차지하지 않는다
+        self._fit_holiday_greeting()  # 없거나 안 들어가면 숨겨 칸도 차지하지 않는다
 
         # 오늘 칸 색과 공휴일 칸 바탕·점은 칸을 만들 때 정해지므로 달력을 다시 그린다.
         self._refresh_calendar()
