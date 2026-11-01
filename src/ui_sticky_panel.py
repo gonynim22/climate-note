@@ -33,6 +33,7 @@ class StickyMiniCard(QWidget):
         super().__init__(parent)
         self.note_id = note_id
         self._color = color
+        self._holiday_theme = None  # 공휴일 테마(표시 전용). 노트 색과 따로 쥔다
         self._decryption_failed = decryption_failed
         self.setObjectName("stickyMiniCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -79,12 +80,24 @@ class StickyMiniCard(QWidget):
         self._save_timer.timeout.connect(self._auto_save)
         self.text_edit.textChanged.connect(lambda: self._save_timer.start(2000))
 
-    def _apply_color_style(self, hex_color: str):
-        header_hex = STICKY_HEADER_COLORS.get(hex_color, hex_color)
+    def _render_strip(self) -> None:
+        """위 띠를 그린다. 공휴일 테마가 있으면 테마 띠 색, 없으면 노트 색의 머리색."""
+        theme = self._holiday_theme
+        header_hex = (theme.band if theme is not None
+                      else STICKY_HEADER_COLORS.get(self._color, self._color))
         self._strip.setStyleSheet(
             f"#miniStrip{{background:{header_hex};"
             "border-top-left-radius:8px;border-top-right-radius:8px;}"
         )
+
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 위 띠에만 입힌다. DB에는 쓰지 않는다."""
+        self._holiday_theme = theme
+        self._render_strip()
+
+    def _apply_color_style(self, hex_color: str):
+        self._color = hex_color
+        self._render_strip()
         c = QColor(hex_color)
         r, g, b = c.red(), c.green(), c.blue()
         br, bg, bb = max(0, r - 30), max(0, g - 30), max(0, b - 30)
@@ -176,6 +189,7 @@ class StickySidePanel(QWidget):
         )
         self._cards = []
         self._active_card = None
+        self._holiday_theme = None  # reload()로 만드는 카드에도 입히려고 기억한다
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(12, 12, 12, 12)
@@ -225,6 +239,12 @@ class StickySidePanel(QWidget):
                 saved = False
         return saved
 
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 기억하고 지금 있는 카드에 입힌다. 화면 전용."""
+        self._holiday_theme = theme
+        for card in self._cards:
+            card.set_holiday_theme(theme)
+
     def reload(self, *, flush_pending: bool = True) -> bool:
         """열린 스티키 노트로 카드 목록을 재구성한다."""
         if flush_pending and not self._flush_pending_cards():
@@ -256,6 +276,7 @@ class StickySidePanel(QWidget):
                 note["id"], note["content"], note["color"], self._list,
                 decryption_failed=note.get("_decryption_failed", False),
             )
+            card.set_holiday_theme(self._holiday_theme)
             card.focused.connect(self._set_active_card)
             card.delete_requested.connect(self._on_card_delete)
             self._cards.append(card)

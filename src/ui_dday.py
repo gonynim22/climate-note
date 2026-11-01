@@ -56,6 +56,19 @@ def dday_cover_color(stored: str) -> str:
     return _DEFAULT_COVER
 
 
+def _container_qss(cover: str) -> str:
+    """플로팅 D-Day 커버의 스타일. 저장색 경로와 공휴일 테마 경로가 같이 쓴다.
+
+    흰 타이포 전제. 어두운 배경 대비를 위해 옅은 흰 헤어라인 1px를 둔다
+    (HAIRLINE_ALPHA=0이면 테두리 없음).
+    """
+    border = (
+        f"border:1px solid rgba(255,255,255,{HAIRLINE_ALPHA});"
+        if HAIRLINE_ALPHA > 0 else "border:none;"
+    )
+    return f"#ddayContainer{{background:{cover};{border}border-radius:18px;}}"
+
+
 def _dday_font(px: int, weight: QFont.Weight) -> QFont:
     """Pretendard(미로드 시 Malgun Gothic 폴백) 정수 픽셀 폰트."""
     font = QFont()
@@ -307,6 +320,7 @@ class DDayWidgetWindow(QWidget):
         self._name = data.get("name", "")
         self._target_date = data.get("target_date", "")
         self._color = data.get("color", db.DEFAULT_DDAY_COLOR)
+        self._holiday_theme = None  # 공휴일 테마(표시 전용). 저장색과 따로 쥔다
         self._drag_pos = None
 
         x = data.get("x_pos", 100)
@@ -434,20 +448,24 @@ class DDayWidgetWindow(QWidget):
     def _apply_color(self, hex_color: str, save: bool = True):
         """저장색을 커버 hex로 매핑해 배경 적용.
 
-        흰 타이포 전제. 어두운 배경 대비를 위해 옅은 흰 헤어라인 1px를 둔다
-        (HAIRLINE_ALPHA=0이면 테두리 없음).
+        공휴일 테마가 있으면 저장은 그대로 하되 화면은 테마 커버를 유지한다.
+        테마가 끝나면 방금 저장한 색이 보인다.
         """
         self._color = hex_color
-        cover = dday_cover_color(hex_color)
-        border = (
-            f"border:1px solid rgba(255,255,255,{HAIRLINE_ALPHA});"
-            if HAIRLINE_ALPHA > 0 else "border:none;"
-        )
-        self.container.setStyleSheet(
-            f"#ddayContainer{{background:{cover};{border}border-radius:18px;}}"
-        )
+        self._render_cover()
         if save:
             db.update_dday_widget(self.widget_id, color=hex_color)
+
+    def _render_cover(self) -> None:
+        """지금 보일 커버 색(테마가 있으면 테마, 없으면 저장색)으로 배경을 그린다."""
+        theme = self._holiday_theme
+        cover = theme.cover if theme is not None else dday_cover_color(self._color)
+        self.container.setStyleSheet(_container_qss(cover))
+
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 화면에만 입힌다. DB에는 쓰지 않는다."""
+        self._holiday_theme = theme
+        self._render_cover()
 
     def _on_color_btn(self):
         popup = _ColorGridPopup(DDAY_COVER_COLORS, cols=4, parent=self)

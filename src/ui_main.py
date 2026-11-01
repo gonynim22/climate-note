@@ -1774,9 +1774,20 @@ class MainCalendarWindow(QWidget):
         ) == "1"
 
     def _register_floating_widget(self, win, factor: float | None = None) -> None:
-        """새 플로팅 위젯 공통 등록: 투명도 적용 + Win+D 유지 가드."""
+        """새 플로팅 위젯 공통 등록: 투명도 적용 + Win+D 유지 가드 + 현재 공휴일 테마."""
         win.setWindowOpacity(self._get_app_opacity() if factor is None else factor)
         self._show_desktop_keeper.guard(win)
+        self._dress_floating_widget(win)
+
+    def _dress_floating_widget(self, win) -> None:
+        """플로팅 위젯에 지금의 공휴일 테마(없으면 None)를 입힌다. 화면 전용이며 DB에 쓰지 않는다.
+
+        set_holiday_theme이 없는 위젯은 건너뛴다. 크게 보기로 숨겨 둔 창도 돌아올 때 같은
+        색이도록 등록할 때 입힌다.
+        """
+        apply_theme = getattr(win, "set_holiday_theme", None)
+        if apply_theme is not None:
+            apply_theme(self._holiday_theme.theme())
 
     def _show_floating_widget(self, win) -> None:
         """예약된 표시도 잠금·트레이·현재 레지스트리/패널 상태를 확인한다."""
@@ -1788,6 +1799,7 @@ class MainCalendarWindow(QWidget):
             (self._focus_windows, self._focus_in_panel_mode),
         ):
             if any(current is win for current in windows.values()):
+                self._dress_floating_widget(win)  # 보이기 직전에 현재 테마로 맞춘다
                 if not in_panel:
                     win.show()
                     win.raise_()
@@ -3496,7 +3508,8 @@ class MainCalendarWindow(QWidget):
     def _apply_holiday_theme(self, match) -> None:
         """테마 판정 결과(None이면 해제)를 화면에 입힌다. DB에는 아무것도 쓰지 않는다.
 
-        지금은 머리줄·달력·인사말까지다. D-Day·스티키·집중 위젯과 장식은 같은 자리에서 더해진다.
+        지금은 머리줄·달력·인사말과 D-Day·스티키(떠 있는 창·크게 보기 패널)까지다.
+        집중 위젯과 장식은 같은 자리에서 더해진다.
         """
         theme = match.theme if match is not None else None
         self._header_section.setStyleSheet(
@@ -3512,6 +3525,14 @@ class MainCalendarWindow(QWidget):
 
         # 오늘 칸 색과 공휴일 칸 바탕·점은 칸을 만들 때 정해지므로 달력을 다시 그린다.
         self._refresh_calendar()
+
+        # D-Day·스티키: 숨겨 둔 창과 크게 보기 패널까지 모두(표시 전용, 저장색·본문은 그대로).
+        for registry in (self._sticky_windows, self._dday_windows):
+            for win in registry.values():
+                win.set_holiday_theme(theme)
+        for panel in (self._sticky_side_panel, self._dday_side_panel):
+            if panel is not None:
+                panel.set_holiday_theme(theme)
 
     def _check_daily_auto_backup(self):
         """트레이 상주 중 날짜가 바뀌면 최신 저장 뒤 일일 묶음을 만든다."""
@@ -3702,6 +3723,7 @@ class MainCalendarWindow(QWidget):
             if self._sticky_side_panel is None:
                 from ui_sticky_panel import StickySidePanel
                 self._sticky_side_panel = StickySidePanel(self._expanded_row)
+                self._sticky_side_panel.set_holiday_theme(self._holiday_theme.theme())
                 self._sticky_side_panel.note_trashed.connect(self._on_panel_note_trashed)
             # 진입 직전까지는 플로팅 창이 단일 최신 원본이다. 재사용 패널의
             # 오래된 카드가 DB를 다시 쓰지 않도록 flush 없이 새로 읽는다.
@@ -3784,6 +3806,7 @@ class MainCalendarWindow(QWidget):
             if self._dday_side_panel is None:
                 from ui_dday_panel import DDaySidePanel
                 self._dday_side_panel = DDaySidePanel(self._expanded_row)
+                self._dday_side_panel.set_holiday_theme(self._holiday_theme.theme())
                 self._dday_side_panel.edit_requested.connect(self._on_panel_dday_edit)
                 self._dday_side_panel.delete_requested.connect(self._on_panel_dday_delete)
                 self._dday_side_panel.create_requested.connect(self._on_new_dday_widget)

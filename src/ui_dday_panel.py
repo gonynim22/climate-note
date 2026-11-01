@@ -52,6 +52,7 @@ class DDayMiniCard(QWidget):
         self._name = data.get("name", "")
         self._target_date = data.get("target_date", "")
         self._color = data.get("color", db.DEFAULT_DDAY_COLOR)
+        self._holiday_theme = None  # 공휴일 테마(표시 전용). 저장색과 따로 쥔다
         self.setObjectName("ddayMiniCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setFixedHeight(56)
@@ -87,11 +88,22 @@ class DDayMiniCard(QWidget):
         self._update_countdown()
 
     def _apply_color(self, hex_color):
-        cover = dday_cover_color(hex_color)
+        self._color = hex_color
+        self._render_cover()
+
+    def _render_cover(self) -> None:
+        """지금 보일 커버 색(테마가 있으면 테마, 없으면 저장색)으로 카드를 그린다."""
+        theme = self._holiday_theme
+        cover = theme.cover if theme is not None else dday_cover_color(self._color)
         self.setStyleSheet(
             f"#ddayMiniCard{{background:{cover};"
             "border:none;border-radius:12px;}"
         )
+
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 화면에만 입힌다. DB에는 쓰지 않는다."""
+        self._holiday_theme = theme
+        self._render_cover()
 
     def _update_countdown(self):
         try:
@@ -205,6 +217,7 @@ class DDaySidePanel(QWidget):
         )
         self._cards = []
         self._action_card = None
+        self._holiday_theme = None  # reload()로 만드는 카드에도 입히려고 기억한다
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(12, 10, 12, 10)
@@ -235,6 +248,12 @@ class DDaySidePanel(QWidget):
         self._refresh_timer.timeout.connect(self._refresh_all)
         self._refresh_timer.start()
 
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 기억하고 지금 있는 카드에 입힌다. 화면 전용."""
+        self._holiday_theme = theme
+        for card in self._cards:
+            card.set_holiday_theme(theme)
+
     def reload(self):
         for card in self._cards:
             self._grid.removeWidget(card)
@@ -251,6 +270,7 @@ class DDaySidePanel(QWidget):
             widgets = []
         for idx, w in enumerate(widgets):
             card = DDayMiniCard(w["id"], w, self._grid_host)
+            card.set_holiday_theme(self._holiday_theme)
             card.edit_requested.connect(self.edit_requested.emit)
             card.delete_requested.connect(self.delete_requested.emit)
             row, col = divmod(idx, self._COLS)

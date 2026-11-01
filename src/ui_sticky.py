@@ -57,6 +57,74 @@ TEXT_COLORS = [
     ("#00838F", "청록"), ("#5D4037", "갈색"),
 ]
 
+# ── 머리띠 위 서식 버튼 공통 스타일 ───────────────────────────────
+_FMT_BUTTON_QSS = """
+            QPushButton {
+                font-size: 12px; font-weight: bold;
+                min-width: 24px; max-width: 24px;
+                min-height: 22px; max-height: 22px;
+                border-radius: 4px;
+                border: 1px solid rgba(0,0,0,40);
+                background: rgba(255,255,255,120);
+            }
+            QPushButton:hover { background: rgba(0,0,0,25); }
+            QPushButton:checked { background: rgba(0,120,212,60); border: 1px solid #0078D4; }
+        """
+
+# 공휴일 테마의 설날 색동 띠: 위에서부터 이 높이(px)씩 단단한 경계로 칠한다.
+_BAND_STRIPE_PX = 6
+_BAND_EDGE = 0.00001  # 줄 경계의 멈춤점 간격(띠 높이의 비율, 사실상 0px)
+
+
+def _fmt_button_qss(icon_color: str | None = None) -> str:
+    """서식 버튼 스타일. icon_color(공휴일 테마의 band_icon)가 있으면 글자색을 입힌다.
+
+    밝은 글자(어두운 띠)는 기본 바탕(반투명 흰색)에서 대비가 모자라서, 바탕·테두리·hover를
+    옅은 흰색으로 바꾼다. 눌림(checked) 표시는 선택자가 더 구체적이라 그대로 남는다.
+    """
+    if icon_color is None:
+        return _FMT_BUTTON_QSS
+    if QColor(icon_color).lightnessF() > 0.6:
+        return _FMT_BUTTON_QSS + (
+            f"QPushButton {{ color: {icon_color}; background: rgba(255,255,255,38);"
+            " border: 1px solid rgba(255,255,255,90); }"
+            "QPushButton:hover { background: rgba(255,255,255,70); }"
+        )
+    return _FMT_BUTTON_QSS + f"QPushButton {{ color: {icon_color}; }}"
+
+
+def _band_background(theme, height: int) -> str:
+    """머리띠 바탕(QSS background 값). 설날은 band_stripes를 6px 단위 세로 줄무늬로 칠한다."""
+    stripes = theme.band_stripes
+    if not stripes:
+        return theme.band
+    height = max(int(height), 1)
+    stops = []
+    for index, color in enumerate(stripes):
+        # 같은 위치에 멈춤점을 두 번 쓰면 Qt가 하나로 합쳐 부드러운 그라데이션이 되므로,
+        # 다음 줄은 _BAND_EDGE만큼 뒤에서 시작해 경계를 단단하게 만든다.
+        top = 0.0 if index == 0 else min(1.0, index * _BAND_STRIPE_PX / height + _BAND_EDGE)
+        # 마지막 줄은 띠 끝까지 이어 간다(남는 높이가 빈 바탕으로 비지 않게).
+        bottom = 1.0 if index == len(stripes) - 1 else min(
+            1.0, (index + 1) * _BAND_STRIPE_PX / height)
+        stops.append(f"stop:{top:.6f} {color}")
+        stops.append(f"stop:{bottom:.6f} {color}")
+    return f"qlineargradient(x1:0, y1:0, x2:0, y2:1, {', '.join(stops)})"
+
+
+def _header_qss(background: str, border_rgb: tuple[int, int, int]) -> str:
+    """머리띠 스타일. 노트 색 경로와 공휴일 테마 경로가 같이 쓴다."""
+    br, bg, bb = border_rgb
+    return f"""
+            #stickyHeader {{
+                background: {background};
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+                border-bottom: 1px solid rgba({br}, {bg}, {bb}, 80);
+            }}
+        """
+
+
 class _ColorGridPopup(QWidget):
     """색상 선택 팝업 (범용)"""
     color_selected = Signal(str)
@@ -118,7 +186,7 @@ class _TextColorButton(QPushButton):
         self._bar_color = QColor("#000000")
         self.setFixedSize(24, 22)
         self.setToolTip("텍스트 색상")
-        self.setStyleSheet("""
+        self._base_qss = """
             QPushButton {
                 font-size: 12px; font-weight: bold;
                 min-width: 24px; max-width: 24px;
@@ -129,7 +197,16 @@ class _TextColorButton(QPushButton):
                 font-family: serif;
             }
             QPushButton:hover { background: rgba(0,0,0,25); }
-        """)
+        """
+        self.setStyleSheet(self._base_qss)
+
+    def set_label_color(self, hex_color: str | None) -> None:
+        """'A' 글자색을 바꾼다(공휴일 테마의 머리띠 아이콘 색). None이면 원래 스타일."""
+        if hex_color is None:
+            self.setStyleSheet(self._base_qss)
+        else:
+            self.setStyleSheet(
+                _fmt_button_qss(hex_color) + "QPushButton { font-family: serif; }")
 
     def set_bar_color(self, hex_color: str):
         """색상 바 색상 변경 후 다시 그리기"""
@@ -625,6 +702,7 @@ class StickyNoteWindow(QWidget):
         super().__init__(parent)
         self.note_id = note_id
         self._drag_pos = None
+        self._holiday_theme = None  # 공휴일 테마(표시 전용). 노트 색과 따로 쥔다
         self._decryption_failed = bool(
             note_data.get("_decryption_failed", False)
         )
@@ -690,18 +768,7 @@ class StickyNoteWindow(QWidget):
         hdr_layout.addWidget(self.color_btn)
 
         # ── 서식 버튼 ──
-        _fmt_style = """
-            QPushButton {
-                font-size: 12px; font-weight: bold;
-                min-width: 24px; max-width: 24px;
-                min-height: 22px; max-height: 22px;
-                border-radius: 4px;
-                border: 1px solid rgba(0,0,0,40);
-                background: rgba(255,255,255,120);
-            }
-            QPushButton:hover { background: rgba(0,0,0,25); }
-            QPushButton:checked { background: rgba(0,120,212,60); border: 1px solid #0078D4; }
-        """
+        _fmt_style = _FMT_BUTTON_QSS
 
         self.bold_btn = QPushButton("B", self)
         self.bold_btn.setCheckable(True)
@@ -733,10 +800,10 @@ class StickyNoteWindow(QWidget):
         hdr_layout.addStretch()
 
         # 닫기 버튼
-        close_btn = TransparentToolButton(FIF.CLOSE, self)
-        close_btn.setToolTip("닫기")
-        close_btn.clicked.connect(self._on_close)
-        hdr_layout.addWidget(close_btn)
+        self.close_btn = TransparentToolButton(FIF.CLOSE, self)
+        self.close_btn.setToolTip("닫기")
+        self.close_btn.clicked.connect(self._on_close)
+        hdr_layout.addWidget(self.close_btn)
 
         # ── 본문 영역 (텍스트 + 그립) ──
         body_layout = QVBoxLayout()
@@ -804,14 +871,9 @@ class StickyNoteWindow(QWidget):
                 border: 1px solid rgba({br}, {bg}, {bb}, 180);
             }}
         """)
-        self.header_widget.setStyleSheet(f"""
-            #stickyHeader {{
-                background: rgba({hr}, {hg}, {hb}, 255);
-                border-top-left-radius: 10px;
-                border-top-right-radius: 10px;
-                border-bottom: 1px solid rgba({br}, {bg}, {bb}, 80);
-            }}
-        """)
+        self._header_border = (br, bg, bb)
+        self._header_color_bg = f"rgba({hr}, {hg}, {hb}, 255)"
+        self._render_header()
         self.color_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {hex_color};
@@ -825,6 +887,36 @@ class StickyNoteWindow(QWidget):
 
         if save:
             db.update_sticky_note(self.note_id, color=hex_color)
+
+    def _render_header(self) -> None:
+        """지금 보일 머리띠(테마가 있으면 테마 띠, 없으면 노트 색의 머리색)를 그린다."""
+        theme = self._holiday_theme
+        if theme is None:
+            background = self._header_color_bg
+        else:
+            background = _band_background(theme, self.header_widget.sizeHint().height())
+        self.header_widget.setStyleSheet(_header_qss(background, self._header_border))
+
+    def set_holiday_theme(self, theme) -> None:
+        """공휴일 테마(HolidayTheme 또는 None)를 머리띠에만 입힌다. DB에는 쓰지 않는다.
+
+        본문 바탕·테두리와 본문 내용(HTML)은 건드리지 않는다. 띠 위 서식 버튼의 글자와
+        링크·닫기 아이콘은 테마의 band_icon 색으로 다시 그린다.
+        """
+        self._holiday_theme = theme
+        self._render_header()
+        icon_color = theme.band_icon if theme is not None else None
+        self.bold_btn.setStyleSheet(
+            _fmt_button_qss(icon_color) + "QPushButton { font-family: serif; }")
+        self.todo_btn.setStyleSheet(_fmt_button_qss(icon_color))
+        self.text_color_btn.set_label_color(icon_color)
+        self.link_btn.setStyleSheet(_fmt_button_qss(icon_color))
+        if icon_color is None:
+            self.link_btn.setIcon(fluent_icon("link"))
+            self.close_btn.setIcon(FIF.CLOSE)
+        else:
+            self.link_btn.setIcon(fluent_icon("link", icon_color))
+            self.close_btn.setIcon(FIF.CLOSE.icon(color=QColor(icon_color)))
 
     def _toggle_bold(self):
         toggle_bold(self.text_edit, self.bold_btn.isChecked())
