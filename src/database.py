@@ -36,6 +36,8 @@ SETTING_PRIVACY_PIN = "privacy_pin"
 SETTING_DESKTOP_MODE = "desktop_mode"
 SETTING_USE_PRIVACY_LOCK = "use_privacy_lock"
 SETTING_SHOW_LUNAR = "show_lunar"
+# v4.6 공휴일 테마(화면 전용). 값 "1"/"0", 키가 없으면 켜짐으로 본다. 마이그레이션에 넣지 않는다.
+SETTING_HOLIDAY_THEME_ENABLED = "holiday_theme_enabled"
 SETTING_SHOW_LAW_SEARCH = "show_law_search"
 SETTING_CALENDAR_X = "calendar_x"
 SETTING_CALENDAR_Y = "calendar_y"

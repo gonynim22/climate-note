@@ -435,12 +435,13 @@ class SettingsWindow(QWidget):
                  on_opacity_changed=None, on_scale_changed=None,
                  on_keep_changed=None, on_schedule_colors_changed=None,
                  on_prepare_data_change=None, on_before_reset=None,
-                 on_monitor_selected=None):
+                 on_monitor_selected=None, on_holiday_theme_changed=None):
         super().__init__(parent)
         self.on_reset_callback = on_reset_callback
         self.on_import_callback = on_import_callback
         self.on_quit_callback = on_quit_callback
         self.on_lunar_changed = on_lunar_changed
+        self.on_holiday_theme_changed = on_holiday_theme_changed
         self.on_law_search_changed = on_law_search_changed
         self.on_position_changed = on_position_changed
         self.on_monitor_selected = on_monitor_selected
@@ -508,11 +509,16 @@ class SettingsWindow(QWidget):
         return panel, body
 
     def _add_row(self, body: QVBoxLayout, label: str, control: QWidget,
-                 label_width: int = 116, divider: bool = True) -> QWidget:
-        """라벨-좌(고정폭) / 컨트롤-우(우측 정렬) 행. divider=True면 하단 1px 구분선 추가."""
+                 label_width: int = 116, divider: bool = True,
+                 row_height: int = 40) -> QWidget:
+        """라벨-좌(고정폭) / 컨트롤-우(우측 정렬) 행. divider=True면 하단 1px 구분선 추가.
+
+        row_height는 행의 최소 높이다. 왼쪽 열(화면 표시·위젯·도구)은 800x560 무스크롤 창에서
+        공휴일 테마 행 자리를 만들려고 36을 넘기고, 오른쪽 열은 기본 40을 쓴다.
+        """
         row = QWidget(self)
         row.setObjectName("settingsRow")
-        row.setMinimumHeight(40)
+        row.setMinimumHeight(row_height)
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(12)
@@ -636,7 +642,7 @@ class SettingsWindow(QWidget):
             self.monitor_combo.setCurrentIndex(monitor_index)
         self._monitor_selection_index = self.monitor_combo.currentIndex()
         self.monitor_combo.currentIndexChanged.connect(self._on_monitor_changed)
-        self._add_row(disp_body, "모니터", self.monitor_combo)
+        self._add_row(disp_body, "모니터", self.monitor_combo, row_height=36)
 
         # 화면 위치 (4모서리 그리드: 2x2)
         current_pos = db.get_setting(db.SETTING_CALENDAR_POSITION, "bottom-right")
@@ -660,7 +666,8 @@ class SettingsWindow(QWidget):
             self._position_btns[pos_key] = button
             pos_grid.addWidget(button, prow, pcol)
         self._update_position_buttons(current_pos)
-        self._position_row = self._add_row(disp_body, "화면 위치", pos_grid_frame)
+        self._position_row = self._add_row(
+            disp_body, "화면 위치", pos_grid_frame, row_height=36)
         self._position_row.setMinimumHeight(60)
 
         # 전체 투명도
@@ -686,18 +693,26 @@ class SettingsWindow(QWidget):
         self.opacity_slider.valueChanged.connect(self._on_opacity_changed)
         opacity_row.addWidget(self.opacity_slider)
         opacity_row.addWidget(self.opacity_value_label)
-        self._add_row(disp_body, "전체 투명도", opacity_control)
+        self._add_row(disp_body, "전체 투명도", opacity_control, row_height=36)
 
         # 캘린더 크기 (일러스트 picker)
         self.scale_picker = CalendarSizePicker(
             db.get_setting(db.SETTING_CALENDAR_SCALE, db.DEFAULT_CALENDAR_SCALE), self)
         self.scale_picker.scaleChanged.connect(self._on_scale_changed)
-        self._add_row(disp_body, "캘린더 크기", self.scale_picker)
+        self._add_row(disp_body, "캘린더 크기", self.scale_picker, row_height=36)
 
-        # 음력 및 공휴일 (섹션 마지막 행)
+        # 음력 및 공휴일
         self.lunar_switch = self._make_switch(
             db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1", self._on_lunar_toggled)
-        self._add_row(disp_body, "음력 및 공휴일", self.lunar_switch, divider=False)
+        self._add_row(disp_body, "음력 및 공휴일", self.lunar_switch, row_height=36)
+
+        # 공휴일 테마 (섹션 마지막 행). 키가 없으면 켜짐.
+        self.holiday_theme_switch = self._make_switch(
+            db.get_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1") == "1",
+            self._on_holiday_theme_toggled)
+        self.holiday_theme_switch.setToolTip("공휴일 3일 전부터 캘린더와 위젯에 그날 분위기를 입힙니다.")
+        self._add_row(
+            disp_body, "공휴일 테마", self.holiday_theme_switch, divider=False, row_height=36)
 
         left_layout.addWidget(disp_panel)
 
@@ -707,10 +722,10 @@ class SettingsWindow(QWidget):
             db.get_setting(db.SETTING_SHOW_SIDEBAR, "0") == "1", self._on_sidebar_toggled)
         # 중간·크게는 [바로가기 | 달력 | 일정] 배치라 늘 보이므로 이 스위치는 기본 크기에만 적용된다.
         self.sidebar_switch.setToolTip("기본 크기에서 바로가기 열을 보입니다. 중간·크게에서는 늘 보입니다.")
-        self._add_row(tools_body, "기본 크기 바로가기", self.sidebar_switch)
+        self._add_row(tools_body, "기본 크기 바로가기", self.sidebar_switch, row_height=36)
         self.law_search_switch = self._make_switch(
             db.get_setting(db.SETTING_SHOW_LAW_SEARCH, "1") == "1", self._on_law_search_toggled)
-        self._add_row(tools_body, "AI 법령검색", self.law_search_switch)
+        self._add_row(tools_body, "AI 법령검색", self.law_search_switch, row_height=36)
         self._saved_schedule_colors = db.get_schedule_palette()
         self.schedule_color_picker = ScheduleColorPicker(
             self._saved_schedule_colors, self
@@ -719,7 +734,7 @@ class SettingsWindow(QWidget):
             self._on_schedule_colors_changed
         )
         self._add_row(
-            tools_body, "일정 색상", self.schedule_color_picker, divider=False
+            tools_body, "일정 색상", self.schedule_color_picker, divider=False, row_height=36
         )
         left_layout.addWidget(tools_panel)
         left_layout.addStretch(1)
@@ -1204,6 +1219,12 @@ class SettingsWindow(QWidget):
             InfoBar.info(title="음력 및 공휴일 표시", content="달력에 음력과 공휴일이 표시됩니다.", parent=self)
         else:
             InfoBar.info(title="설정 변경", content="음력 및 공휴일 표시가 비활성화되었습니다.", parent=self)
+
+    def _on_holiday_theme_toggled(self, checked: bool):
+        """공휴일 테마 스위치: 키 하나만 저장하고 화면 갱신은 콜백에 맡긴다(알림 없음)."""
+        db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1" if checked else "0")
+        if self.on_holiday_theme_changed:
+            self.on_holiday_theme_changed()
 
     def _on_law_search_toggled(self, checked: bool):
         db.save_setting(db.SETTING_SHOW_LAW_SEARCH, "1" if checked else "0")
