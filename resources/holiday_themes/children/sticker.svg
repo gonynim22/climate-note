@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+<path d="M24 22 L31 45" stroke="#FFFFFF" stroke-width="6" fill="none" stroke-linecap="round"/>
+<path d="M24 22 L31 45" stroke="#D9C08F" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+<path d="M24 20 L24 3 Q34 3 34 12 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3.5" stroke-linejoin="round" />
+<path d="M24 20 L24 3 Q34 3 34 12 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3.5" stroke-linejoin="round"  transform="rotate(90 24 20)"/>
+<path d="M24 20 L24 3 Q34 3 34 12 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3.5" stroke-linejoin="round"  transform="rotate(180 24 20)"/>
+<path d="M24 20 L24 3 Q34 3 34 12 Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="3.5" stroke-linejoin="round"  transform="rotate(270 24 20)"/>
+<path d="M24 20 L24 3 Q34 3 34 12 Z" fill="#FF6B6B"/>
+<path d="M24 20 L24 3 Q34 3 34 12 Z" fill="#FFD166" transform="rotate(90 24 20)"/>
+<path d="M24 20 L24 3 Q34 3 34 12 Z" fill="#4CC9F0" transform="rotate(180 24 20)"/>
+<path d="M24 20 L24 3 Q34 3 34 12 Z" fill="#7BD389" transform="rotate(270 24 20)"/>
+<circle cx="24" cy="20" r="2.6" fill="#FFFFFF" stroke="#D0D4DA" stroke-width="0.8"/>
+</svg>

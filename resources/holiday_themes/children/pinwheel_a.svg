@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<path d="M12 12 L12 2 Q18 2 18 7 Z" fill="#FF6B6B"/>
+<path d="M12 12 L12 2 Q18 2 18 7 Z" fill="#FFD166" transform="rotate(90 12 12)"/>
+<path d="M12 12 L12 2 Q18 2 18 7 Z" fill="#4CC9F0" transform="rotate(180 12 12)"/>
+<path d="M12 12 L12 2 Q18 2 18 7 Z" fill="#7BD389" transform="rotate(270 12 12)"/>
+<circle cx="12" cy="12" r="1.6" fill="#FFFFFF"/>
+</svg>
