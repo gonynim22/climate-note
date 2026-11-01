@@ -3456,11 +3456,26 @@ class MainCalendarWindow(QWidget):
             self._greeting_line.addWidget(label, 0, Qt.AlignRight)
         self._greeting_in_row = in_row
 
+    def _greeting_row_budget(self) -> int:
+        """인사말이 날짜 줄에서 쓸 수 있는 폭. 인사말 위치와 무관한 값만 쓴다.
+
+        기본 크기는 창 폭(380)이 패널 폭을 정하므로 실제 폭을 쓴다. 중간·크게의 패널은 300~360px 안에서
+        내용 힌트대로 폭이 정해져 날짜 줄에 인사말이 있으면 폭이 늘 수 있다. 실제 폭으로 판단하면
+        마지막 조작에 따라 날짜 줄(넓은 패널)과 둘째 줄(좁은 패널)이 번갈아 안정되므로, 인사말이 없어도
+        패널이 가지는 최소 폭(300px)으로 판단한다. 그 안에 들어가는 날짜 줄은 패널 폭을 늘리지 못한다.
+        """
+        panel = self.schedule_panel
+        margins = panel.layout().contentsMargins()
+        floor = panel.minimumWidth()  # 중간·크게는 300, 기본 크기는 0
+        width = floor if floor > 0 else panel.width()
+        return width - margins.left() - margins.right()
+
     def _fit_holiday_greeting(self) -> None:
         """인사말을 공휴일 당일마다 전체 문구로 보인다: 날짜 줄에 들어가면 거기, 아니면 아래 둘째 줄.
 
-        날짜·음력·공휴일명·개수 라벨은 어떤 경우에도 줄지 않는다. 판단은 라벨 글자 폭(sizeHint)과
-        패널 폭으로만 하므로 라벨을 옮겨도 판단이 되돌려지지 않는다(깜빡임 없음). 문구가 없으면
+        날짜·음력·공휴일명·개수 라벨은 어떤 경우에도 줄지 않고, 인사말은 일정 패널 폭을 바꾸지 않는다.
+        판단은 라벨 글자 폭(sizeHint)과 _greeting_row_budget()으로만 하므로 라벨을 옮기거나 어떤
+        순서로 날짜를 골라도 결과가 같고 되돌려지지 않는다(깜빡임 없음). 문구가 없으면
         (테마 없음·예고 기간·스위치 끔) 라벨을 숨기고 날짜 줄에 두어 둘째 줄이 자리를 차지하지 않는다.
         """
         label = self.holiday_greeting_label
@@ -3472,11 +3487,9 @@ class MainCalendarWindow(QWidget):
         others = [w for w in (self.selected_date_label, self.lunar_info_label,
                               self.holiday_info_label, self.count_label)
                   if not w.isHidden()]
-        margins = self.schedule_panel.layout().contentsMargins()
-        available = self.schedule_panel.width() - margins.left() - margins.right()
         needed = (label.sizeHint().width() + sum(w.sizeHint().width() for w in others)
                   + self._date_row.spacing() * len(others))
-        self._place_holiday_greeting(needed <= available)
+        self._place_holiday_greeting(needed <= self._greeting_row_budget())
         if label.isHidden():  # 바뀔 때만 건드려 배치를 다시 요청하지 않는다
             label.setVisible(True)
 
@@ -4316,6 +4329,8 @@ class MainCalendarWindow(QWidget):
             db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1"
         )
         self._apply_calendar_scale()
+        # 가져오기·초기화는 공휴일 테마 스위치(holiday_theme_enabled)도 바꾸므로 바로 다시 판정한다.
+        self._holiday_theme.refresh()
         self._apply_app_opacity()
         self._on_keep_desktop_changed()
         self._on_law_search_changed()

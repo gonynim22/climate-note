@@ -582,3 +582,147 @@ def test_greeting_label_paints_nothing_when_narrower_than_text(app_dir, qtbot):
     assert _accent_pixels(label, "#8E2A4E") > 0
     label.resize(label.sizeHint().width() - 6, label.sizeHint().height())
     assert _accent_pixels(label, "#8E2A4E") == 0
+
+
+# ── 인사말은 일정 패널 폭을 바꾸지 않고, 자리 판단은 조작 순서와 무관하다(R12) ───────────────
+# 중간·크게의 패널은 300~360px 안에서 내용 힌트대로 폭이 정해진다. 날짜 줄에 인사말이 있으면 폭이
+# 늘 수 있어, 실제 폭으로 판단하면 마지막 조작에 따라 자리가 달라졌다.
+
+ZONE_CASES = [
+    # (이름, 음력 켬, 성탄 당일 일정 수, 날짜 줄에 들어가야 하는가)
+    ("음력 켬·일정 1개", True, 1, False),
+    ("음력 켬·일정 없음", True, 0, False),
+    ("음력 끔·일정 1개", False, 1, False),
+]
+
+
+def _settle(qtbot):
+    QApplication.processEvents()
+    qtbot.wait(250)
+
+
+def _zone_window(monkeypatch, qtbot, scale, show_lunar, schedules, day, today):
+    for index in range(schedules):
+        db.add_schedule(day, f"일정 {index}", "#4CC9F0")
+    w = _window_at(qtbot, scale, show_lunar=show_lunar)
+    _patch_only(monkeypatch, today)
+    w._holiday_theme.refresh()
+    _settle(qtbot)
+    return w
+
+
+@pytest.mark.parametrize("scale", ["medium", "large"])
+@pytest.mark.parametrize("name,show_lunar,schedules,in_row", ZONE_CASES)
+def test_greeting_placement_is_path_independent_and_keeps_panel_width(
+        monkeypatch, app_dir, qtbot, scale, name, show_lunar, schedules, in_row):
+    w = _zone_window(monkeypatch, qtbot, scale, show_lunar, schedules, "2026-12-25", "2026-12-25")
+    label = w.holiday_greeting_label
+
+    # 경로 A: 곧장 25일을 고른다.
+    _select_day(w, "2026-12-25")
+    _settle(qtbot)
+    placement_a, width_a = _in_date_row(w), w.schedule_panel.width()
+    # 경로 B: 다른 날(10일)을 거쳐 25일을 고른다.
+    _select_day(w, "2026-12-10")
+    _settle(qtbot)
+    _select_day(w, "2026-12-25")
+    _settle(qtbot)
+    placement_b, width_b = _in_date_row(w), w.schedule_panel.width()
+
+    assert label.isVisible() and label.text() == "메리 크리스마스", name
+    assert placement_a == placement_b == in_row, name  # 같은 날짜·내용·테마는 늘 같은 자리
+    assert width_a == width_b, name  # 조작 순서가 패널 폭을 바꾸지 않는다
+
+    # 인사말이 있어도 없어도 패널 폭이 같다(달력 칸 폭이 흔들리지 않는다).
+    grid_width = w.calendar_grid.geometry().width()
+    db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "0")
+    w._holiday_theme.refresh()
+    _settle(qtbot)
+    assert label.isHidden()
+    assert w.schedule_panel.width() == width_a, name
+    assert w.calendar_grid.geometry().width() == grid_width, name
+    db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1")
+    w._holiday_theme.refresh()
+    _settle(qtbot)
+    assert w.schedule_panel.width() == width_a and _in_date_row(w) == in_row, name
+
+
+@pytest.mark.parametrize("scale", ["medium", "large"])
+def test_greeting_placement_ignores_previous_selection_in_width_zone(
+        monkeypatch, app_dir, qtbot, scale):
+    """이전에 고른 날 때문에 남은 넓은 패널 폭이 인사말 자리를 바꾸지 않는다(R12 회귀).
+
+    음력 켬 + 성탄 당일 일정 1개: 25일을 고르면 패널이 343px로 넓어진다. 그 폭이 남은 채 일정 없는
+    10일을 고르면, 실제 폭으로 판단하던 때는 인사말이 날짜 줄에 들어가 패널이 330px로 유지됐고(곧장 10일을
+    고르면 둘째 줄에 300px), 같은 날짜·내용·테마가 마지막 조작에 따라 달리 보였다.
+    """
+    def final_state(via_christmas):
+        w = _zone_window(monkeypatch, qtbot, scale, True, 1, "2026-12-25", "2026-12-25")
+        if via_christmas:
+            _select_day(w, "2026-12-25")
+            _settle(qtbot)
+            assert w.schedule_panel.width() > 300  # 넓은 폭이 실제로 남는 조건을 만든다
+        _select_day(w, "2026-12-10")
+        _settle(qtbot)
+        assert w.holiday_greeting_label.isVisible()
+        return w, _in_date_row(w), w.schedule_panel.width()
+
+    direct, direct_in_row, direct_width = final_state(False)
+    via, via_in_row, via_width = final_state(True)
+    assert direct_in_row == via_in_row  # 같은 자리
+    assert direct_width == via_width  # 같은 패널 폭
+
+    # 인사말이 있어도 없어도 패널 폭이 같다.
+    db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "0")
+    via._holiday_theme.refresh()
+    _settle(qtbot)
+    assert via.schedule_panel.width() == via_width
+
+
+@pytest.mark.parametrize("scale", ["medium", "large"])
+def test_greeting_in_row_keeps_panel_width_when_it_fits_the_minimum(
+        monkeypatch, app_dir, qtbot, scale):
+    """패널 최소 폭 안에 들어가는 날은 날짜 줄에 두되 패널 폭은 인사말이 없을 때와 같다."""
+    w = _zone_window(monkeypatch, qtbot, scale, False, 0, "2027-02-10", "2027-02-07")
+    _select_day(w, "2027-02-10")
+    _settle(qtbot)
+    assert w.holiday_greeting_label.isVisible() and _in_date_row(w)
+    width_with = w.schedule_panel.width()
+    db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "0")
+    w._holiday_theme.refresh()
+    _settle(qtbot)
+    assert w.schedule_panel.width() == width_with
+
+
+# ── 가져오기·초기화는 공휴일 테마 스위치를 바로 반영한다 ────────────────────────────────
+
+def test_import_complete_turns_theme_off_immediately(monkeypatch, win):
+    _at(monkeypatch, win, "2026-12-25")
+    assert "#1D4A3A" in win._header_section.styleSheet()
+    assert win.holiday_greeting_label.text() == "메리 크리스마스"
+
+    db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "0")  # 가져온 파일의 설정 값을 흉내 낸다
+    win._on_import_complete()
+    QApplication.processEvents()
+    assert win._holiday_theme.match() is None
+    assert "#01295F" in win._header_section.styleSheet()
+    assert "#1D4A3A" not in win._header_section.styleSheet()
+    assert win.holiday_greeting_label.text() == ""
+    assert all(_dot(cell) is None for cell in win._day_cells.values())
+
+
+def test_factory_reset_turns_theme_back_on_when_key_is_gone(monkeypatch, win):
+    """초기화로 설정 키가 사라지면(= 켜짐) 같은 경로(_on_import_complete)로 테마가 바로 돌아온다."""
+    db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "0")
+    _at(monkeypatch, win, "2026-12-25")
+    assert win._holiday_theme.match() is None
+    assert "#01295F" in win._header_section.styleSheet()
+
+    with db._connection() as conn:  # reset_database가 설정을 비운 상태를 흉내 낸다
+        conn.execute("DELETE FROM app_settings WHERE key = ?",
+                     (db.SETTING_HOLIDAY_THEME_ENABLED,))
+        conn.commit()
+    win._on_factory_reset()
+    QApplication.processEvents()
+    assert win._holiday_theme.match() is not None
+    assert "#1D4A3A" in win._header_section.styleSheet()
