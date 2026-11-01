@@ -436,6 +436,29 @@ from app_info import APP_VERSION
 import database as db
 from show_desktop_guard import ShowDesktopKeeper
 import holidays
+import holiday_theme
+from ui_holiday_theme import HolidayThemeController
+
+# 공휴일 테마가 없을 때의 머리줄·오늘 칸 남색(holiday_theme.DEFAULT_HEADER와 같은 값)
+NAVY = holiday_theme.DEFAULT_HEADER
+
+
+def header_section_qss(background: str) -> str:
+    """캘린더 머리줄(#headerSection) 스타일. 배경만 인자고 모서리 규칙은 늘 같다."""
+    return f"""
+            #headerSection {{
+                background: {background};
+                border-top-right-radius: 12px;
+                border-top-left-radius: 12px;
+            }}
+            #headerSection[sidebarActive="true"] {{
+                border-top-left-radius: 0px;
+            }}
+            #headerSection[expanded="true"] {{
+                border-top-right-radius: 0px;
+            }}
+        """
+
 
 class SmoothCircleButton(QPushButton):
     def __init__(self, parent=None):
@@ -634,12 +657,18 @@ class CalendarDayButton(QWidget):
     def __init__(self, day: int, is_today: bool, event_colors: list,
                  is_current_month: bool, target_date: str, is_holiday: bool = False,
                  weekday_col: int = -1, count: int = 0, mode: str = "compact",
-                 parent=None, *, calendar_scale: str = "compact"):
+                 parent=None, *, calendar_scale: str = "compact",
+                 today_color: str = NAVY, theme_tint: str | None = None,
+                 theme_accent: str | None = None):
         super().__init__(parent)
         self.setObjectName("calendarDayButton")
         self.target_date = target_date
         self._callback = None
         self._is_today = is_today
+        # 공휴일 테마(표시 전용): 오늘 색, 오늘이 아닌 테마 공휴일 칸의 바탕·점 색
+        self._today_color = today_color
+        self._theme_tint = theme_tint if not is_today else None
+        self._theme_dot = None
         self._day = day
         self._event_colors = list(event_colors)
         self._is_current_month = is_current_month
@@ -698,11 +727,28 @@ class CalendarDayButton(QWidget):
         self._chips_layout.setAlignment(Qt.AlignTop)
         layout.addWidget(self._chips_container, 1)
 
+        if self._theme_tint and theme_accent:
+            # 레이아웃 밖에 얹는 6×6 점. 마우스는 칸으로 흘려 보내고 resizeEvent에서 자리를 잡는다.
+            self._theme_dot = QWidget(self)
+            self._theme_dot.setObjectName("holidayThemeDot")
+            self._theme_dot.setFixedSize(6, 6)
+            self._theme_dot.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            self._theme_dot.setAttribute(Qt.WA_StyledBackground, True)
+            self._theme_dot.setStyleSheet(
+                f"#holidayThemeDot {{ background: {theme_accent}; border-radius: 3px; }}")
+
         self._update_squares(event_colors)
         self.set_count(count)
         self._set_style(False)
         self.setCursor(Qt.PointingHandCursor)
         self._set_mode(mode)
+        self._place_theme_dot()
+
+    def _place_theme_dot(self):
+        """테마 점을 오른쪽 위 5px 안쪽에 둔다."""
+        if self._theme_dot is not None:
+            self._theme_dot.move(max(0, self.width() - 5 - 6), 5)
+            self._theme_dot.raise_()
 
     @property
     def chips_container(self) -> QWidget:
@@ -763,21 +809,26 @@ class CalendarDayButton(QWidget):
             # (2026-10-11 사용자 요청으로 15번의 테두리를 예전 채움으로 되돌림).
             if selected:
                 bg_style += "background: rgba(1,41,95,20);"
+            elif self._theme_tint:
+                bg_style += f"background: {self._theme_tint};"
             self.setStyleSheet(f"#calendarDayButton {{ {bg_style} }}")
             if self._is_today:
                 self.day_label.setStyleSheet(
-                    "color: white; background: #01295F; border-radius: 13px; padding: 0px;")
+                    f"color: white; background: {self._today_color}; "
+                    "border-radius: 13px; padding: 0px;")
             else:
                 self.day_label.setStyleSheet(
                     f"color: {base_color}; background: transparent; padding: 0px;")
             return
 
         if self._is_today:
-            bg_style += "background: #01295F;"
+            bg_style += f"background: {self._today_color};"
             base_color = "white"
             count_color = "rgba(255,255,255,200)"
         elif selected:
             bg_style += "background: rgba(1,41,95,20);"
+        elif self._theme_tint:
+            bg_style += f"background: {self._theme_tint};"
 
         self.setStyleSheet(f"#calendarDayButton {{ {bg_style} }}")
         self.day_label.setStyleSheet(f"color: {base_color}; background: transparent; padding: 2px;")
@@ -894,6 +945,7 @@ class CalendarDayButton(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._place_theme_dot()
         if self._mode == "expanded":
             self.set_events(self._events)
 
@@ -1440,6 +1492,15 @@ class ScheduleTextLabel(ElidePaintMixin, BodyLabel):
     """일정 목록 본문. text()는 전체 본문이고 좁으면 그릴 때만 말줄임한다."""
 
 
+class HolidayGreetingLabel(ElidePaintMixin, BodyLabel):
+    """공휴일 테마 인사말. 음력·공휴일명이 길어 자리가 모자라면 날짜 글자를 줄이지 않고
+    이 라벨만 그릴 때 말줄임한다. text()는 전체 인사말이고 말줄임되면 툴팁으로 보인다."""
+
+    def setText(self, text):
+        super().setText(text)
+        self.setToolTip(plain_tooltip(text) if text else "")
+
+
 class ScheduleRow(QWidget):
     """일정 목록 한 줄. 삭제 버튼은 마우스를 올린 줄과 키보드로 고른 줄에만 보인다(디자인 점검 13번).
 
@@ -1561,6 +1622,9 @@ class MainCalendarWindow(QWidget):
         self._alarm_card = None
         self._schedule_alarm_scheduler = ScheduleAlarmScheduler(self)
         self._schedule_alarm_scheduler.alarms_ready.connect(self._on_schedule_alarms)
+        # 공휴일 테마(표시 전용). 달력을 처음 그릴 때 읽으므로 화면보다 먼저 만들고,
+        # 첫 판정은 화면을 다 만든 뒤에 한다.
+        self._holiday_theme = HolidayThemeController(self)
         self._build_ui()
         self._apply_sidebar_visibility()
         self._apply_calendar_scale()
@@ -1568,6 +1632,8 @@ class MainCalendarWindow(QWidget):
         self._load_open_dday_widgets()
         self._load_open_focus_widgets()
         self._apply_app_opacity()
+        self._holiday_theme.themeChanged.connect(self._apply_holiday_theme)
+        self._holiday_theme.refresh()
 
         # ── 주기적 자동 저장 (30초) ──
         self._last_auto_backup_date = date.today().isoformat()
@@ -1960,19 +2026,7 @@ class MainCalendarWindow(QWidget):
         # ── 헤더 섹션 (네이비) ──
         header_section = QWidget(self.right_content)
         header_section.setObjectName("headerSection")
-        header_section.setStyleSheet("""
-            #headerSection {
-                background: #01295F;
-                border-top-right-radius: 12px;
-                border-top-left-radius: 12px;
-            }
-            #headerSection[sidebarActive="true"] {
-                border-top-left-radius: 0px;
-            }
-            #headerSection[expanded="true"] {
-                border-top-right-radius: 0px;
-            }
-        """)
+        header_section.setStyleSheet(header_section_qss(NAVY))
 
         header_layout = QVBoxLayout(header_section)
         header_layout.setContentsMargins(12, 12, 12, 8)
@@ -2416,6 +2470,13 @@ class MainCalendarWindow(QWidget):
         date_row.addWidget(self.holiday_info_label)
 
         date_row.addStretch()
+        # 공휴일 테마 인사말(공휴일 당일에만 글이 있다). 개수 라벨 바로 앞, 오른쪽에 붙는다.
+        self.holiday_greeting_label = HolidayGreetingLabel("", self)
+        self.holiday_greeting_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.holiday_greeting_label.setStyleSheet(
+            "color: #757575; font-weight: bold; font-size: 11px;")
+        self.holiday_greeting_label.setVisible(False)  # 테마가 입혀질 때만 보인다
+        date_row.addWidget(self.holiday_greeting_label)
         self.count_label = BodyLabel("", self)
         self.count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.count_label.setStyleSheet("color: #757575; font-size: 11px;")
@@ -2503,6 +2564,9 @@ class MainCalendarWindow(QWidget):
 
         today = date.today()
         self._show_lunar = db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1"
+        theme_match = self._holiday_theme.match()
+        theme_dates = frozenset(theme_match.dates) if theme_match is not None else frozenset()
+        today_color = theme_match.theme.today if theme_match is not None else NAVY
         calendar_scale = self._current_calendar_scale()
         cell_mode = "expanded" if calendar_scale != "compact" else "compact"
         self._style_weekday_header(calendar_scale)
@@ -2533,12 +2597,19 @@ class MainCalendarWindow(QWidget):
                     actual_day == today.day
                 )
                 is_holiday = bool(target_date) and holidays.is_holiday(target_date)
+                # 공휴일 테마(표시 전용): 고른 묶음의 날짜 칸에만 바탕·점, 오늘 색은 항상 테마 색
+                theme_tint = theme_accent = None
+                if (theme_match is not None and target_date
+                        and date.fromisoformat(target_date) in theme_dates):
+                    theme_tint = theme_match.theme.tint
+                    theme_accent = theme_match.theme.accent
 
                 # 색·개수·칩은 아래 _refresh_month_data()가 한 번의 조회로 채운다.
                 cell = CalendarDayButton(
                     actual_day, is_today, [], is_current, target_date,
                     is_holiday, col_idx, 0, cell_mode, self,
-                    calendar_scale=calendar_scale,
+                    calendar_scale=calendar_scale, today_color=today_color,
+                    theme_tint=theme_tint, theme_accent=theme_accent,
                 )
                 cell.layout_changed.connect(self._span_overlay.update)
                 self._grid_cells[row_idx].append(cell)
@@ -3308,6 +3379,7 @@ class MainCalendarWindow(QWidget):
         self._today = today.isoformat()
         self._current_year = today.year
         self._current_month = today.month
+        self._holiday_theme.refresh()  # 바뀌면 신호가 달력까지 다시 그린다
         self._refresh_calendar()
         self._on_date_selected(today.isoformat())
 
@@ -3319,7 +3391,7 @@ class MainCalendarWindow(QWidget):
         같은 날이면 사용자가 보던 달을 그대로 둔다.
         """
         if date.today().isoformat() != self._today:
-            self._on_today()
+            self._on_today()  # 오늘로 옮기며 공휴일 테마도 다시 판정한다
 
     def _check_day_rollover(self):
         """표시 중 자정을 넘기면 오늘 하이라이트만 조용히 갱신(보던 달·선택 유지).
@@ -3332,7 +3404,33 @@ class MainCalendarWindow(QWidget):
         today = date.today().isoformat()
         if today != self._today:
             self._today = today
+            self._holiday_theme.refresh()  # 바뀌면 신호가 달력까지 다시 그린다
             self._refresh_calendar()
+
+    # ─── 공휴일 테마(표시 전용) ─────────────────────────────────
+    def _on_holiday_theme_setting_changed(self) -> None:
+        """설정창의 '공휴일 테마' 스위치가 바뀌었다. 저장은 설정창이 끝냈으니 다시 판정만 한다."""
+        self._holiday_theme.refresh()
+
+    def _apply_holiday_theme(self, match) -> None:
+        """테마 판정 결과(None이면 해제)를 화면에 입힌다. DB에는 아무것도 쓰지 않는다.
+
+        지금은 머리줄·달력·인사말까지다. D-Day·스티키·집중 위젯과 장식은 같은 자리에서 더해진다.
+        """
+        theme = match.theme if match is not None else None
+        self._header_section.setStyleSheet(
+            header_section_qss(theme.header if theme is not None else NAVY))
+
+        # 인사말은 공휴일 첫날~마지막 날에만 보인다(예고 기간에는 색과 장식만).
+        greeting = theme.greeting if theme is not None and match.in_holiday else ""
+        self.holiday_greeting_label.setText(greeting)
+        self.holiday_greeting_label.setStyleSheet(
+            f"color: {theme.accent if greeting else '#757575'}; "
+            "font-weight: bold; font-size: 11px;")
+        self.holiday_greeting_label.setVisible(bool(greeting))  # 없을 땐 칸도 차지하지 않는다
+
+        # 오늘 칸 색과 공휴일 칸 바탕·점은 칸을 만들 때 정해지므로 달력을 다시 그린다.
+        self._refresh_calendar()
 
     def _check_daily_auto_backup(self):
         """트레이 상주 중 날짜가 바뀌면 최신 저장 뒤 일일 묶음을 만든다."""
@@ -4040,6 +4138,7 @@ class MainCalendarWindow(QWidget):
                 on_schedule_colors_changed=self._on_schedule_colors_changed,
                 on_prepare_data_change=self.prepare_for_data_change,
                 on_before_reset=self._discard_data_widgets,
+                on_holiday_theme_changed=self._on_holiday_theme_setting_changed,
             )
             self._settings_window.reset_succeeded.connect(self._discard_unit_converter)
             self._settings_window.reset_succeeded.connect(self._discard_date_time_calculator)
