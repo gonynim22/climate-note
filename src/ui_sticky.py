@@ -2,6 +2,7 @@
 import logging
 import sqlite3
 
+from shiboken6 import isValid
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QSizeGrip, QPushButton
@@ -22,6 +23,9 @@ from qfluentwidgets import (
 import database as db
 from fluent_icons import fluent_icon
 from ui_sticky_links import FileLinkTextEdit
+from ui_holiday_decor import (
+    DecorationLayer, STICKER_BOX, STICKER_INSET, STICKER_PAD, make_sticker_label, sticker_pixmap,
+)
 
 
 # ── 위젯 공통 크기 ────────────────────────────────────────────────
@@ -704,6 +708,9 @@ class StickyNoteWindow(QWidget):
         self.note_id = note_id
         self._drag_pos = None
         self._holiday_theme = None  # 공휴일 테마(표시 전용). 노트 색과 따로 쥔다
+        self._decor_layer = None    # 머리띠 장식 레이어(테마를 처음 입을 때 한 번만 만든다)
+        self._sticker = None        # 스티커 레이블(_build_ui가 만든다)
+        self._sticker_drawn = None  # 스티커를 마지막으로 그린 (테마 키, 장치 배율)
         self._decryption_failed = bool(
             note_data.get("_decryption_failed", False)
         )
@@ -837,6 +844,9 @@ class StickyNoteWindow(QWidget):
         grip_bar.addWidget(grip)
         body_layout.addLayout(grip_bar)
 
+        # 공휴일 스티커: 본문 오른쪽 아래에 겹쳐 놓는 마우스 투과 레이블(레이아웃 밖). 테마가 있을 때만 보인다.
+        self._sticker = make_sticker_label(self.container)
+
         # 색상 적용 (저장 없이)
         self._apply_color(color, save=False)
 
@@ -918,6 +928,71 @@ class StickyNoteWindow(QWidget):
         else:
             self.link_btn.setIcon(fluent_icon("link", icon_color))
             self.close_btn.setIcon(FIF.CLOSE.icon(color=QColor(icon_color)))
+        self._apply_holiday_decor(theme)
+
+    def _apply_holiday_decor(self, theme) -> None:
+        """머리띠 장식 레이어와 오른쪽 아래 스티커를 입히거나 걷는다. 여러 번 불려도 레이어는 하나다."""
+        key = theme.key if theme is not None else None
+        if self._decor_layer is None and key is not None:
+            self._decor_layer = DecorationLayer("sticky_band", self.header_widget)
+            self._decor_layer.set_corner_radii(10.0, 10.0)  # _header_qss의 위쪽 모서리
+            self._decor_layer.set_geometry_sync(self._sync_band_decor)
+        if self._decor_layer is not None:
+            self._decor_layer.set_theme(key)
+        self._place_sticker()
+
+    def _sync_band_decor(self) -> None:
+        """띠 장식의 기준점을 실제 버튼 배치에서 읽는다(머리띠 좌표).
+
+        left_gap = 왼쪽 도구 묶음(색·B·✓·A·링크)의 오른쪽 끝, right_gap = 닫기 버튼 왼쪽 끝,
+        center = 둘의 가운데, right = 띠 오른쪽 끝. 띠 높이가 디자인(30px)과 다르므로 세로 위치도 맞춘다.
+        """
+        layer = self._decor_layer
+        if layer is None or not hasattr(self, "close_btn"):
+            return
+        # 창을 닫는 중에는 자식이 먼저 사라질 수 있다(머리띠 이벤트가 마지막으로 도착한다).
+        if not all(isValid(w) for w in (
+                layer, self.header_widget, self.color_btn, self.bold_btn, self.todo_btn,
+                self.text_color_btn, self.link_btn, self.close_btn)):
+            return
+        left = self.link_btn.geometry().right() + 1
+        right = self.close_btn.geometry().left()
+        layer.set_anchors({
+            "left_gap": float(left),
+            "center": (left + right) / 2,
+            "right_gap": float(right),
+            "right": float(self.header_widget.width()),
+        })
+        layer.set_band_height(self.header_widget.height())
+        # 도구 버튼과 닫기 버튼 자리: 장식은 버튼 사이 빈 곳에만 놓는다(좁으면 줄이거나 뺀다).
+        layer.set_blockers([
+            (b.x() + 1, b.y() + 1, b.width() - 2, b.height() - 2)
+            for b in (self.color_btn.geometry(), self.bold_btn.geometry(), self.todo_btn.geometry(),
+                      self.text_color_btn.geometry(), self.link_btn.geometry(), self.close_btn.geometry())
+        ])
+
+    def _place_sticker(self) -> None:
+        """스티커를 본문(container) 오른쪽 아래 10px 안쪽에 놓고 그린다. 테마가 없으면 숨긴다."""
+        sticker = self._sticker
+        theme = self._holiday_theme
+        if sticker is None:
+            return
+        if theme is None:
+            sticker.hide()
+            return
+        drawn = (theme.key, self.devicePixelRatioF())
+        if self._sticker_drawn != drawn:  # 테마·배율이 달라졌을 때만 다시 그린다
+            sticker.setPixmap(sticker_pixmap(theme.key, drawn[1]))
+            self._sticker_drawn = drawn
+        offset = STICKER_INSET + STICKER_BOX + STICKER_PAD
+        sticker.move(self.container.width() - offset, self.container.height() - offset)
+        sticker.show()
+        sticker.raise_()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.layout().activate()  # 처음 보일 때 본문 크기가 확정된 뒤에 스티커를 놓는다
+        self._place_sticker()
 
     def _toggle_bold(self):
         toggle_bold(self.text_edit, self.bold_btn.isChecked())
@@ -1026,6 +1101,7 @@ class StickyNoteWindow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._place_sticker()
         if hasattr(self, "_resize_timer"):
             snap = self._snap_px()
             w = max(self.minimumWidth(), round(self.width() / snap) * snap)

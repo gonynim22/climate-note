@@ -18,6 +18,7 @@ from qfluentwidgets import (
 
 import database as db
 from app_paths import resource_root
+from ui_holiday_decor import DecorationLayer
 from ui_holiday_theme import HAT_OFFSET_UNITS, hat_pixmap
 
 
@@ -435,6 +436,7 @@ class FocusWidgetWindow(QWidget):
         self._visual_state = "normal"
         self._holiday_theme = None   # 공휴일 테마(표시 전용). 집중 세션·저장값과 따로 쥔다
         self._hat_drawn = {}         # 모자 레이블 이름 -> 마지막으로 그린 (테마 키, 장치 배율)
+        self._hat_layers = {}        # 모자 레이블 이름 -> 모자 위 장식 레이어(어린이날 프로펠러)
 
         x = data.get("x_pos", 160)
         y = data.get("y_pos", 160)
@@ -662,6 +664,8 @@ class FocusWidgetWindow(QWidget):
         label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         label.setStyleSheet("background: transparent;")
         label.hide()
+        # 모자 위 장식(어린이날 프로펠러). 모자 레이블 전체를 덮고, 레이블이 숨으면 같이 숨는다.
+        self._hat_layers[name] = DecorationLayer("hat", label)
         return label
 
     def set_holiday_theme(self, theme) -> None:
@@ -688,6 +692,11 @@ class FocusWidgetWindow(QWidget):
         """지금 보이는 토마토 위에만 모자를 얹고(아래 끝·x를 토마토 레이블에 맞춤) 나머지는 숨긴다."""
         theme = self._holiday_theme
         specs = self._hat_spec()
+        key = theme.key if theme is not None else None
+        for hat, _tomato, _box, offset, _visible in specs:
+            layer = self._hat_layers[hat.objectName()]
+            layer.set_hat_offset(offset)  # 모자 그림과 같은 만큼 프로펠러도 내린다
+            layer.set_theme(key)
         if theme is None:
             for hat, _tomato, _box, _offset, _visible in specs:
                 hat.hide()

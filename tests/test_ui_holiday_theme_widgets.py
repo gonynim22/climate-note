@@ -16,6 +16,7 @@ from holiday_theme import THEMES
 from holidays import KOREAN_HOLIDAYS
 from ui_dday import DDayWidgetWindow
 from ui_dday_panel import DDayMiniCard, DDaySidePanel
+from ui_holiday_decor import DecorationLayer
 from ui_main import MainCalendarWindow
 from ui_sticky import StickyNoteWindow
 from ui_sticky_panel import StickyMiniCard, StickySidePanel
@@ -211,6 +212,9 @@ def test_plain_band_is_a_single_color(app_dir, qtbot):
     qtbot.waitExposed(win)
     win.set_holiday_theme(THEMES["christmas"])
     assert "qlineargradient" not in win.header_widget.styleSheet()
+    # 띠 바탕만 본다: 위에 겹치는 장식 레이어(눈 쌓인 톱니·솔가지)는 숨기고 그린다.
+    for layer in win.header_widget.findChildren(DecorationLayer):
+        layer.hide()
     image = win.header_widget.grab().toImage().convertToFormat(QImage.Format_ARGB32)
     for y in (3, 20, image.height() - 4):
         assert _close(QColor.fromRgba(image.pixel(200, y)), "#DCEBDD"), y

@@ -64,6 +64,8 @@ class Sprite:
     motion MOTION_KINDS 중 하나 또는 None(정지). period는 초, phase는 CSS animation-delay 그대로
            (음수면 이미 진행된 상태로 시작). origin은 회전·배율 중심(rect의 비율, 0~1).
     once   True면 한 번 재생하고 끝 상태에 머문다(시안의 `both` 한 번 재생).
+    follows True면 튜플에서 바로 다음 조각이 그려질 때만 그린다(바람개비 막대·커피잔 김처럼 혼자는
+           의미가 없는 조각). 버튼과 겹쳐 다음 조각이 빠지면 같이 빠진다.
     """
     asset: str
     rect: tuple[float, float, float, float]
@@ -73,6 +75,7 @@ class Sprite:
     phase: float = 0.0
     origin: tuple[float, float] = (0.5, 0.5)
     once: bool = False
+    follows: bool = False
 
 
 @dataclass(frozen=True)
@@ -341,9 +344,10 @@ def particle_pose(pt: Particle, t: float) -> tuple[float, float, float]:
 
 def _sp(surface: str, asset: str, anchor: str, x: float, y: float, w: float, h: float,
         motion: str | None = None, period: float = 0.0, phase: float = 0.0,
-        origin: tuple[float, float] = (0.5, 0.5), once: bool = False) -> Sprite:
+        origin: tuple[float, float] = (0.5, 0.5), once: bool = False, follows: bool = False) -> Sprite:
     """시안의 절대 x를 받아 기준점에서의 거리로 바꾼 Sprite를 만든다."""
-    return Sprite(asset, (x - ANCHOR_REF[surface][anchor], y, w, h), anchor, motion, period, phase, origin, once)
+    return Sprite(asset, (x - ANCHOR_REF[surface][anchor], y, w, h), anchor, motion, period, phase,
+                  origin, once, follows)
 
 
 def _pt(surface: str, kind: str, anchor: str, x: float, y: float, w: float, h: float,
@@ -449,15 +453,15 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         "header": SurfaceDecor(
             base="labor/header.svg", base_tile=90,
             sprites=(
-                _hs("labor/steam.svg", "right_gap", 258, 2, 6, 16, "steam", 2.6, 0.0),
-                _hs("labor/steam.svg", "right_gap", 264, 2, 6, 16, "steam", 2.6, -0.9),
-                _hs("labor/steam.svg", "right_gap", 270, 2, 6, 16, "steam", 2.6, -1.7),
+                _hs("labor/steam.svg", "right_gap", 258, 2, 6, 16, "steam", 2.6, 0.0, follows=True),
+                _hs("labor/steam.svg", "right_gap", 264, 2, 6, 16, "steam", 2.6, -0.9, follows=True),
+                _hs("labor/steam.svg", "right_gap", 270, 2, 6, 16, "steam", 2.6, -1.7, follows=True),
                 _hs("labor/cup.svg", "right_gap", 254, 20, 28, 24),
             ),
         ),
         "dday": SurfaceDecor(sprites=(
-            _ds("labor/steam.svg", "full", 169, 24, 6, 16, "steam", 2.6, 0.0),
-            _ds("labor/steam.svg", "full", 176, 24, 6, 16, "steam", 2.6, -0.9),
+            _ds("labor/steam.svg", "full", 169, 24, 6, 16, "steam", 2.6, 0.0, follows=True),
+            _ds("labor/steam.svg", "full", 176, 24, 6, 16, "steam", 2.6, -0.9, follows=True),
             _ds("labor/cup.svg", "full", 164, 40, 28, 24),
         )),
         "sticky_band": SurfaceDecor(base="labor/sticky_band.svg", base_tile=90),
@@ -466,9 +470,9 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
     # 어린이날: 돌아가는 바람개비 2 + 떠 있는 풍선 2(머리줄), 풍선 3(D-Day), 색 점(띠).
     d["children"] = {
         "header": SurfaceDecor(sprites=(
-            _hs("children/stick.svg", "left_gap", 104, 21, 2, 50),
+            _hs("children/stick.svg", "left_gap", 104, 21, 2, 50, follows=True),
             _hs("children/pinwheel_a.svg", "left_gap", 92, 8, 26, 26, "spin", 3.2),
-            _hs("children/stick_short.svg", "right_gap", 268, 25, 2, 46),
+            _hs("children/stick_short.svg", "right_gap", 268, 25, 2, 46, follows=True),
             _hs("children/pinwheel_b.svg", "right_gap", 256, 12, 26, 26, "spin", 4.2, -1.0),
             _hs("children/balloon_yellow.svg", "center", 134, 1, 12, 22, "bob", 2.4),
             _hs("children/balloon_pink.svg", "center", 232, 2, 12, 22, "bob", 2.9, -1.0),

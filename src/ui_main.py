@@ -437,6 +437,7 @@ import database as db
 from show_desktop_guard import ShowDesktopKeeper
 import holidays
 import holiday_theme
+from ui_holiday_decor import DecorationLayer
 from ui_holiday_theme import HolidayThemeController
 
 # 공휴일 테마가 없을 때의 머리줄·오늘 칸 남색(holiday_theme.DEFAULT_HEADER와 같은 값)
@@ -1654,6 +1655,7 @@ class MainCalendarWindow(QWidget):
         self._load_open_focus_widgets()
         self._apply_app_opacity()
         self._holiday_theme.themeChanged.connect(self._apply_holiday_theme)
+        self._holiday_theme.pausedChanged.connect(self._on_holiday_paused)
         self._holiday_theme.refresh()
 
         # ── 주기적 자동 저장 (30초) ──
@@ -1788,6 +1790,7 @@ class MainCalendarWindow(QWidget):
         apply_theme = getattr(win, "set_holiday_theme", None)
         if apply_theme is not None:
             apply_theme(self._holiday_theme.theme())
+            self._pause_decor_layers(win)  # 잠금 중 새로 열린 창의 장식도 멈춘 채로 둔다
 
     def _show_floating_widget(self, win) -> None:
         """예약된 표시도 잠금·트레이·현재 레지스트리/패널 상태를 확인한다."""
@@ -2072,6 +2075,9 @@ class MainCalendarWindow(QWidget):
         for target in self._calendar_drag_targets:
             target.installEventFilter(self)
         self._header_section = header_section
+        # 공휴일 장식 레이어: 머리줄의 첫 자식(가장 아래 층)이라 버튼·글자가 위에 그려지고 클릭을 가로채지 않는다.
+        self._header_decor = DecorationLayer("header", header_section)
+        self._header_decor.set_geometry_sync(self._sync_header_decor)
         self._calendar_move_overlay = CalendarMoveEditOverlay(self.container, header_section)
         self._update_calendar_move_control()
         self.installEventFilter(self)
@@ -3514,6 +3520,8 @@ class MainCalendarWindow(QWidget):
         theme = match.theme if match is not None else None
         self._header_section.setStyleSheet(
             header_section_qss(theme.header if theme is not None else NAVY))
+        self._header_decor.set_theme(theme.key if theme is not None else None)
+        self._sync_header_decor()
 
         # 인사말은 공휴일 첫날~마지막 날에만 보인다(예고 기간에는 색과 장식만).
         greeting = theme.greeting if theme is not None and match.in_holiday else ""
@@ -3533,6 +3541,70 @@ class MainCalendarWindow(QWidget):
         for panel in (self._sticky_side_panel, self._dday_side_panel, self._focus_side_panel):
             if panel is not None:
                 panel.set_holiday_theme(theme)
+        # 장식 레이어는 테마를 입히며 새로 생길 수 있으므로 멈춤 상태를 다시 맞춘다.
+        self._on_holiday_paused(self._holiday_theme.is_paused())
+
+    def _sync_header_decor(self) -> None:
+        """머리줄 장식의 기준점과 모서리를 지금 버튼·머리줄 배치에서 읽어 넘긴다.
+
+        기준점: left_gap = '+' 버튼 오른쪽 끝, center = 연월 글자 가운데, right_gap = 다음 달 버튼
+        오른쪽 끝, right = 머리줄 오른쪽 끝(모두 머리줄 좌표). 모서리는 #headerSection QSS의
+        사이드바(왼쪽)·확대(오른쪽) 규칙과 같다. 크기 전환·창 크기 변경 때 레이어가 다시 부른다.
+        """
+        layer = getattr(self, "_header_decor", None)
+        header = getattr(self, "_header_section", None)
+        if layer is None or header is None or not hasattr(self, "next_btn"):
+            return
+        # 창을 닫는 중에는 자식이 먼저 사라질 수 있다(머리줄 이벤트가 마지막으로 도착한다).
+        if not all(isValid(w) for w in (
+                layer, header, self._add_btn, self.month_label, self.next_btn, self.prev_btn,
+                self._header_search_btn, self.calendar_move_button, self.calendar_move_done_button,
+                self._more_btn)):
+            return
+
+        def x_in_header(widget) -> int:
+            return widget.mapTo(header, QPoint(0, 0)).x()
+
+        layer.set_anchors({
+            "left_gap": float(x_in_header(self._add_btn) + self._add_btn.width()),
+            "center": x_in_header(self.month_label) + self.month_label.width() / 2,
+            "right_gap": float(x_in_header(self.next_btn) + self.next_btn.width()),
+            "right": float(header.width()),
+        })
+        layer.set_corner_radii(
+            0.0 if header.property("sidebarActive") == "true" else 12.0,
+            0.0 if header.property("expanded") == "true" else 12.0,
+        )
+        # 버튼·연월 글자 자리: 장식은 여기를 덮지 않는다(겹치면 줄이거나 뺀다). 기본 크기는 버튼
+        # 묶음 사이에 빈 곳이 거의 없어서(오늘·+ 묶음과 ◀ 사이 12px뿐) 오른쪽 장식이 많이 빠진다.
+        blockers = []
+        controls = (
+            self.findChild(QWidget, "headerTodayButton"), self._add_btn, self.prev_btn, self.next_btn,
+            self._header_search_btn, self.calendar_move_button, self.calendar_move_done_button,
+            self._more_btn,
+        )
+        for widget in controls:
+            if widget is None or widget.isHidden():
+                continue
+            at = widget.mapTo(header, QPoint(0, 0))
+            blockers.append((at.x() + 2, at.y() + 2, widget.width() - 4, widget.height() - 4))
+        label = self.month_label
+        text_w = QFontMetrics(label.font()).horizontalAdvance(label.text()) + 4
+        at = label.mapTo(header, QPoint(0, 0))
+        blockers.append((at.x() + (label.width() - text_w) / 2, at.y(), text_w, label.height()))
+        layer.set_blockers(blockers)
+
+    def _on_holiday_paused(self, paused: bool) -> None:
+        """컨트롤러의 멈춤 신호(잠금 등)를 머리줄과 떠 있는 위젯의 모든 장식 레이어에 전한다."""
+        self._header_decor.set_paused(paused)
+        for registry in (self._sticky_windows, self._dday_windows, self._focus_windows):
+            for win in registry.values():
+                self._pause_decor_layers(win)
+
+    def _pause_decor_layers(self, win) -> None:
+        paused = self._holiday_theme.is_paused()
+        for layer in win.findChildren(DecorationLayer):
+            layer.set_paused(paused)
 
     def _check_daily_auto_backup(self):
         """트레이 상주 중 날짜가 바뀌면 최신 저장 뒤 일일 묶음을 만든다."""
@@ -5108,6 +5180,7 @@ class MainCalendarWindow(QWidget):
             self._document_converter.setEnabled(False)
         self._disable_optional_mini_apps()
         self._is_locked = True
+        self._holiday_theme.set_paused(True)  # 잠금 화면 뒤에서 장식이 돌지 않게 한다
         self._finish_calendar_move_edit()
         self._cancel_sticky_file_links()
         self._close_schedule_emoji_popups()
@@ -5144,6 +5217,7 @@ class MainCalendarWindow(QWidget):
 
     def _unlock(self):
         self._is_locked = False
+        self._holiday_theme.set_paused(False)  # 위젯을 다시 보이기 전에 이어 간다
         self._update_calendar_move_control()
         if self._alarm_card is not None and isValid(self._alarm_card):
             self._alarm_card.set_locked(False)

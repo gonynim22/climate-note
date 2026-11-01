@@ -14,6 +14,7 @@ from qfluentwidgets import (
 )
 
 from ui_sticky import _ColorGridPopup, WIDGET_WIDTH, DDAY_HEIGHT
+from ui_holiday_decor import DecorationLayer
 import database as db
 
 WEEKDAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
@@ -321,6 +322,7 @@ class DDayWidgetWindow(QWidget):
         self._target_date = data.get("target_date", "")
         self._color = data.get("color", db.DEFAULT_DDAY_COLOR)
         self._holiday_theme = None  # 공휴일 테마(표시 전용). 저장색과 따로 쥔다
+        self._decor_layer = None    # 커버 장식 레이어(테마를 처음 입을 때 한 번만 만든다)
         self._drag_pos = None
 
         x = data.get("x_pos", 100)
@@ -463,9 +465,19 @@ class DDayWidgetWindow(QWidget):
         self.container.setStyleSheet(_container_qss(cover))
 
     def set_holiday_theme(self, theme) -> None:
-        """공휴일 테마(HolidayTheme 또는 None)를 화면에만 입힌다. DB에는 쓰지 않는다."""
+        """공휴일 테마(HolidayTheme 또는 None)를 화면에만 입힌다. DB에는 쓰지 않는다.
+
+        커버 장식은 글자 아래 층(레이어는 container의 가장 아래 자식)이고 마우스를 통과시킨다.
+        여러 번 불려도 레이어는 하나다.
+        """
         self._holiday_theme = theme
         self._render_cover()
+        if self._decor_layer is None:
+            if theme is None:
+                return
+            self._decor_layer = DecorationLayer("dday", self.container)
+            self._decor_layer.set_corner_radii(18.0, 18.0, 18.0, 18.0)  # _container_qss의 border-radius
+        self._decor_layer.set_theme(theme.key if theme is not None else None)
 
     def _on_color_btn(self):
         popup = _ColorGridPopup(DDAY_COVER_COLORS, cols=4, parent=self)
