@@ -45,6 +45,15 @@ def _forbid_db_writes(monkeypatch):
         monkeypatch.setattr(db, name, boom)
 
 
+def _stop_pending_saves(*widgets):
+    """디바운스 저장 타이머(`_resize_timer`·`_save_timer`)를 멈춘다. 저장 자체는 이 시험의 대상이 아니다."""
+    for widget in widgets:
+        for name in ("_resize_timer", "_save_timer"):
+            timer = getattr(widget, name, None)
+            if timer is not None:
+                timer.stop()
+
+
 def _dday_data(**over):
     data = {"name": "마감", "target_date": "2030-01-01",
             "color": "#46679C", "x_pos": 100, "y_pos": 100}
@@ -449,11 +458,15 @@ def test_widget_theme_apply_writes_nothing(monkeypatch, win):
     sticky = win._sticky_windows[note_id]
     dday = win._dday_windows[widget_id]
     before = (sticky.container.styleSheet(), sticky.text_edit.toHtml())
+    # 창을 만들고 크기를 맞추며 시작된 디바운스 저장(크기 500ms·본문)은 테마와 무관하다. PC가 느려
+    # 이 구간 안에 만료되면 테마가 쓴 것으로 오인하므로 미리 멈춘다.
+    _stop_pending_saves(sticky, dday)
 
     with monkeypatch.context() as scoped:
         _forbid_db_writes(scoped)
         for day in ("2026-12-21", "2026-12-25", "2027-01-01", "2027-02-07", "2026-12-21"):
             _at(scoped, win, day)
+            _stop_pending_saves(sticky, dday)
         win._holiday_theme.set_paused(True)
         win._holiday_theme.set_paused(False)
 
