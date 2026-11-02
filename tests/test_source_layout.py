@@ -56,3 +56,46 @@ def test_source_startup_command_runs_root_main():
     python, script = ui_settings._get_startup_cmd().strip('"').split('" "')
     assert python == sys.executable
     assert Path(script).resolve() == ROOT / "main.py"
+
+
+# ── 공휴일 테마 개발 미리보기 도구(v4.6)는 배포물에 들어가지 않고 합성 폴더에서만 돈다 ──
+
+_PREVIEW_TOOL = "dev_holiday_theme_preview"
+
+
+def test_holiday_theme_preview_tool_stays_out_of_the_build():
+    """날짜를 바꾸는 개발 도구가 EXE에 섞이면 사용자 화면의 테마가 날짜 우회로 바뀐다."""
+    assert (ROOT / "tools" / f"{_PREVIEW_TOOL}.py").is_file()
+    for name in ("build.spec", "build_app.py"):
+        assert _PREVIEW_TOOL not in (ROOT / name).read_text(encoding="utf-8"), name
+    spec = (ROOT / "build.spec").read_text(encoding="utf-8")
+    assert "('tools'" not in spec and '("tools"' not in spec
+    assert "tools" not in spec.split("pathex=", 1)[1].split("\n", 1)[0], "tools/는 분석 경로가 아니다"
+    # 앱 모듈은 도구를 import하지 않는다(앱에 날짜 고정 경로를 두지 않는다).
+    assert [name for name in _tracked("src/*.py", "main.py")
+            if _PREVIEW_TOOL in (ROOT / name).read_text(encoding="utf-8")] == []
+
+
+def test_holiday_theme_preview_tool_uses_synthetic_appdata(tmp_path):
+    """바깥 LOCALAPPDATA가 실제 AppData여도 도구는 output/harness 합성 폴더만 보고 날짜를 고정한다."""
+    import json
+    import os
+    import shutil
+
+    sentinel = tmp_path / "real-appdata"
+    sentinel.mkdir()
+    env = {**os.environ, "LOCALAPPDATA": str(sentinel), "PYTHONIOENCODING": "utf-8"}
+    env.pop("CLIMATENOTE_TEST_APPDATA", None)
+    done = subprocess.run([sys.executable, str(ROOT / "tools" / f"{_PREVIEW_TOOL}.py"),
+                           "--date", "2026-12-25", "--check-only"],
+                          cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert done.returncode == 0, done.stderr
+    report = json.loads(done.stdout.strip().splitlines()[-1])
+    run_dir = Path(report["run_dir"]).resolve()
+    try:
+        assert run_dir.parent == (ROOT / "output" / "harness").resolve()
+        assert Path(report["app_dir"]).resolve() == run_dir / "appdata" / "MyDesktopCalendar"
+        assert (report["theme"], report["in_holiday"]) == ("christmas", True)
+        assert list(sentinel.iterdir()) == [], "바깥 LOCALAPPDATA에는 아무것도 만들지 않는다"
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
