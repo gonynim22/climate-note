@@ -363,7 +363,7 @@ class _FrameClock(QObject):
             if recheck:
                 layer.sync_animation()  # Windows 애니메이션 설정이 바뀌었을 수 있다
             if layer.is_animating():
-                layer.update()
+                layer.update_frame()
         if not self._layers:
             self._timer.stop()
 
@@ -509,6 +509,18 @@ class DecorationLayer(QWidget):
     def _run_sync(self) -> None:
         if self._sync_callback is not None:
             self._sync_callback()
+
+    def update_frame(self) -> None:
+        """움직임 한 프레임. 실제로 그리는 띠 높이까지만 다시 그리게 한다.
+
+        머리줄 레이어는 검색 줄까지 부모를 덮지만 장식은 위쪽 막대 행에만 있다. 전체를 다시 그리게 하면
+        부모와 그 위 버튼들이 안 그려지는 영역까지 프레임마다 다시 그려진다.
+        """
+        if self._surface == "hat":
+            self.update()
+            return
+        band = self._band_h or hd.DESIGN_SIZE[self._surface][1]
+        self.update(0, 0, self.width(), min(self.height(), int(math.ceil(band))))
 
     def is_animating(self) -> bool:
         """타이머를 돌려 움직이는 중이면 True."""
