@@ -1554,6 +1554,18 @@ class TestExportImport:
         assert pin != "0000" and security.verify_privacy_pin("0000", pin)
         assert not security.verify_privacy_pin("1234", pin)
 
+    def test_holiday_theme_switch_exports_and_roundtrips(self, app_dir):
+        """v4.6 공휴일 테마 스위치는 다른 설정처럼 Export/Import에 실린다(키 없음=켜짐, 꺼짐은 보존)."""
+        assert db.get_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1") == "1"
+        assert db.SETTING_HOLIDAY_THEME_ENABLED not in json.loads(db.export_all_data())["settings"]
+        db.save_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "0")
+        exported = db.export_all_data()
+        assert json.loads(exported)["settings"][db.SETTING_HOLIDAY_THEME_ENABLED] == "0"
+        db.reset_database()
+        assert db.get_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1") == "1"
+        db.import_all_data(exported)
+        assert db.get_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1") == "0"
+
     def test_import_without_settings_section_no_error(self, app_dir):
         old_json = json.dumps({
             "schedules": [], "memos": [], "sticky_notes": [], "dday_widgets": [],
