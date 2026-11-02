@@ -1,5 +1,12 @@
 # 릴리스 검증 이력과 보류 과제
 
+## v4.6 (2026-11-03, 공휴일 테마)
+
+- 공휴일 묶음 첫날 3일 전부터 마지막 날(대체공휴일 포함)까지 캘린더 머리줄·오늘 칸·공휴일 칸·인사말·D-Day 커버·스티키 띠와 스티커·집중 위젯 바탕과 토마토 모자를 13개 공휴일의 색과 SVG 장식으로 바꾸는 **표시 전용** 기능을 더했다. 날짜는 `holidays.KOREAN_HOLIDAYS`만 쓰고, 유일한 쓰기는 설정 스위치 `holiday_theme_enabled`다. DB v19·Export v4·salt·암호문·기존 설정 키·저장색·의존성은 v4.5a와 같다. 계약은 [AGENTS.md](../AGENTS.md)·[UI 계약](UI_PATTERNS.md), 설계·계획·증거는 [작업 기록](work/2026-11-01-v4.6-holiday-theme.md)을 따른다(Subagent-Driven 7태스크 + 최종 리뷰, 결정 R1~R18).
+- 검증: full `20261103-041510-3f80ea197e` 3,418개(최종 코드 `d6188e8`), 버전 표시 뒤 PowerShell release `20261103-042357-cdb6c81409`의 공휴일 최신 확인·3,418개·새 빌드·EXE 구성(BINARY 64·검증 환경 밖 0·Qt DLL 15 원본 일치·앱 모듈 56개 PYZ·`holiday_themes` SVG 89개·`mingw64` 0)·격리 실행 5개(fresh·existing·blocked·upgrade·upgrade_v18) 통과. CPU는 이 PC(논리 프로세서 12개)에서 테마 켬−끔 +0.51~0.72 %p.
+- EXE `dist/기후노트_v4.6.exe` 94,406,902 bytes(v4.5a 대비 +97,401), Windows 4.6.0.0, SHA-256 `6CF780C34BA3C40AB0DB6F37D258F431185F14704E8AB4A0A41267BE598BB33E`, `NotSigned`. v4.5a EXE는 보존했다.
+- 남은 것: 기본 크기(380px) 머리줄 장식 밀도(삼일절·노동절·어린이날·제헌절 0개) 사용자 결정, 실제 125·150% 배율·혼합 DPI·Win+D·IME·트레이·PIN·사무용 PC CPU·태극기 별표 대조·테마 기간 날짜의 실제 EXE 수동 확인(작업 기록 '수동 확인 대기'). GitLab Release 게시는 사용자가 한다.
+
 ## v4.5a (2026-11-01, 소스 배치 정리)
 
 - 앱 모듈 52개를 패키지가 아닌 `src/`로 옮겨 GitLab 루트 목록을 79줄에서 28줄로 줄였다. 기능·화면·DB v19·Export v4·salt·설정 키·의존성은 v4.5와 같다. 순수 이동 `fc2c09a`(52개 100% rename)와 경로 수정·보호 검사 `2d00b77`로 나눴다. 분석은 [위험도 문서](work/2026-10-31-root-file-cleanup-risk.md), 진행과 증거는 [작업 기록](work/2026-11-01-v4.5a-src-layout.md)을 따른다.
