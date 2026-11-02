@@ -48,6 +48,8 @@ _SNOW_MAX_DENSITY = 3.0
 _BAND_PAD = 2.0
 _MIN_FIT_SCALE = 0.5
 _BACKDROP_RATIO = 0.3
+# 띠 아래로 잘리는 조각을 내려 놓은 뒤에도 띠 안에 최소한 이만큼은 보여야 그린다.
+_MIN_VISIBLE = 6.0
 # 움직임 허용 여부(Windows 설정)를 다시 읽는 간격(틱). 약 4초.
 _RECHECK_TICKS = 96
 
@@ -127,6 +129,26 @@ def _overlaps(a: tuple[float, float, float, float], b: tuple[float, float, float
             and a[1] < b[1] + b[3] and b[1] < a[1] + a[3])
 
 
+def slide_below(rect: tuple[float, float, float, float], blockers: list[tuple[float, float, float, float]],
+                band_h: float, pad: float = _BAND_PAD, min_visible: float = _MIN_VISIBLE
+                ) -> tuple[float, float, float, float] | None:
+    """띠 아래로 넘쳐 잘리는 조각(떠오르는 달·후광)을 버튼·글자 아래로 내려 놓는다.
+
+    띠 안에 다 들어오는 조각은 그대로 둔다. 가로로 겹치는 장애물의 아래 끝까지 내려가고, 그러면 띠 안에
+    min_visible px도 안 남으면 None(그리지 않는다). 잘리는 조각이라 내려도 모양이 달라지지 않는다.
+    """
+    x, y, w, h = rect
+    if y + h <= band_h:
+        return rect
+    top = y
+    for bx, by, bw, bh in blockers:
+        if bx < x + w and x < bx + bw and by < y + h and y < by + bh:
+            top = max(top, by + bh + pad)
+    if band_h - top < min_visible:
+        return None
+    return (x, top, w, h)
+
+
 def fit_clear(rect: tuple[float, float, float, float], blockers: list[tuple[float, float, float, float]],
               pad: float = _BAND_PAD, min_scale: float = _MIN_FIT_SCALE
               ) -> tuple[float, float, float, float] | None:
@@ -164,8 +186,9 @@ def fit_clear(rect: tuple[float, float, float, float], blockers: list[tuple[floa
 def map_band_y(surface: str, y: float, h: float, band_h: float | None) -> float:
     """디자인 y를 실제 띠 높이(band_h)에 맞춘다. band_h가 없거나 디자인 높이와 같으면 그대로다.
 
-    디자인 높이의 위쪽 끝에 붙은 조각은 위에, 아래쪽 끝에 붙은 조각(능선·땅)은 아래에, 나머지와
-    위·아래를 다 덮는 조각은 가운데에 둔다.
+    디자인 높이의 위쪽 끝에 붙은 조각은 위에, 아래쪽 끝에 붙은 조각(능선·땅·떠오르는 달)은 띠의 아래에,
+    나머지와 위·아래를 다 덮는 조각은 가운데에 둔다. 띠 안에 들어올 만한 크기(h <= band_h)는 띠 밖으로
+    나가지 않게 눌러 둔다(머리줄은 70px 디자인을 52px 띠에 놓으므로 가운데 조각이 위로 잘리지 않게).
     """
     design_h = hd.DESIGN_SIZE[surface][1]
     if not band_h or abs(band_h - design_h) < 0.5:
@@ -174,10 +197,26 @@ def map_band_y(surface: str, y: float, h: float, band_h: float | None) -> float:
     top = y <= 0.5
     bottom = y + h >= design_h - 1.0
     if top and not bottom:
-        return y
-    if bottom and not top:
-        return y + shift
-    return y + shift / 2
+        mapped = y
+    elif bottom and not top:
+        mapped = y + shift
+    else:
+        mapped = y + shift / 2
+    if h <= band_h:
+        mapped = max(0.0, min(mapped, band_h - h))
+    return mapped
+
+
+def map_band_span(surface: str, rect: tuple[float, float, float, float],
+                  band_h: float | None) -> tuple[float, float]:
+    """조각의 실제 (y, h). 표면 전체 폭·전체 높이를 덮는 바탕(신정 능선)은 띠 높이로 늘리고,
+    나머지는 크기를 지키며 map_band_y로 놓는다."""
+    design_w, design_h = hd.DESIGN_SIZE[surface]
+    _x, y, w, h = rect
+    if (band_h and abs(band_h - design_h) >= 0.5 and w >= design_w * 0.9
+            and y <= 0.5 and design_h - 1.0 <= y + h <= design_h + 1.0):
+        return 0.0, float(band_h)
+    return map_band_y(surface, y, h, band_h), h
 
 
 def scaled_particles(spec: hd.Particles, width: float, surface: str) -> hd.Particles:
@@ -649,9 +688,11 @@ class DecorationLayer(QWidget):
     def _sprite_rect(self, sprite, anchors, vw):
         """(x, y, w, h)를 실제 값으로. 버튼·글자 자리와 겹치면 줄이거나 옮기고, 안 되면 None(그리지 않는다)."""
         x, y, w, h = resolve_rect(self._surface, sprite.rect, sprite.anchor, anchors, vw)
-        rect = (x, map_band_y(self._surface, y, h, self._band_h), w, h)
+        y, h = map_band_span(self._surface, (x, y, w, h), self._band_h)
+        rect = (x, y, w, h)
         if self._blockers and not is_backdrop(self._surface, sprite.rect[2]):
-            return fit_clear(rect, self._blockers)
+            slid = slide_below(rect, self._blockers, self._band_h or hd.DESIGN_SIZE[self._surface][1])
+            return None if slid is None else fit_clear(slid, self._blockers)
         return rect
 
     def _visible_sprites(self, decor, anchors, vw):
@@ -688,7 +729,12 @@ class DecorationLayer(QWidget):
     def _paint_particle(self, painter, item, anchors, vw, t) -> None:
         px, py, opacity = hd.particle_pose(item, t)
         x = resolve_rect(self._surface, (px, 0.0, 0.0, 0.0), item.anchor, anchors, vw)[0]
-        y = map_band_y(self._surface, py, item.size, self._band_h)
+        if item.kind == "snow":
+            # 눈은 한 바퀴 내내 이어서 움직이므로 띠 높이에 비례해 줄인다(띠 아래 끝까지 내려온다).
+            y = py * (self._band_h / hd.DESIGN_SIZE[self._surface][1]) if self._band_h else py
+        else:
+            # 떠오르는 자모·반짝이는 별은 놓인 자리(item.y)로 띠 안의 위치를 정하고 움직임은 그대로 더한다.
+            y = py + map_band_y(self._surface, item.y, item.size, self._band_h) - item.y
         opacity = max(0.0, min(1.0, opacity))
         if opacity <= 0.0:
             return

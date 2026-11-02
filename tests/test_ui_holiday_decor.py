@@ -29,8 +29,10 @@ from ui_holiday_decor import (
     fit_span,
     frame_clock,
     is_backdrop,
+    map_band_span,
     map_band_y,
     resolve_rect,
+    slide_below,
     scaled_particles,
     sticker_pixmap,
 )
@@ -157,6 +159,28 @@ def test_map_band_y_places_edge_pieces_on_the_real_band():
     assert map_band_y("sticky_band", 8, 13, 44) == 15
     assert map_band_y("sticky_band", 0, 30, 44) == 7        # 위아래를 다 덮으면 가운데
     assert map_band_y("header", 50, 20, None) == 50         # 머리줄은 옮기지 않는다
+
+
+def test_header_band_mapping_puts_bottom_pieces_on_the_row():
+    """머리줄(디자인 70px)을 52px 행에 놓는다: 아래 조각은 행 아래로, 위 조각은 위에, 가운데 조각은 행 안에."""
+    assert map_band_y("header", 0, 22, 52) == 0                # 위에 붙은 복주머니
+    assert map_band_y("header", 50, 60, 52) == 32              # 아래에 붙은 달(디자인 20px가 행 아래 끝에 보인다)
+    assert map_band_y("header", 46, 24, 52) == 28              # 아래에 붙은 억새
+    assert map_band_y("header", 5, 40, 52) == 0                # 가운데 조각은 행 위로 잘리지 않게 눌러 둔다
+    assert map_band_y("header", 30, 36, 52) == 16              # 해: 행 안(아래 끝 52)에 들어온다
+    assert map_band_y("header", 51, 15, 52) == 37              # 아래 오른쪽 '한' 도장: 행 안
+    # 표면 전체를 덮는 능선은 행 높이로 늘리고, 크기가 정해진 조각은 늘리지 않는다
+    assert map_band_span("header", (0, 0, 380, 70), 52) == (0.0, 52.0)
+    assert map_band_span("header", (10, 0, 20, 30), 52) == (0.0, 30)
+    assert map_band_span("header", (0, 0, 380, 70), None) == (0, 70)
+
+
+def test_slide_below_keeps_clipped_pieces_under_the_title():
+    title = [(150.0, 17.0, 80.0, 22.0)]
+    moon = (160.0, 32.0, 60.0, 60.0)                          # 행(52) 아래로 잘리는 달
+    assert slide_below(moon, title, 52) == (160.0, 41.0, 60.0, 60.0)   # 글자 아래(39 + 2)로 내린다
+    assert slide_below((160.0, 20.0, 30.0, 20.0), title, 52) == (160.0, 20.0, 30.0, 20.0)  # 행 안이면 그대로
+    assert slide_below(moon, [(150.0, 17.0, 80.0, 30.0)], 52) is None   # 남는 높이가 6px 미만이면 뺀다
 
 
 def test_snow_density_grows_with_width_but_is_capped():
@@ -417,6 +441,135 @@ def test_decor_never_covers_header_buttons_in_all_sizes(monkeypatch, win):
                 if is_backdrop("header", sprite.rect[2]):
                     continue                 # 넓은 옅은 배경(능선·빛줄기)은 버튼 뒤로 지나간다
                 assert not any(_overlaps(rect, b) for b in layer._blockers), (scale, key, sprite.asset)
+
+
+def _alpha_rows(layer):
+    """레이어 그림의 줄마다 알파 값 목록(바이트열)."""
+    image = layer.grab().toImage().convertToFormat(QImage.Format_ARGB32)
+    width, height, stride = image.width(), image.height(), image.bytesPerLine()
+    data = bytes(image.constBits())
+    return [data[y * stride + 3:y * stride + 4 * width:4] for y in range(height)]
+
+
+def _opaque(rows, y0, y1, x0=0, x1=None, min_alpha=200):
+    """[y0, y1) 줄·[x0, x1) 칸 안의 알파가 min_alpha보다 큰 픽셀 수와 칸 수."""
+    count = total = 0
+    for row in rows[y0:y1]:
+        part = row[x0:x1]
+        total += len(part)
+        count += sum(1 for a in part if a > min_alpha)
+    return count, total
+
+
+def _bar_bottom(win):
+    """위쪽 막대 행의 아래 끝(머리줄 좌표): 버튼 아래 끝 + 간격. 법령검색 줄이 시작되는 자리다."""
+    header = win._header_section
+    return min(header.height(),
+               win._add_btn.mapTo(header, QPoint(0, 0)).y() + win._add_btn.height() + header.layout().spacing())
+
+
+def _set_search_row(win, shown):
+    win.law_search_container.setVisible(shown)
+    QApplication.processEvents()
+
+
+def test_header_decor_stays_in_top_bar_row(monkeypatch, win):
+    """머리줄 장식은 위쪽 막대 행(52px)에만 있다. 법령검색 줄이 보이든(104px) 숨기든(52px), 세 크기 모두에서
+    행 아래(검색 줄 위)에는 어떤 조각도 그려지지 않아 검색 줄을 가로지르는 모서리가 없다."""
+    layer = win._header_decor
+    for scale in ("compact", "medium", "large"):
+        db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
+        win._apply_calendar_scale()
+        for shown in (True, False):
+            _set_search_row(win, shown)
+            for key in THEME_KEYS:
+                _wear(monkeypatch, win, key)
+                band = _bar_bottom(win)
+                assert band >= 52
+                assert layer._band_h == band, (scale, shown, key)
+                assert layer.height() == win._header_section.height()
+                rows = _alpha_rows(layer)
+                below = [y for y in range(band, len(rows)) if any(rows[y])]
+                assert below == [], (scale, shown, key, below[:3])
+
+
+def test_header_signature_pieces_sit_at_bottom_of_the_row(monkeypatch, win):
+    """아래쪽 대표 조각(능선·색동 띠·눈 더미·박음질·달)이 행의 아래쪽에 실제로 보인다."""
+    monkeypatch.setattr(ui_holiday_decor, "motion_allowed", lambda: False)   # 떠오른 모습으로 고정
+    layer = win._header_decor
+    for scale in ("compact", "medium", "large"):
+        db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
+        win._apply_calendar_scale()
+        for shown in (True, False):
+            _set_search_row(win, shown)
+            where = (scale, shown)
+
+            _wear(monkeypatch, win, "newyear")           # 능선: 행 맨 아래까지 이어진다
+            band = _bar_bottom(win)
+            rows = _alpha_rows(layer)
+            count, total = _opaque(rows, band - 3, band)
+            assert count >= 0.9 * total, ("newyear ridge", where, count, total)
+            assert _opaque(rows, 0, 1)[0] == 0, ("newyear ridge top", where)   # 위쪽 줄에는 없다
+
+            _wear(monkeypatch, win, "seollal")           # 색동 띠: 맨 아래 6px 전체 폭
+            band = _bar_bottom(win)
+            count, total = _opaque(_alpha_rows(layer), band - 4, band)
+            assert count >= 0.9 * total, ("seollal strip", where, count, total)
+
+            _wear(monkeypatch, win, "christmas")         # 눈 더미: 맨 아래에 흰 덩어리
+            band = _bar_bottom(win)
+            count, total = _opaque(_alpha_rows(layer), band - 4, band)
+            assert count >= 0.4 * total, ("christmas drift", where, count, total)
+
+            _wear(monkeypatch, win, "labor")             # 박음질: 아래쪽에 점선이 있다
+            band = _bar_bottom(win)
+            count, _ = _opaque(_alpha_rows(layer), band - 14, band, min_alpha=15)   # 흰색 28% 점선(가는 선이라 알파가 낮다)
+            assert count >= 30, ("labor stitching", where, count)
+
+            _wear(monkeypatch, win, "chuseok")           # 달: 연월 글자 아래 가운데에 호로 보인다
+            band = _bar_bottom(win)
+            center = int(layer.anchors()["center"])
+            count, _ = _opaque(_alpha_rows(layer), 42, band, center - 40, center + 40)
+            assert count >= 80, ("chuseok moon", where, count)
+            # 글자 자리(연월)에는 달이 올라오지 않는다
+            count, _ = _opaque(_alpha_rows(layer), 0, 36, center - 40, center + 40)
+            assert count == 0, ("chuseok moon over title", where, count)
+
+
+def test_header_built_without_search_row_is_52px_and_decor_fills_it(monkeypatch, app_dir, qtbot):
+    """법령검색 줄을 끄고 시작하면 머리줄이 52px다. 행 전체가 장식 띠이고 아래 끝에 대표 조각이 있다."""
+    db.save_setting(db.SETTING_SHOW_LAW_SEARCH, "0")
+    monkeypatch.setattr(ui_holiday_decor, "motion_allowed", lambda: False)
+    w = MainCalendarWindow()
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.waitExposed(w)
+    assert w._header_section.height() == 52
+    for key in ("seollal", "newyear"):
+        _wear(monkeypatch, w, key)
+        layer = w._header_decor
+        assert layer.height() == 52 and layer._band_h == 52
+        rows = _alpha_rows(layer)
+        count, total = _opaque(rows, 48, 52)
+        assert count >= 0.9 * total, (key, count, total)
+
+
+def test_search_row_toggle_and_scale_switch_resync_header_decor(monkeypatch, win):
+    _wear(monkeypatch, win, "seollal")
+    layer = win._header_decor
+    _set_search_row(win, True)
+    assert layer.height() == win._header_section.height() == 104 and layer._band_h == 52
+    _set_search_row(win, False)   # 막대 행이 어디에 놓이든 띠는 그 행의 아래 끝을 따른다
+    assert layer.height() == win._header_section.height() and layer._band_h == _bar_bottom(win)
+    _set_search_row(win, True)
+    assert layer._band_h == 52
+    before = layer.anchors()["right"]
+    db.save_setting(db.SETTING_CALENDAR_SCALE, "medium")
+    win._apply_calendar_scale()
+    QApplication.processEvents()
+    assert layer.anchors()["right"] == pytest.approx(win._header_section.width(), abs=1)
+    assert layer.anchors()["right"] > before
+    assert layer._band_h == 52
 
 
 def test_wide_header_keeps_decor_that_compact_must_drop(monkeypatch, win):

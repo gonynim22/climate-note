@@ -3575,6 +3575,12 @@ class MainCalendarWindow(QWidget):
             0.0 if header.property("sidebarActive") == "true" else 12.0,
             0.0 if header.property("expanded") == "true" else 12.0,
         )
+        # 장식은 위쪽 막대 행(머리줄에서 법령검색 줄을 뺀 부분)에만 놓는다: 맨 위 여백 + 버튼 높이 + 아래 간격
+        # = 52px. 법령검색 줄이 보이든(머리줄 104px) 숨기든(52px) 같다. 70px 디자인 띠의 아래쪽 조각
+        # (색동·눈 더미·능선·달)은 이 행의 아래로 옮겨 놓고(map_band_y) 행 아래에는 아무것도 그리지 않는다.
+        bar_bottom = self._add_btn.mapTo(header, QPoint(0, 0)).y() + self._add_btn.height() \
+            + header.layout().spacing()
+        layer.set_band_height(min(header.height(), bar_bottom))
         # 버튼·연월 글자 자리: 장식은 여기를 덮지 않는다(겹치면 줄이거나 뺀다). 기본 크기는 버튼
         # 묶음 사이에 빈 곳이 거의 없어서(오늘·+ 묶음과 ◀ 사이 12px뿐) 오른쪽 장식이 많이 빠진다.
         blockers = []
@@ -3589,9 +3595,12 @@ class MainCalendarWindow(QWidget):
             at = widget.mapTo(header, QPoint(0, 0))
             blockers.append((at.x() + 2, at.y() + 2, widget.width() - 4, widget.height() - 4))
         label = self.month_label
-        text_w = QFontMetrics(label.font()).horizontalAdvance(label.text()) + 4
+        metrics = QFontMetrics(label.font())
+        text_w = metrics.horizontalAdvance(label.text()) + 4
+        text_h = metrics.height()  # 글자 높이(상자 전체가 아니라) — 달 모양 호가 글자 바로 아래를 쓸 수 있게
         at = label.mapTo(header, QPoint(0, 0))
-        blockers.append((at.x() + (label.width() - text_w) / 2, at.y(), text_w, label.height()))
+        blockers.append((at.x() + (label.width() - text_w) / 2, at.y() + (label.height() - text_h) / 2,
+                         text_w, text_h))
         layer.set_blockers(blockers)
 
     def _on_holiday_paused(self, paused: bool) -> None:
