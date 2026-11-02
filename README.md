@@ -1,7 +1,7 @@
 <img src="readme/app.png" alt="기후노트 — 늘 보이는 곳에, 오늘 할 일. 일정·메모·D-Day·집중 모드를 함께 펼치는 크게 모드 화면과 바로가기 사이드바가 있는 기본 크기 화면">
 
 <div align="center">
-  <img src="readme/badge-version.svg" alt="버전 v4.5a">
+  <img src="readme/badge-version.svg" alt="버전 v4.6">
   <img src="readme/badge-windows.svg" alt="Windows 10 · 11">
   <img src="readme/badge-offline.svg" alt="네트워크 오프라인 전용">
   <img src="readme/badge-license.svg" alt="라이선스 GPL-3.0">
@@ -20,7 +20,7 @@
 ## <sub><img src="readme/icon-features.svg" width="26" height="26" alt=""></sub> 주요 기능
 
 <table>
-  <tr><td><b>캘린더</b></td><td>기본·중간·크게 3단계 크기, 일정·메모, 전역 검색, AI 법령정보 검색</td></tr>
+  <tr><td><b>캘린더</b></td><td>기본·중간·크게 3단계 크기, 일정·메모, 공휴일 테마(v4.6), 전역 검색, AI 법령정보 검색</td></tr>
   <tr><td><b>일정</b></td><td>시작 시각·알림·반복(매일·평일·매주·매월·매년)·여러 날 기간, 반복 일정의 이 날만 수정(v4.5)</td></tr>
   <tr><td><b>위젯</b></td><td>스티키 노트, D-Day, 집중 모드(포모도로)</td></tr>
   <tr><td><b>바탕화면</b></td><td><kbd>Win</kbd> + <kbd>D</kbd>에도 남는 바탕화면 고정, 바로가기 사이드바, 트레이 상주</td></tr>
