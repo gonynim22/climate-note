@@ -149,6 +149,11 @@ def test_fit_clear_never_overlaps_blockers():
     assert fit_clear((110.0, 5.0, 160.0, 30.0), blockers) is None  # 두 버튼 사이에 절반도 안 들어가는 큰 조각
     inside = fit_clear((125.0, 5.0, 80.0, 30.0), blockers)         # 사이 빈 곳(70)에 들어가게 줄인다
     assert inside is not None and inside[2] < 80 and not any(_overlaps(inside, b) for b in blockers)
+    # min_scale=1(손 태극기)이면 좁은 틈에 구겨 넣지 않는다: 빈 곳에 그대로 들어갈 때만 남는다
+    assert fit_clear((125.0, 5.0, 80.0, 30.0), blockers, min_scale=1.0) is None
+    assert fit_clear((140.0, 5.0, 20.0, 30.0), blockers, min_scale=1.0) == (140.0, 5.0, 20.0, 30.0)
+    moved = fit_clear((128.0, 5.0, 20.0, 30.0), blockers, min_scale=1.0)   # 가운데가 빈 곳이면 비켜 선다
+    assert moved is not None and moved[2] == 20.0 and not any(_overlaps(moved, b) for b in blockers)
 
 
 def test_map_band_y_places_edge_pieces_on_the_real_band():
@@ -367,6 +372,36 @@ def test_layer_follows_parent_resize_and_dpr_cache(qtbot):
     assert layer._pixmaps          # 그림은 한 번 그려 캐시한다
 
 
+def test_pixmap_cache_stays_bounded_when_the_surface_is_resized_many_times(qtbot):
+    """크기를 끌어 바꾸는 스티키는 폭마다 새 그림이 생긴다: 바탕은 한 장, 조각은 상한까지만 들고 있는다."""
+    # 바탕(띠 되풀이): 노동절 박음질은 폭마다 새 base를 만들지만 레이어에는 한 장만 남는다.
+    parent = _host(qtbot, 220, 44)
+    layer = DecorationLayer("sticky_band", parent)
+    layer.set_theme("labor")
+    layer.set_paused(True)
+    for width in range(220, 280):
+        parent.resize(width, 44)
+        layer.grab()
+        assert len([k for k in layer._pixmaps if k[0] == "base"]) == 1, width
+    assert layer._pixmaps[next(k for k in layer._pixmaps if k[0] == "base")].width() >= 279
+
+    # 조각: 신정 능선은 전체 폭 조각이라 폭마다 새 크기가 된다. 상한을 넘어 계속 늘지 않고 쓰는 조각은 남는다.
+    parent = _host(qtbot, 220, 44)
+    layer = DecorationLayer("sticky_band", parent)
+    layer.set_theme("newyear")
+    layer.set_paused(True)
+    sizes = []
+    for width in range(220, 220 + ui_holiday_decor._PIXMAP_CACHE_MAX + 20):
+        parent.resize(width, 44)
+        layer.grab()
+        sizes.append(len(layer._pixmaps))
+    assert max(sizes) == ui_holiday_decor._PIXMAP_CACHE_MAX
+    assert len(sizes) > ui_holiday_decor._PIXMAP_CACHE_MAX                    # 상한을 실제로 넘겨 보았다
+    kept = {k[0] for k in layer._pixmaps}
+    assert {"newyear/sun_band.svg", "newyear/sticky_band.svg"} <= kept          # 지금 쓰는 조각은 남는다
+    assert _alpha_at(layer, 5, 27) > 200                                        # 그림은 계속 정상이다(띠 30px 아래쪽 능선)
+
+
 # ── 메인 창 머리줄 ───────────────────────────────────────────────────
 
 def test_header_layer_sits_below_controls(monkeypatch, win, qtbot):
@@ -583,6 +618,111 @@ def test_wide_header_keeps_decor_that_compact_must_drop(monkeypatch, win):
         QApplication.processEvents()
         counts[scale] = len(layer._visible_sprites(layer._decor, layer.anchors(), layer._virtual_width()))
     assert counts["medium"] == 2 and counts["compact"] < counts["medium"]
+
+
+def _free_spans(win):
+    """머리줄의 버튼 묶음 사이 빈 곳 두 군데 [(왼쪽 끝, 오른쪽 끝)]: '+'~이전 달, 다음 달~오른쪽 묶음."""
+    header = win._header_section
+
+    def x_of(widget):
+        return widget.mapTo(header, QPoint(0, 0)).x()
+
+    right = min(x_of(w) for w in (win._header_search_btn, win.calendar_move_button,
+                                  win.calendar_move_done_button, win._more_btn) if not w.isHidden())
+    return [(x_of(win._add_btn) + win._add_btn.width(), x_of(win.prev_btn)),
+            (x_of(win.next_btn) + win.next_btn.width(), right)]
+
+
+def _shown(layer, asset):
+    """지금 그려지는 조각 중 asset의 (조각, 실제 rect) 목록."""
+    return [(s, r) for s, r in layer._visible_sprites(layer._decor, layer.anchors(), layer._virtual_width())
+            if s.asset == asset]
+
+
+def _in_span(rect, span):
+    return span[0] <= rect[0] and rect[0] + rect[2] <= span[1]
+
+
+def test_header_span_anchors_are_the_centers_of_the_free_spans(monkeypatch, win):
+    """span_l·span_r은 버튼 묶음 사이 빈 곳의 실제 가운데다(시안 x가 아니라 위젯 위치에서 읽는다)."""
+    _wear(monkeypatch, win, "samil")
+    layer = win._header_decor
+    for scale in ("compact", "medium", "large"):
+        db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
+        assert win._apply_calendar_scale()
+        QApplication.processEvents()
+        (l_lo, l_hi), (r_lo, r_hi) = _free_spans(win)
+        anchors = layer.anchors()
+        assert anchors["span_l"] == pytest.approx((l_lo + l_hi) / 2, abs=1), scale
+        assert anchors["span_r"] == pytest.approx((r_lo + r_hi) / 2, abs=1), scale
+        if scale != "compact":
+            assert l_hi - l_lo >= 150 and r_hi - r_lo >= 150, scale     # 중간·크게는 빈 곳이 실제로 넓다
+
+
+def test_samil_hand_flags_fill_both_free_spans_in_medium_and_large(monkeypatch, win):
+    """삼일절 손 태극기 6개: 중간·크게에서 빈 곳 두 군데에 3개씩, 버튼·연월 글자와 겹치지 않고 번갈아 흔들린다.
+    기본 크기는 빈 곳이 12px 이하라 지금처럼 그리지 않는다(기본 크기 전용 배치는 사용자 확인 뒤 과제)."""
+    monkeypatch.setattr(ui_holiday_decor, "motion_allowed", lambda: False)
+    layer = win._header_decor
+    for scale in ("compact", "medium", "large"):
+        db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
+        assert win._apply_calendar_scale()
+        _wear(monkeypatch, win, "samil")
+        flags = _shown(layer, "samil/flag.svg")
+        if scale == "compact":
+            assert flags == []
+            continue
+        spans = _free_spans(win)
+        assert len(flags) == 6, scale
+        assert all(s.motion == "wave" and s.min_scale == 1.0 for s, _ in flags)
+        assert len({(s.period, s.phase) for s, _ in flags}) == 6          # 주기·위상이 모두 달라 번갈아 흔들린다
+        assert [sum(_in_span(r, span) for _, r in flags) for span in spans] == [3, 3], scale
+        for _s, r in flags:
+            assert r[2:] == (18.0, 26.0)                                    # 줄이지 않았다
+            assert 0 <= r[1] and r[1] + r[3] <= layer._band_h               # 위쪽 막대 행 안
+            assert not any(_overlaps(r, b) for b in layer._blockers), (scale, r)
+        # 실제로 그려진다: 깃발 자리마다 불투명한 픽셀이 있다
+        rows = _alpha_rows(layer)
+        for _s, r in flags:
+            count, _total = _opaque(rows, int(r[1]), int(r[1] + r[3]), int(r[0]) - 4, int(r[0] + r[2]) + 4,
+                                    min_alpha=100)
+            assert count >= 40, (scale, r, count)
+
+
+def test_gaecheon_plain_clouds_and_chuseok_grass_sit_in_free_spans(monkeypatch, win):
+    """개천절 민무늬 구름과 추석 억새는 중간·크게에서 빈 곳 안에 놓이고, 기본 크기에서는 지금처럼 빠진다."""
+    layer = win._header_decor
+    for scale in ("compact", "medium", "large"):
+        db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
+        assert win._apply_calendar_scale()
+        QApplication.processEvents()
+        spans = _free_spans(win)
+        for key, assets in (("gaecheon", ("gaecheon/cloud_plain.svg",)),
+                            ("chuseok", ("chuseok/susuki_l.svg", "chuseok/susuki_r.svg"))):
+            _wear(monkeypatch, win, key)
+            pieces = [r for asset in assets for _s, r in _shown(layer, asset)]
+            if scale == "compact":
+                assert pieces == [], key
+                continue
+            assert len(pieces) == 2, (scale, key)
+            assert [sum(_in_span(r, span) for r in pieces) for span in spans] == [1, 1], (scale, key)
+            for r in pieces:
+                assert 0 <= r[1] and r[1] + r[3] <= layer._band_h
+                assert not any(_overlaps(r, b) for b in layer._blockers), (scale, key, r)
+
+
+def test_compact_header_keeps_its_current_piece_counts(monkeypatch, win):
+    """R18: 기본 크기(380px)는 이번 재배치로 바뀌지 않는다(그려지는 조각 수 고정)."""
+    layer = win._header_decor
+    db.save_setting(db.SETTING_CALENDAR_SCALE, "compact")
+    assert win._apply_calendar_scale()
+    counts = {}
+    for key in THEME_KEYS:
+        _wear(monkeypatch, win, key)
+        counts[key] = len(layer._visible_sprites(layer._decor, layer.anchors(), layer._virtual_width()))
+    assert counts == {"newyear": 2, "seollal": 0, "samil": 0, "labor": 0, "children": 0, "buddha": 1,
+                      "memorial": 1, "constitution": 0, "liberation": 1, "chuseok": 2, "gaecheon": 1,
+                      "hangul": 0, "christmas": 0}
 
 
 def test_lock_pauses_and_unlock_resumes_decorations(monkeypatch, app_dir, qtbot):

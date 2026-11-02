@@ -3514,8 +3514,8 @@ class MainCalendarWindow(QWidget):
     def _apply_holiday_theme(self, match) -> None:
         """테마 판정 결과(None이면 해제)를 화면에 입힌다. DB에는 아무것도 쓰지 않는다.
 
-        지금은 머리줄·달력·인사말과 D-Day·스티키·집중(떠 있는 창·크게 보기 패널)까지다.
-        장식은 같은 자리에서 더해진다.
+        머리줄·달력·인사말과 D-Day·스티키·집중(떠 있는 창·크게 보기 패널)의 색과 장식(DecorationLayer)을
+        입힌다. 장식의 멈춤 상태는 마지막에 다시 맞춘다.
         """
         theme = match.theme if match is not None else None
         self._header_section.setStyleSheet(
@@ -3548,7 +3548,9 @@ class MainCalendarWindow(QWidget):
         """머리줄 장식의 기준점과 모서리를 지금 버튼·머리줄 배치에서 읽어 넘긴다.
 
         기준점: left_gap = '+' 버튼 오른쪽 끝, center = 연월 글자 가운데, right_gap = 다음 달 버튼
-        오른쪽 끝, right = 머리줄 오른쪽 끝(모두 머리줄 좌표). 모서리는 #headerSection QSS의
+        오른쪽 끝, right = 머리줄 오른쪽 끝(모두 머리줄 좌표). span_l = '+' 오른쪽 끝~이전 달 버튼 왼쪽 끝,
+        span_r = 다음 달 버튼 오른쪽 끝~오른쪽 버튼 묶음 왼쪽 끝의 가운데(버튼 묶음 사이 빈 곳. 기본 크기에서는
+        12px 이하, 중간·크게에서는 200px 이상). 모서리는 #headerSection QSS의
         사이드바(왼쪽)·확대(오른쪽) 규칙과 같다. 크기 전환·창 크기 변경 때 레이어가 다시 부른다.
         """
         layer = getattr(self, "_header_decor", None)
@@ -3565,11 +3567,20 @@ class MainCalendarWindow(QWidget):
         def x_in_header(widget) -> int:
             return widget.mapTo(header, QPoint(0, 0)).x()
 
+        add_right = float(x_in_header(self._add_btn) + self._add_btn.width())
+        next_right = float(x_in_header(self.next_btn) + self.next_btn.width())
+        # 오른쪽 버튼 묶음(검색·위치 편집·완료·더보기) 중 보이는 것의 가장 왼쪽 끝
+        right_lefts = [x_in_header(w) for w in (
+            self._header_search_btn, self.calendar_move_button, self.calendar_move_done_button, self._more_btn)
+            if not w.isHidden()]
+        right_left = float(min(right_lefts)) if right_lefts else float(header.width())
         layer.set_anchors({
-            "left_gap": float(x_in_header(self._add_btn) + self._add_btn.width()),
+            "left_gap": add_right,
             "center": x_in_header(self.month_label) + self.month_label.width() / 2,
-            "right_gap": float(x_in_header(self.next_btn) + self.next_btn.width()),
+            "right_gap": next_right,
             "right": float(header.width()),
+            "span_l": (add_right + x_in_header(self.prev_btn)) / 2,
+            "span_r": (next_right + right_left) / 2,
         })
         layer.set_corner_radii(
             0.0 if header.property("sidebarActive") == "true" else 12.0,

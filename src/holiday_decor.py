@@ -30,9 +30,13 @@ DESIGN_SIZE = {"header": (380, 70), "dday": (220, 95), "sticky_band": (220, 30),
 
 # anchor 이름 → 기본 크기 표면에서의 기준 x. header는 left_gap=_add_btn 오른쪽 끝,
 # center=month_label 가운데, right_gap=next_btn 오른쪽 끝, right=오른쪽 끝이다.
+# span_l·span_r은 버튼 묶음 사이 빈 곳의 가운데다: 왼쪽은 '+' 오른쪽 끝~이전 달 버튼 왼쪽 끝(시안 x 77~135),
+# 오른쪽은 다음 달 버튼 오른쪽 끝~검색 버튼 왼쪽 끝(시안 x 245~290). 실제 값은 화면 모듈이 위젯 위치에서
+# 읽으므로 중간·크게에서는 빈 곳이 넓어지고 기본 크기에서는 거의 사라진다(그럴 땐 조각이 빠진다).
 # sticky_band는 왼쪽 도구 버튼 묶음 오른쪽 끝(82), 빈 곳의 가운데(137), 닫기 버튼 왼쪽 끝(192), 오른쪽 끝.
 ANCHOR_REF: dict[str, dict[str, float]] = {
-    "header": {"full": 0.0, "left_gap": 77.0, "center": 190.0, "right_gap": 245.0, "right": 380.0},
+    "header": {"full": 0.0, "left_gap": 77.0, "center": 190.0, "right_gap": 245.0, "right": 380.0,
+               "span_l": 106.0, "span_r": 267.5},
     "dday": {"full": 0.0},
     "sticky_band": {"full": 0.0, "left_gap": 82.0, "center": 137.0, "right_gap": 192.0, "right": 220.0},
     "hat": {"full": 0.0},
@@ -66,6 +70,8 @@ class Sprite:
     once   True면 한 번 재생하고 끝 상태에 머문다(시안의 `both` 한 번 재생).
     follows True면 튜플에서 바로 다음 조각이 그려질 때만 그린다(바람개비 막대·커피잔 김처럼 혼자는
            의미가 없는 조각). 버튼과 겹쳐 다음 조각이 빠지면 같이 빠진다.
+    min_scale 버튼과 겹쳐 줄여야 할 때 허용하는 가장 작은 배율(기본 0.5). 1이면 줄이지 않고 비킬 수만
+           있다(손 태극기는 좁은 틈에 구겨 넣지 않고 그 자리에서 뺀다).
     """
     asset: str
     rect: tuple[float, float, float, float]
@@ -76,6 +82,7 @@ class Sprite:
     origin: tuple[float, float] = (0.5, 0.5)
     once: bool = False
     follows: bool = False
+    min_scale: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -344,10 +351,11 @@ def particle_pose(pt: Particle, t: float) -> tuple[float, float, float]:
 
 def _sp(surface: str, asset: str, anchor: str, x: float, y: float, w: float, h: float,
         motion: str | None = None, period: float = 0.0, phase: float = 0.0,
-        origin: tuple[float, float] = (0.5, 0.5), once: bool = False, follows: bool = False) -> Sprite:
+        origin: tuple[float, float] = (0.5, 0.5), once: bool = False, follows: bool = False,
+        min_scale: float = 0.5) -> Sprite:
     """시안의 절대 x를 받아 기준점에서의 거리로 바꾼 Sprite를 만든다."""
     return Sprite(asset, (x - ANCHOR_REF[surface][anchor], y, w, h), anchor, motion, period, phase,
-                  origin, once, follows)
+                  origin, once, follows, min_scale)
 
 
 def _pt(surface: str, kind: str, anchor: str, x: float, y: float, w: float, h: float,
@@ -384,11 +392,13 @@ def _lantern_sprites() -> tuple[Sprite, ...]:
     )
 
 
-# 한 군데서 쓰는 시안 위치(절대 x). samil 손 태극기: 위치·wave 주기·위상.
-_HAND_FLAGS = (  # (x, 주기, 위상, 기준점)
-    (14, 1.5, 0.0, "left_gap"), (44, 1.8, -0.5, "left_gap"),
-    (154, 1.6, -0.9, "center"), (204, 1.4, -0.3, "center"),
-    (318, 1.7, -1.1, "right"), (350, 1.5, -0.7, "right"),
+# samil 손 태극기 6개: 빈 곳(span_l·span_r) 가운데에서 3개씩 한 묶음. 시안은 기본 크기의 버튼 아래 띠에
+# 서 있었지만 위쪽 막대 행(52px)에 맞추면 그 자리가 버튼 높이와 겹쳐서, 버튼 묶음 사이 빈 곳으로 옮겼다.
+# 묶음 안 간격과 번갈아 흔들리는 주기·위상은 시안의 값이다. 기본 크기는 빈 곳이 12px 이하라 6개 모두 빠진다.
+_FLAG_STEP = 40.0
+_HAND_FLAGS = (  # (기준점, 빈 곳 가운데에서 깃발 가운데까지 거리, 주기, 위상)
+    ("span_l", -_FLAG_STEP, 1.5, 0.0), ("span_l", 0.0, 1.8, -0.5), ("span_l", _FLAG_STEP, 1.6, -0.9),
+    ("span_r", -_FLAG_STEP, 1.4, -0.3), ("span_r", 0.0, 1.7, -1.1), ("span_r", _FLAG_STEP, 1.5, -0.7),
 )
 
 _GOLD_STAR = {"newyear": "#FFD9A0", "chuseok": "#FFF4CC", "constitution": "#F4E3B0"}
@@ -438,11 +448,12 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         "sticky_band": SurfaceDecor(),
     }
 
-    # 삼일절: 손 태극기 6개가 번갈아 흔들린다(머리줄), 무궁화(D-Day·띠).
+    # 삼일절: 손 태극기 6개가 번갈아 흔들린다(머리줄, 빈 곳 두 군데에 3개씩), 무궁화(D-Day·띠).
     d["samil"] = {
         "header": SurfaceDecor(sprites=tuple(
-            _hs("samil/flag.svg", anchor, x, 48, 18, 26, "wave", period, phase, (2.5 / 18, 1.0))
-            for x, period, phase, anchor in _HAND_FLAGS
+            _hs("samil/flag.svg", anchor, ANCHOR_REF["header"][anchor] + dx - 9, 48, 18, 26,
+                "wave", period, phase, (2.5 / 18, 1.0), min_scale=1.0)
+            for anchor, dx, period, phase in _HAND_FLAGS
         )),
         "dday": SurfaceDecor(sprites=(_ds("samil/mugunghwa.svg", "full", 162, 32, 32, 32),)),
         "sticky_band": SurfaceDecor(sprites=(_bs("samil/mugunghwa.svg", "center", 140, 8, 14, 14),)),
@@ -550,8 +561,8 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             sprites=(
                 _hs("chuseok/halo.svg", "center", 148, 38, 84, 84, "glow", 3.0),
                 _hs("chuseok/moon.svg", "center", 160, 50, 60, 60, "rise", 3.5, once=True),
-                _hs("chuseok/susuki_l.svg", "left_gap", 6, 46, 80, 24, "sway", 3.2, origin=(0.5, 1.0)),
-                _hs("chuseok/susuki_r.svg", "right", 294, 46, 80, 24, "sway", 2.7, -1.1, origin=(0.5, 1.0)),
+                _hs("chuseok/susuki_l.svg", "span_l", 106 - 40, 46, 80, 24, "sway", 3.2, origin=(0.5, 1.0)),
+                _hs("chuseok/susuki_r.svg", "span_r", 267.5 - 40, 46, 80, 24, "sway", 2.7, -1.1, origin=(0.5, 1.0)),
             ),
             particles=(
                 _star("header", "left_gap", 96, 10, 7, cs, 141), _star("header", "left_gap", 126, 52, 5, cs, 142),
@@ -578,8 +589,8 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             _hs("gaecheon/beam.svg", "center", 130, 0, 120, 70),
             _hs("gaecheon/cloud_swirl.svg", "left_gap", 82, 5, 44, 20, "drift", 7.0),
             _hs("gaecheon/cloud_swirl.svg", "right_gap", 246, 8, 40, 18, "drift", 9.0, -3.0),
-            _hs("gaecheon/cloud_plain.svg", "left_gap", 12, 50, 34, 16, "drift", 9.0, -3.0),
-            _hs("gaecheon/cloud_plain.svg", "right", 330, 52, 34, 16, "drift", 7.0),
+            _hs("gaecheon/cloud_plain.svg", "span_l", 106 - 17, 50, 34, 16, "drift", 9.0, -3.0),
+            _hs("gaecheon/cloud_plain.svg", "span_r", 267.5 - 17, 52, 34, 16, "drift", 7.0),
         )),
         "dday": SurfaceDecor(sprites=(
             _ds("gaecheon/cloud_swirl.svg", "full", 134, 34, 44, 20, "drift", 7.0),

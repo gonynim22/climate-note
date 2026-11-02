@@ -91,9 +91,17 @@ class StickyMiniCard(QWidget):
         )
 
     def set_holiday_theme(self, theme) -> None:
-        """공휴일 테마(HolidayTheme 또는 None)를 위 띠에만 입힌다. DB에는 쓰지 않는다."""
+        """공휴일 테마(HolidayTheme 또는 None)를 위 띠에만 입힌다. DB에는 쓰지 않는다.
+
+        띠가 어두워지는 테마(추석)에서는 띠 위의 삭제(X) 아이콘도 테마의 band_icon 색으로 다시 그린다.
+        테마가 없으면 기본 아이콘(밝은 테마를 따르는 색)으로 되돌린다. 떠 있는 스티키의 닫기 버튼과 같은 방식이다.
+        """
         self._holiday_theme = theme
         self._render_strip()
+        if theme is None:
+            self.delete_btn.setIcon(FIF.CLOSE)
+        else:
+            self.delete_btn.setIcon(FIF.CLOSE.icon(color=QColor(theme.band_icon)))
 
     def _apply_color_style(self, hex_color: str):
         self._color = hex_color

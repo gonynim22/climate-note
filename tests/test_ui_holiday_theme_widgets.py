@@ -54,6 +54,12 @@ def _stop_pending_saves(*widgets):
                 timer.stop()
 
 
+def _active_save_timers(*widgets):
+    """아직 도는 디바운스 저장 타이머 (위젯 종류, 속성 이름) 목록. 테마가 지연 저장을 새로 일으켰는지 본다."""
+    return [(type(widget).__name__, name) for widget in widgets for name in ("_resize_timer", "_save_timer")
+            if getattr(widget, name, None) is not None and getattr(widget, name).isActive()]
+
+
 def _dday_data(**over):
     data = {"name": "마감", "target_date": "2030-01-01",
             "color": "#46679C", "x_pos": 100, "y_pos": 100}
@@ -250,6 +256,35 @@ def test_sticky_icons_use_band_icon_color(app_dir, qtbot):
         assert "#FFFFFF" not in button.styleSheet().upper()
 
 
+def test_light_icon_format_buttons_keep_checked_look_on_hover(app_dir, qtbot):
+    """밝은 글자(추석)용 서식 버튼 QSS는 덧붙인 :hover가 눌림(checked) 모양을 덮지 않게 :checked:hover를 둔다.
+    (offscreen에서는 마우스 올림 상태를 만들 수 없어 규칙 순서와 값을 확인하고, 눌림 그림은 실제로 그려 본다.)"""
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget
+    from ui_sticky import _FMT_BUTTON_QSS, _fmt_button_qss
+
+    checked = "background: rgba(0,120,212,60); border: 1px solid #0078D4;"
+    assert f"QPushButton:checked {{ {checked} }}" in _FMT_BUTTON_QSS
+    light = _fmt_button_qss("#FFFFFF")
+    assert f"QPushButton:checked:hover {{ {checked} }}" in light
+    assert light.rindex("QPushButton:hover") < light.rindex("QPushButton:checked:hover")   # 구체성이 같아도 뒤에 온다
+    assert "QPushButton:checked:hover" not in _fmt_button_qss("#222222")   # 어두운 글자는 덧붙인 hover가 없다
+
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.setStyleSheet("background: #2B3468;")
+    layout = QVBoxLayout(host)
+    button = QPushButton("B")
+    button.setCheckable(True)
+    button.setFixedSize(28, 28)
+    button.setStyleSheet(light)
+    layout.addWidget(button)
+    host.show()
+    qtbot.waitExposed(host)
+    button.setChecked(True)
+    pixel = QColor.fromRgba(button.grab().toImage().convertToFormat(QImage.Format_ARGB32).pixel(4, 14))
+    assert pixel.blue() - pixel.red() > 80      # 눌린 버튼은 파란 바탕이다(옅은 흰 바탕이 아님)
+
+
 def test_sticky_icon_color_follows_each_theme(app_dir, qtbot):
     """밝은 띠(성탄)의 아이콘은 그 테마의 band_icon 색이다."""
     win = _sticky(qtbot)
@@ -309,6 +344,26 @@ def test_sticky_mini_card_changes_only_strip(app_dir, qtbot, monkeypatch):
 
     card.set_holiday_theme(None)
     assert card._strip.styleSheet() == strip_before
+
+
+def test_sticky_mini_card_delete_icon_follows_band_icon(app_dir, qtbot):
+    """어두운 띠(추석)에서 8px 띠 위의 삭제(X)가 묻히지 않게 band_icon 색으로 다시 그리고, 테마가 끝나면 되돌린다."""
+    note_id = db.create_sticky_note("memo")
+    card = StickyMiniCard(note_id, "", db.DEFAULT_STICKY_COLOR)
+    qtbot.addWidget(card)
+    default = _opaque_colors(card.delete_btn.icon(), 16)
+    assert default and not all(_close(c, "#FFFFFF", 20) for c in default)
+
+    card.set_holiday_theme(THEMES["chuseok"])              # 추석 band_icon은 흰색
+    themed = _opaque_colors(card.delete_btn.icon(), 16)
+    assert themed and all(_close(c, "#FFFFFF", 20) for c in themed)
+    card.set_holiday_theme(THEMES["christmas"])            # 밝은 띠: 그 테마의 band_icon 색
+    colors = _opaque_colors(card.delete_btn.icon(), 16)
+    assert colors and all(_close(c, THEMES["christmas"].band_icon, 20) for c in colors)
+
+    card.set_holiday_theme(None)
+    restored = _opaque_colors(card.delete_btn.icon(), 16)
+    assert restored and not all(_close(c, "#FFFFFF", 20) for c in restored)
 
 
 def test_mini_card_color_change_during_theme_saves_and_restores(app_dir, qtbot):
@@ -459,16 +514,18 @@ def test_widget_theme_apply_writes_nothing(monkeypatch, win):
     dday = win._dday_windows[widget_id]
     before = (sticky.container.styleSheet(), sticky.text_edit.toHtml())
     # 창을 만들고 크기를 맞추며 시작된 디바운스 저장(크기 500ms·본문)은 테마와 무관하다. PC가 느려
-    # 이 구간 안에 만료되면 테마가 쓴 것으로 오인하므로 미리 멈춘다.
+    # 이 구간 안에 만료되면 테마가 쓴 것으로 오인하므로 범위 밖에서 한 번만 멈춘다. 범위 안에서는 멈추지
+    # 않고, 테마 적용이 지연 저장 타이머를 새로 켜지 않았는지(=나중에 쓰기를 일으키지 않는지) 확인한다.
     _stop_pending_saves(sticky, dday)
 
     with monkeypatch.context() as scoped:
         _forbid_db_writes(scoped)
         for day in ("2026-12-21", "2026-12-25", "2027-01-01", "2027-02-07", "2026-12-21"):
             _at(scoped, win, day)
-            _stop_pending_saves(sticky, dday)
+            assert _active_save_timers(sticky, dday) == [], day
         win._holiday_theme.set_paused(True)
         win._holiday_theme.set_paused(False)
+        assert _active_save_timers(sticky, dday) == []
 
     assert (sticky.container.styleSheet(), sticky.text_edit.toHtml()) == before
     saved_dday = next(w for w in db.get_open_dday_widgets() if w["id"] == widget_id)

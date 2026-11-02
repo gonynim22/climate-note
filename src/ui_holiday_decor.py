@@ -11,6 +11,7 @@
 - 멈춘 채로 그릴 때도 motion_state를 거친다. 후광은 불투명한 원 그림이라 glow의 투명도(0.16~0.45)가
   있어야 은은하다. 'Windows 애니메이션 끔'에서 떠오르는 해·달(once)은 끝 위치(떠오른 모습)에 둔다.
 - 그림은 SVG를 한 번 QPixmap으로 만들어 쓴다(레이어마다 캐시). 프레임마다 SVG를 다시 해석하지 않는다.
+  캐시는 늘 한정된다: 바탕은 한 장, 조각은 _PIXMAP_CACHE_MAX장(가장 오래 안 쓴 것부터 버림).
 """
 from __future__ import annotations
 
@@ -52,6 +53,9 @@ _BACKDROP_RATIO = 0.3
 _MIN_VISIBLE = 6.0
 # 움직임 허용 여부(Windows 설정)를 다시 읽는 간격(틱). 약 4초.
 _RECHECK_TICKS = 96
+# 레이어마다 들고 있는 조각 그림 수의 상한. 크기를 끌어 바꾸는 스티키는 폭마다 새 그림이 생기므로
+# 가장 오래 안 쓴 것부터 버린다(한 레이어가 실제로 쓰는 조각은 열 장 안팎이다).
+_PIXMAP_CACHE_MAX = 48
 
 _STAR_POINTS = ((5, 0), (6.1, 3.9), (10, 5), (6.1, 6.1), (5, 10), (3.9, 6.1), (0, 5), (3.9, 3.9))
 _FONT_FAMILY = "Malgun Gothic"
@@ -601,7 +605,7 @@ class DecorationLayer(QWidget):
         """asset을 (w x h)*k 논리 px로 한 번 그려 둔 QPixmap(레이어마다 캐시)."""
         dpr = self._dpr
         key = (asset, round(w * k * dpr), round(h * k * dpr))
-        pix = self._pixmaps.get(key)
+        pix = self._pixmaps.pop(key, None)
         if pix is None:
             renderer = _renderer_for(self._renderers, asset)
             if renderer is None:
@@ -611,7 +615,10 @@ class DecorationLayer(QWidget):
             painter.setRenderHint(QPainter.Antialiasing, True)
             renderer.render(painter, QRectF(0, 0, pix.width() / dpr, pix.height() / dpr))
             painter.end()
-            self._pixmaps[key] = pix
+        self._pixmaps[key] = pix   # 방금 쓴 것을 맨 뒤로(가장 오래 안 쓴 것이 앞에 남는다)
+        stale = [k for k in self._pixmaps if k[0] != "base"][:-_PIXMAP_CACHE_MAX]
+        for old_key in stale:
+            del self._pixmaps[old_key]
         return pix
 
     def _base_pixmap(self, decor: hd.SurfaceDecor, width: float, height: float) -> QPixmap | None:
@@ -621,6 +628,9 @@ class DecorationLayer(QWidget):
         pix = self._pixmaps.get(key)
         if pix is not None:
             return pix
+        # 바탕은 레이어마다 한 장이다. 폭이 바뀌어 새로 만들 때 예전 폭의 큰 그림은 버린다.
+        for old_key in [k for k in self._pixmaps if k[0] == "base"]:
+            del self._pixmaps[old_key]
         renderer = _renderer_for(self._renderers, decor.base)
         if renderer is None:
             return None
@@ -704,7 +714,7 @@ class DecorationLayer(QWidget):
         rect = (x, y, w, h)
         if self._blockers and not is_backdrop(self._surface, sprite.rect[2]):
             slid = slide_below(rect, self._blockers, self._band_h or hd.DESIGN_SIZE[self._surface][1])
-            return None if slid is None else fit_clear(slid, self._blockers)
+            return None if slid is None else fit_clear(slid, self._blockers, min_scale=sprite.min_scale)
         return rect
 
     def _visible_sprites(self, decor, anchors, vw):

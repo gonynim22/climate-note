@@ -142,7 +142,8 @@ def test_constants():
     assert DESIGN_SIZE == {"header": (380, 70), "dday": (220, 95),
                            "sticky_band": (220, 30), "hat": (100, 130)}
     assert ANCHOR_REF["header"] == {"full": 0.0, "left_gap": 77.0, "center": 190.0,
-                                    "right_gap": 245.0, "right": 380.0}
+                                    "right_gap": 245.0, "right": 380.0,
+                                    "span_l": 106.0, "span_r": 267.5}
     assert STICKER_DESIGN == 48
 
 
@@ -237,6 +238,28 @@ def test_header_clear_zones_are_respected_for_gap_sprites():
                 assert x >= 230, (key, s.asset, x)
             if s.anchor == "left_gap" and s.rect[1] < 46:  # 위쪽 막대 행(버튼이 있는 곳)
                 assert x >= 77 - 40, (key, s.asset, x)
+
+
+def test_samil_hand_flags_are_six_in_two_free_spans_and_never_shrink():
+    flags = DECOR["samil"]["header"].sprites
+    assert [s.anchor for s in flags] == ["span_l"] * 3 + ["span_r"] * 3
+    assert all(s.asset == "samil/flag.svg" and s.motion == "wave" and s.min_scale == 1.0 for s in flags)
+    assert len({(s.period, s.phase) for s in flags}) == 6                  # 번갈아 흔들린다
+    for anchor in ("span_l", "span_r"):                                    # 빈 곳 가운데에서 -40·0·+40
+        centers = sorted(s.rect[0] + s.rect[2] / 2 for s in flags if s.anchor == anchor)
+        assert centers == [-40.0, 0.0, 40.0]
+    # 기본값은 그대로: 다른 조각은 0.5까지 줄일 수 있다
+    assert hd.Sprite("a.svg", (0, 0, 1, 1)).min_scale == 0.5
+    assert all(s.min_scale == 0.5 for k in ("gaecheon", "chuseok") for s in DECOR[k]["header"].sprites)
+
+
+def test_gaecheon_clouds_and_chuseok_grass_use_free_span_anchors():
+    anchors = {}
+    for key in ("gaecheon", "chuseok"):
+        for s in DECOR[key]["header"].sprites:
+            anchors.setdefault(s.asset, []).append(s.anchor)
+    assert anchors["gaecheon/cloud_plain.svg"] == ["span_l", "span_r"]
+    assert anchors["chuseok/susuki_l.svg"] == ["span_l"] and anchors["chuseok/susuki_r.svg"] == ["span_r"]
 
 
 # ── 자원: Tiny SVG ──────────────────────────────────────────────────

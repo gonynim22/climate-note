@@ -5,7 +5,8 @@
 이 모듈은 DB에 아무것도 쓰지 않는다(설정 읽기만).
 
 - themeChanged(match): 보이는 테마가 달라졌을 때만 보낸다. match는 HolidayThemeMatch 또는 None.
-- pausedChanged(paused): 잠금·숨김 같은 때 장식 움직임을 멈추라는 신호(Task 6 이후 연결).
+- pausedChanged(paused): 잠금·숨김 같은 때 장식 움직임을 멈추라는 신호. 메인 창이 받아 머리줄과
+  떠 있는 위젯의 모든 DecorationLayer에 전한다(ui_main._on_holiday_paused).
 """
 from __future__ import annotations
 

@@ -83,7 +83,9 @@ def _fmt_button_qss(icon_color: str | None = None) -> str:
     """서식 버튼 스타일. icon_color(공휴일 테마의 band_icon)가 있으면 글자색을 입힌다.
 
     밝은 글자(어두운 띠)는 기본 바탕(반투명 흰색)에서 대비가 모자라서, 바탕·테두리·hover를
-    옅은 흰색으로 바꾼다. 눌림(checked) 표시는 선택자가 더 구체적이라 그대로 남는다.
+    옅은 흰색으로 바꾼다. 눌림(checked) 표시는 기본 규칙보다 선택자가 구체적이라 남지만, 뒤에 덧붙인
+    `:hover`는 `:checked`와 구체성이 같아 눌린 버튼 위에서 눌림 모양을 덮으므로 `:checked:hover`로
+    눌림 모양(기본 규칙과 같은 값)을 한 번 더 지킨다.
     """
     if icon_color is None:
         return _FMT_BUTTON_QSS
@@ -92,6 +94,7 @@ def _fmt_button_qss(icon_color: str | None = None) -> str:
             f"QPushButton {{ color: {icon_color}; background: rgba(255,255,255,38);"
             " border: 1px solid rgba(255,255,255,90); }"
             "QPushButton:hover { background: rgba(255,255,255,70); }"
+            "QPushButton:checked:hover { background: rgba(0,120,212,60); border: 1px solid #0078D4; }"
         )
     return _FMT_BUTTON_QSS + f"QPushButton {{ color: {icon_color}; }}"
 
