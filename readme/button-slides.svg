@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="212" height="48" viewBox="0 0 212 48" role="img" aria-label="제품 소개 슬라이드">
+  <rect x="0.5" y="0.5" width="211" height="47" rx="9.5" fill="#FFFFFF" stroke="#C9D6EA"/>
+  <rect x="20" y="14" width="22" height="15" rx="2.5" fill="none" stroke="#2563EB" stroke-width="2"/>
+  <path d="M31 29v4.5M26.5 34h9" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+  <path d="M29 18.2v6.6l5.4-3.3z" fill="#2563EB"/>
+  <text x="123" y="30" font-family="'Segoe UI','Malgun Gothic','Apple SD Gothic Neo',sans-serif" font-size="16" font-weight="700" fill="#1E3A6B" text-anchor="middle">제품 소개 슬라이드</text>
+</svg>

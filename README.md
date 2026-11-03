@@ -9,7 +9,10 @@
 <br>
 <div align="center">
   <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases"><img src="readme/button-download.svg" alt="최신 버전 받기"></a>
+  <a href="https://gonynim22.github.io/climate-note/climate-note-intro/climate-note-intro.html" target="_blank" rel="noopener noreferrer"><img src="readme/button-slides.svg" alt="제품 소개 슬라이드"></a>
   <a href="README_detail.md"><img src="readme/button-detail.svg" alt="상세 안내"></a>
+  <br>
+  <sub>소개 슬라이드가 열리지 않는 PC(인터넷 차단)는 <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/raw/main/climate-note-intro/climate-note-intro.html?inline=false">HTML 파일을 내려받아</a> 더블클릭하세요.</sub>
 </div>
 <br>
 <div align="center">
