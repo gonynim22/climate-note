@@ -393,6 +393,11 @@ class DecorationLayer(QWidget):
         super().__init__(parent)
         self.setObjectName("holidayDecor")
         self._surface = surface
+        # 배치 이름: 보통 표면 이름과 같고, 기본 크기 머리줄이면 HEADER_COMPACT다(set_compact).
+        # 장식 표·디자인 크기·기준점은 이 이름으로 읽는다.
+        self._variant = surface
+        self._geom = surface                 # 지금 그리는 장식의 좌표계(작은 배치가 없는 테마는 표면 그대로)
+        self._wanted: str | None = None
         self._key: str | None = None
         self._decor: hd.SurfaceDecor | None = None
         self._has_motion = False
@@ -431,15 +436,34 @@ class DecorationLayer(QWidget):
         """지금 입은 테마 키. 그릴 것이 없으면 None."""
         return self._key
 
+    def variant(self) -> str:
+        """지금 쓰는 배치 이름(표면 이름 또는 기본 크기 머리줄의 HEADER_COMPACT)."""
+        return self._variant
+
+    def set_compact(self, compact: bool) -> None:
+        """머리줄을 기본 크기(380px) 작은 배치로 그린다. 그 배치가 없는 테마는 보통 배치를 쓴다.
+        header 표면에만 뜻이 있다(다른 표면은 그대로)."""
+        variant = hd.HEADER_COMPACT if compact and self._surface == "header" else self._surface
+        if variant != self._variant:
+            self._variant = variant
+            self.set_theme(self._wanted)
+
     def set_theme(self, key: str | None) -> None:
         """테마를 바꾼다. key가 없거나 이 표면에 그릴 것이 없으면 숨는다. 같은 값이면 아무것도 하지 않는다."""
-        decor = hd.DECOR.get(key, {}).get(self._surface) if key else None
+        self._wanted = key
+        surfaces = hd.DECOR.get(key, {}) if key else {}
+        geom = self._variant
+        decor = surfaces.get(geom)
+        if decor is None:                      # 작은 배치가 없는 테마는 보통 배치
+            geom = self._surface
+            decor = surfaces.get(geom)
         if decor is not None and not (decor.base or decor.sprites or decor.particles or decor.badges):
             decor = None
         new_key = key if decor is not None else None
-        if new_key != self._key:
+        if new_key != self._key or decor is not self._decor:
             self._key = new_key
             self._decor = decor
+            self._geom = geom
             self._has_motion = decor is not None and (
                 bool(decor.particles) or any(s.motion for s in decor.sprites))
             self._elapsed = 0.0                       # 새 테마는 첫 장면부터
@@ -523,7 +547,7 @@ class DecorationLayer(QWidget):
         if self._surface == "hat":
             self.update()
             return
-        band = self._band_h or hd.DESIGN_SIZE[self._surface][1]
+        band = self._band_h or hd.DESIGN_SIZE[self._geom][1]
         self.update(0, 0, self.width(), min(self.height(), int(math.ceil(band))))
 
     def is_animating(self) -> bool:
@@ -654,7 +678,7 @@ class DecorationLayer(QWidget):
         stamp = (self._key, round(width))
         if stamp != self._particle_stamp:
             self._particle_sets = [
-                (spec, hd.place_particles(scaled_particles(spec, width, self._surface)))
+                (spec, hd.place_particles(scaled_particles(spec, width, self._geom)))
                 for spec in self._decor.particles
             ]
             self._particle_stamp = stamp
@@ -674,7 +698,7 @@ class DecorationLayer(QWidget):
 
         k = self._scale()
         vw = self._virtual_width()
-        design_h = hd.DESIGN_SIZE[self._surface][1]
+        design_h = hd.DESIGN_SIZE[self._geom][1]
         band_h = self._band_h or design_h
         t = self.elapsed()
 
@@ -698,8 +722,8 @@ class DecorationLayer(QWidget):
             for item in items:
                 self._paint_particle(painter, item, anchors, vw, t)
         for badge in decor.badges:
-            x, y, w, h = resolve_rect(self._surface, badge.rect, badge.anchor, anchors, vw)
-            _draw_badge(painter, badge, QRectF(x, map_band_y(self._surface, y, h, self._band_h), w, h))
+            x, y, w, h = resolve_rect(self._geom, badge.rect, badge.anchor, anchors, vw)
+            _draw_badge(painter, badge, QRectF(x, map_band_y(self._geom, y, h, self._band_h), w, h))
         painter.end()
 
     def _paint_base(self, painter, decor, vw, band_h) -> None:
@@ -709,11 +733,11 @@ class DecorationLayer(QWidget):
 
     def _sprite_rect(self, sprite, anchors, vw):
         """(x, y, w, h)를 실제 값으로. 버튼·글자 자리와 겹치면 줄이거나 옮기고, 안 되면 None(그리지 않는다)."""
-        x, y, w, h = resolve_rect(self._surface, sprite.rect, sprite.anchor, anchors, vw)
-        y, h = map_band_span(self._surface, (x, y, w, h), self._band_h)
+        x, y, w, h = resolve_rect(self._geom, sprite.rect, sprite.anchor, anchors, vw)
+        y, h = map_band_span(self._geom, (x, y, w, h), self._band_h)
         rect = (x, y, w, h)
-        if self._blockers and not is_backdrop(self._surface, sprite.rect[2]):
-            slid = slide_below(rect, self._blockers, self._band_h or hd.DESIGN_SIZE[self._surface][1])
+        if self._blockers and not is_backdrop(self._geom, sprite.rect[2]):
+            slid = slide_below(rect, self._blockers, self._band_h or hd.DESIGN_SIZE[self._geom][1])
             return None if slid is None else fit_clear(slid, self._blockers, min_scale=sprite.min_scale)
         return rect
 
@@ -750,13 +774,13 @@ class DecorationLayer(QWidget):
 
     def _paint_particle(self, painter, item, anchors, vw, t) -> None:
         px, py, opacity = hd.particle_pose(item, t)
-        x = resolve_rect(self._surface, (px, 0.0, 0.0, 0.0), item.anchor, anchors, vw)[0]
+        x = resolve_rect(self._geom, (px, 0.0, 0.0, 0.0), item.anchor, anchors, vw)[0]
         if item.kind == "snow":
             # 눈은 한 바퀴 내내 이어서 움직이므로 띠 높이에 비례해 줄인다(띠 아래 끝까지 내려온다).
-            y = py * (self._band_h / hd.DESIGN_SIZE[self._surface][1]) if self._band_h else py
+            y = py * (self._band_h / hd.DESIGN_SIZE[self._geom][1]) if self._band_h else py
         else:
             # 떠오르는 자모·반짝이는 별은 놓인 자리(item.y)로 띠 안의 위치를 정하고 움직임은 그대로 더한다.
-            y = py + map_band_y(self._surface, item.y, item.size, self._band_h) - item.y
+            y = py + map_band_y(self._geom, item.y, item.size, self._band_h) - item.y
         opacity = max(0.0, min(1.0, opacity))
         if opacity <= 0.0:
             return

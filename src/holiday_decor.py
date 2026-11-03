@@ -8,6 +8,11 @@ Qt·DB에 의존하지 않는 순수 모듈이다. 어떤 표면(머리줄·D-Da
 좌표 규칙
 - 모든 rect·area는 표면의 '디자인 좌표'다: 머리줄 380x70, D-Day 220x95, 스티키 띠 220x30,
   모자 100x130(hat.svg viewBox의 y -30을 0으로 옮긴 공간).
+- 기본 크기 머리줄(380px)은 버튼 묶음 사이 빈 곳이 거의 없어서 시안 배치가 들어가지 않는다. 그래서
+  테마마다 따로 '작은 배치'(HEADER_COMPACT, 380x52 = 실제 위쪽 막대 행 그대로)를 둔다. 좌표는 실제
+  px이고 기준점은 "full"뿐이다. 조각은 버튼 위 띠(y 14 미만)·연월 글자 위(y 15.5 이하)·버튼 사이
+  틈('+'와 이전 달 사이 x 102~118, 글자 양옆 138~151·229~242, 오른쪽 끝 366~380 등)·아래 띠(y 42 이상)
+  에만 놓아 버튼·글자와 겹치지 않는다(시험이 고정). 바탕(base)은 머리줄과 같은 그림을 띠 높이로 그린다.
 - `anchor`가 "full"이면 x에 (실제 폭 / 디자인 폭)을 곱해 놓고 크기는 그대로 둔다. 다만 rect 너비가
   표면의 디자인 폭과 같은 전체 폭 조각(능선·줄 장식)은 너비도 같은 비율로 늘린다. 그 밖의 anchor는
   기준점 + rect.x에 크기 그대로 놓는다. 기준점의 디자인 값은 ANCHOR_REF에 있고 실제 기준점(버튼 위치)은
@@ -26,13 +31,16 @@ from dataclasses import dataclass
 # ── 표면 ────────────────────────────────────────────────────────────
 
 SURFACES = ("header", "dday", "sticky_band", "hat")
-DESIGN_SIZE = {"header": (380, 70), "dday": (220, 95), "sticky_band": (220, 30), "hat": (100, 130)}
+# 기본 크기 머리줄의 작은 배치. 레이어 표면이 아니라 header 레이어가 기본 크기일 때 고르는 배치 이름이다.
+HEADER_COMPACT = "header_compact"
+DESIGN_SIZE = {"header": (380, 70), "dday": (220, 95), "sticky_band": (220, 30), "hat": (100, 130),
+               HEADER_COMPACT: (380, 52)}
 
 # anchor 이름 → 기본 크기 표면에서의 기준 x. header는 left_gap=_add_btn 오른쪽 끝,
 # center=month_label 가운데, right_gap=next_btn 오른쪽 끝, right=오른쪽 끝이다.
 # span_l·span_r은 버튼 묶음 사이 빈 곳의 가운데다: 왼쪽은 '+' 오른쪽 끝~이전 달 버튼 왼쪽 끝(시안 x 77~135),
 # 오른쪽은 다음 달 버튼 오른쪽 끝~검색 버튼 왼쪽 끝(시안 x 245~290). 실제 값은 화면 모듈이 위젯 위치에서
-# 읽으므로 중간·크게에서는 빈 곳이 넓어지고 기본 크기에서는 거의 사라진다(그럴 땐 조각이 빠진다).
+# 읽으므로 중간·크게에서는 빈 곳이 넓어진다. 기본 크기에서는 빈 곳이 거의 없어서 HEADER_COMPACT 배치를 쓴다.
 # sticky_band는 왼쪽 도구 버튼 묶음 오른쪽 끝(82), 빈 곳의 가운데(137), 닫기 버튼 왼쪽 끝(192), 오른쪽 끝.
 ANCHOR_REF: dict[str, dict[str, float]] = {
     "header": {"full": 0.0, "left_gap": 77.0, "center": 190.0, "right_gap": 245.0, "right": 380.0,
@@ -40,6 +48,7 @@ ANCHOR_REF: dict[str, dict[str, float]] = {
     "dday": {"full": 0.0},
     "sticky_band": {"full": 0.0, "left_gap": 82.0, "center": 137.0, "right_gap": 192.0, "right": 220.0},
     "hat": {"full": 0.0},
+    HEADER_COMPACT: {"full": 0.0},
 }
 
 # 스티커는 sticker.svg(viewBox 48x48)를 56px 상자에 그린다. STICKER_BADGES의 좌표·글자 크기는
@@ -380,21 +389,66 @@ def _bs(*a, **k) -> Sprite:
     return _sp("sticky_band", *a, **k)
 
 
+def _cs(asset: str, x: float, y: float, w: float, h: float, motion: str | None = None,
+        period: float = 0.0, phase: float = 0.0, origin: tuple[float, float] = (0.5, 0.5),
+        once: bool = False, follows: bool = False) -> Sprite:
+    """기본 크기 머리줄(HEADER_COMPACT)의 조각. x·y는 실제 px다."""
+    return _sp(HEADER_COMPACT, asset, "full", x, y, w, h, motion, period, phase, origin, once, follows)
+
+
+def _cstar(x: float, y: float, size: float, color: str, seed: int) -> Particles:
+    return _star(HEADER_COMPACT, "full", x, y, size, color, seed)
+
+
+_LANTERN_COLORS = ("pink", "yellow", "red", "green", "orange")
+
+
+def _lantern(i: int, anchor: str, x: float, y: float) -> Sprite:
+    """연등 하나(머리줄). 색 5색 반복·swing 주기 2.6+(i%3)*0.4·위상 -0.5*i. x는 연등 가운데(디자인 절대값).
+    그림은 12x18 연등 둘레에 은은한 빛 번짐을 위해 (-4,-3) 여백을 둔 20x24 상자다."""
+    return _hs(f"buddha/lantern_{_LANTERN_COLORS[i % 5]}.svg", anchor, x - 10, y - 3, 20, 24,
+               "swing", round(2.6 + (i % 3) * 0.4, 1), round(-i * 0.5, 1), (0.5, 0.125))
+
+
+# 부처님오신날 머리줄 연등 9개: 시안의 줄 높이(y)는 그대로 두고, 버튼 위에 걸리지 않게 빈 곳(span_l에 4개,
+# span_r에 5개) 가운데에서 시안의 간격(약 42px)으로 놓는다. 중간 크기의 빈 곳(약 200px)에도 9개가 다 들어간다.
+_LANTERN_PITCH = 42.0
+_LANTERN_SPOTS = (  # (기준점, 빈 곳 가운데에서 연등 가운데까지 거리, 줄 높이 y)
+    ("span_l", -1.5 * _LANTERN_PITCH, 4), ("span_l", -0.5 * _LANTERN_PITCH, 6),
+    ("span_l", 0.5 * _LANTERN_PITCH, 7), ("span_l", 1.5 * _LANTERN_PITCH, 6),
+    ("span_r", -2 * _LANTERN_PITCH, 3), ("span_r", -_LANTERN_PITCH, 6), ("span_r", 0.0, 7),
+    ("span_r", _LANTERN_PITCH, 7), ("span_r", 2 * _LANTERN_PITCH, 5),
+)
+
+
 def _lantern_sprites() -> tuple[Sprite, ...]:
-    """부처님오신날 머리줄 연등 9개: 위치·색 5색 반복·swing 주기 2.6+(i%3)*0.4·위상 -0.5*i."""
-    colors = ("pink", "yellow", "red", "green", "orange")
-    spots = ((18, 4), (62, 6), (104, 7), (146, 6), (188, 3), (230, 6), (272, 7), (316, 7), (356, 5))
-    return tuple(
-        # 그림은 12x18 연등 둘레에 은은한 빛 번짐을 위해 (-4,-3) 여백을 둔 20x24 상자다.
-        _hs(f"buddha/lantern_{colors[i % 5]}.svg", "full", x - 4, y - 3, 20, 24,
-            "swing", round(2.6 + (i % 3) * 0.4, 1), round(-i * 0.5, 1), (0.5, 0.125))
-        for i, (x, y) in enumerate(spots)
-    )
+    return tuple(_lantern(i, anchor, ANCHOR_REF["header"][anchor] + dx, y)
+                 for i, (anchor, dx, y) in enumerate(_LANTERN_SPOTS))
+
+
+# 기본 크기 연등: 9x10.8 상자(줄에 매다는 점이 상자 위에서 1.35px). 버튼 위에서는 아래 끝이 버튼 장애물
+# (y 14)에 닿지 않도록 줄이 높은 자리(타일 양 끝)에만 걸고, 나머지는 버튼 사이 틈과 연월 글자 위에 건다.
+_COMPACT_LANTERN_X = (22.5, 68.0, 110.0, 144.5, 170.0, 190.0, 210.0, 235.5, 354.5)
+
+
+def _compact_string_y(x: float) -> float:
+    """buddha/header.svg 줄(190 타일, 끝 y 3.5·가운데 처짐 Q 12)을 52px 띠로 그렸을 때 x의 줄 높이."""
+    t = (x % 190.0) / 190.0
+    return (3.5 + 17.0 * t * (1.0 - t)) * 52.0 / 70.0
+
+
+def _compact_lanterns() -> tuple[Sprite, ...]:
+    out = []
+    for i, cx in enumerate(_COMPACT_LANTERN_X):
+        y = _compact_string_y(cx) - 1.35
+        out.append(_cs(f"buddha/lantern_{_LANTERN_COLORS[i % 5]}.svg", cx - 4.5, y, 9, 10.8,
+                       "swing", round(2.6 + (i % 3) * 0.4, 1), round(-i * 0.5, 1), (0.5, 0.125)))
+    return tuple(out)
 
 
 # samil 손 태극기 6개: 빈 곳(span_l·span_r) 가운데에서 3개씩 한 묶음. 시안은 기본 크기의 버튼 아래 띠에
 # 서 있었지만 위쪽 막대 행(52px)에 맞추면 그 자리가 버튼 높이와 겹쳐서, 버튼 묶음 사이 빈 곳으로 옮겼다.
-# 묶음 안 간격과 번갈아 흔들리는 주기·위상은 시안의 값이다. 기본 크기는 빈 곳이 12px 이하라 6개 모두 빠진다.
+# 묶음 안 간격과 번갈아 흔들리는 주기·위상은 시안의 값이다. 기본 크기는 HEADER_COMPACT의 작은 깃발을 쓴다.
 _FLAG_STEP = 40.0
 _HAND_FLAGS = (  # (기준점, 빈 곳 가운데에서 깃발 가운데까지 거리, 주기, 위상)
     ("span_l", -_FLAG_STEP, 1.5, 0.0), ("span_l", 0.0, 1.8, -0.5), ("span_l", _FLAG_STEP, 1.6, -0.9),
@@ -430,6 +484,18 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             _bs("newyear/sun_band.svg", "center", 140, 8, 13, 13, "rise", 3.5, once=True),
             _bs("newyear/sticky_band.svg", "full", 0, 18, 220, 12),
         )),
+        # 기본 크기: 능선은 바탕으로 깔고, 해는 연월 글자 위 하늘에서 글자 뒤로부터 떠오른다.
+        HEADER_COMPACT: SurfaceDecor(
+            base="newyear/header.svg",
+            sprites=(
+                _cs("newyear/halo.svg", 182, -0.5, 16, 16, "glow", 3.0),
+                _cs("newyear/sun.svg", 184.5, 2, 11, 11, "rise", 3.5, once=True),
+            ),
+            particles=(
+                _cstar(40, 5, 5, _GOLD_STAR["newyear"], 101), _cstar(128, 3, 6, _GOLD_STAR["newyear"], 102),
+                _cstar(252, 4, 5, _GOLD_STAR["newyear"], 103), _cstar(322, 6, 6, _GOLD_STAR["newyear"], 104),
+            ),
+        ),
     }
 
     # 설날: 색동 띠 + 복주머니·방패연(머리줄), 매듭(D-Day). 스티키 띠는 색동 바탕(Task 4)이 장식이다.
@@ -446,6 +512,14 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             sprites=(_ds("seollal/knot.svg", "full", 162, 0, 22, 64, "swing", 3.4, origin=(0.5, 0.0)),),
         ),
         "sticky_band": SurfaceDecor(),
+        # 기본 크기: 연월 글자 양옆 틈에 복주머니(왼쪽, 위에 매달림)와 방패연(오른쪽).
+        HEADER_COMPACT: SurfaceDecor(
+            base="seollal/header.svg", base_tile=70,
+            sprites=(
+                _cs("seollal/pouch.svg", 140, 0, 10, 15, "swing", 2.6, origin=(0.5, 0.0)),
+                _cs("seollal/kite.svg", 231, 1, 9, 15, "kite", 3.8, origin=(0.5, 0.75)),
+            ),
+        ),
     }
 
     # 삼일절: 손 태극기 6개가 번갈아 흔들린다(머리줄, 빈 곳 두 군데에 3개씩), 무궁화(D-Day·띠).
@@ -457,6 +531,12 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         )),
         "dday": SurfaceDecor(sprites=(_ds("samil/mugunghwa.svg", "full", 162, 32, 32, 32),)),
         "sticky_band": SurfaceDecor(sprites=(_bs("samil/mugunghwa.svg", "center", 140, 8, 14, 14),)),
+        # 기본 크기: 연월 글자 위에 작은 손 태극기 3개, '+' 옆 틈과 오른쪽 끝 여백에 1개씩(5개, 번갈아 흔들림).
+        HEADER_COMPACT: SurfaceDecor(sprites=tuple(
+            _cs("samil/flag.svg", x, y, w, w * 26 / 18, "wave", period, phase, (2.5 / 18, 1.0))
+            for (x, y, w), (_a, _d, period, phase) in zip(
+                ((163, 1, 10), (185, 1, 10), (207, 1, 10), (104.5, 30, 11), (367, 30, 11)), _HAND_FLAGS)
+        )),
     }
 
     # 노동절: 김 나는 커피잔 + 아래 박음질 점선(머리줄·띠).
@@ -476,6 +556,16 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             _ds("labor/cup.svg", "full", 164, 40, 28, 24),
         )),
         "sticky_band": SurfaceDecor(base="labor/sticky_band.svg", base_tile=90),
+        # 기본 크기: 박음질은 바탕, 김 나는 커피잔은 '+'와 이전 달 버튼 사이 틈(위로 김이 올라갈 자리가 있다).
+        HEADER_COMPACT: SurfaceDecor(
+            base="labor/header.svg", base_tile=90,
+            sprites=(
+                _cs("labor/steam.svg", 105, 20, 3, 8, "steam", 2.6, 0.0, follows=True),
+                _cs("labor/steam.svg", 108, 20, 3, 8, "steam", 2.6, -0.9, follows=True),
+                _cs("labor/steam.svg", 111, 20, 3, 8, "steam", 2.6, -1.7, follows=True),
+                _cs("labor/cup.svg", 103, 29, 14, 12),
+            ),
+        ),
     }
 
     # 어린이날: 돌아가는 바람개비 2 + 떠 있는 풍선 2(머리줄), 풍선 3(D-Day), 색 점(띠).
@@ -485,8 +575,9 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             _hs("children/pinwheel_a.svg", "left_gap", 92, 8, 26, 26, "spin", 3.2),
             _hs("children/stick_short.svg", "right_gap", 268, 25, 2, 46, follows=True),
             _hs("children/pinwheel_b.svg", "right_gap", 256, 12, 26, 26, "spin", 4.2, -1.0),
-            _hs("children/balloon_yellow.svg", "center", 134, 1, 12, 22, "bob", 2.4),
-            _hs("children/balloon_pink.svg", "center", 232, 2, 12, 22, "bob", 2.9, -1.0),
+            # 시안은 연월 글자 양옆(이전·다음 달 버튼 자리)이라 실제 머리줄에서는 빠졌다. 빈 곳 가운데 오른쪽에 둔다.
+            _hs("children/balloon_yellow.svg", "span_l", 106 + 24, 1, 12, 22, "bob", 2.4),
+            _hs("children/balloon_pink.svg", "span_r", 267.5 + 24, 2, 12, 22, "bob", 2.9, -1.0),
         )),
         "dday": SurfaceDecor(sprites=(
             _ds("children/balloon_red.svg", "full", 156, 30, 12, 22, "bob", 2.4),
@@ -498,6 +589,15 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         "hat": SurfaceDecor(sprites=(
             _sp("hat", "children/propeller.svg", "full", 27.6, 14.4, 44.8, 9.2, "prop", 0.45),
         )),
+        # 기본 크기: 바람개비는 '+' 옆 틈과 오른쪽 끝 여백에 세우고, 풍선 2개는 연월 글자 위에 띄운다.
+        HEADER_COMPACT: SurfaceDecor(sprites=(
+            _cs("children/stick.svg", 109.24, 14, 1.52, 38, follows=True),
+            _cs("children/pinwheel_a.svg", 104, 8, 12, 12, "spin", 3.2),
+            _cs("children/stick_short.svg", 372.3, 18, 1.4, 32.2, follows=True),
+            _cs("children/pinwheel_b.svg", 367, 12, 12, 12, "spin", 4.2, -1.0),
+            _cs("children/balloon_yellow.svg", 160, 0.8, 8, 8 * 22 / 12, "bob", 2.4),
+            _cs("children/balloon_pink.svg", 212, 0.8, 8, 8 * 22 / 12, "bob", 2.9, -1.0),
+        )),
     }
 
     # 부처님오신날: 위쪽 줄에 연등 9개 + 줄(머리줄), 큰 연등 하나(D-Day), 작은 연등 줄(띠).
@@ -508,6 +608,7 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             _ds("buddha/lantern_big.svg", "full", 160, -2, 32, 58, "swing", 3.4, origin=(0.5, 2 / 58)),
         )),
         "sticky_band": SurfaceDecor(sprites=(_bs("buddha/sticky_band.svg", "center", 96, 0, 96, 30),)),
+        HEADER_COMPACT: SurfaceDecor(base="buddha/header.svg", base_tile=190, sprites=_compact_lanterns()),
     }
 
     # 현충일: 추모일이라 움직임이 없다. 조기(깃발 폭만큼 내려 단 태극기)와 흰 국화뿐이다.
@@ -519,6 +620,11 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         "dday": SurfaceDecor(sprites=(_ds("memorial/chrysanthemum.svg", "full", 164, 34, 30, 30),)),
         "sticky_band": SurfaceDecor(sprites=(
             _bs("memorial/chrysanthemum_small.svg", "center", 140, 7, 16, 16),
+        )),
+        # 기본 크기: 흰 국화는 연월 글자 위 가운데, 조기는 오른쪽 끝 여백에 세운다(움직임 없음).
+        HEADER_COMPACT: SurfaceDecor(sprites=(
+            _cs("memorial/chrysanthemum.svg", 183, 1.5, 14, 14),
+            _cs("memorial/halfmast.svg", 367, 13, 12, 12 * 62 / 20),
         )),
     }
 
@@ -536,6 +642,17 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         ),
         "dday": SurfaceDecor(sprites=(_ds("constitution/book.svg", "full", 160, 38, 36, 26),)),
         "sticky_band": SurfaceDecor(base="constitution/sticky_band.svg"),
+        # 기본 크기: 펼친 책과 반짝이는 연월 글자 위, 흔들리는 태극기는 '+' 옆 틈.
+        HEADER_COMPACT: SurfaceDecor(
+            sprites=(
+                _cs("constitution/book.svg", 180, 1, 20, 20 * 26 / 36),
+                _cs("constitution/flag.svg", 104.5, 26, 11, 11 * 26 / 18, "wave", 1.8, origin=(2.5 / 18, 1.0)),
+            ),
+            particles=(
+                _cstar(170, 4, 5, _GOLD_STAR["constitution"], 131),
+                _cstar(205, 3, 5, _GOLD_STAR["constitution"], 132),
+            ),
+        ),
     }
 
     # 광복절: 아래 가운데서 퍼지는 빛줄기(80초에 한 바퀴) + 무궁화 + 흔들리는 태극기.
@@ -552,15 +669,23 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         "sticky_band": SurfaceDecor(sprites=tuple(
             _bs("liberation/mugunghwa.svg", "center", x, 9, 12, 12) for x in (112, 136, 160)
         )),
+        # 기본 크기: 빛줄기는 그대로(넓은 바탕), 무궁화는 '+' 옆 틈, 태극기는 오른쪽 끝 여백(시안처럼 왼쪽·오른쪽).
+        HEADER_COMPACT: SurfaceDecor(sprites=(
+            _cs("liberation/rays.svg", 70, -37, 240, 240, "spin", 80.0),
+            _cs("liberation/mugunghwa.svg", 104, 20, 12, 12),
+            _cs("liberation/flag.svg", 367, 18, 11, 16, "wave", 1.8, origin=(3 / 22, 1.0)),
+        )),
     }
 
     # 추석: 떠오르는 보름달(+후광) + 흔들리는 억새 + 반짝이는 별(머리줄).
+    # 시안의 달은 연월 글자 아래에서 떠올랐지만 실제 위쪽 막대 행(52px)에서는 글자 아래에 11px 호만 남는다.
+    # 그래서 오른쪽 빈 곳(span_r) 가운데, 억새 위에 온전한 보름달로 띄운다(디자인 y 17 → 실제 y 8~38).
     cs = _GOLD_STAR["chuseok"]
     d["chuseok"] = {
         "header": SurfaceDecor(
             sprites=(
-                _hs("chuseok/halo.svg", "center", 148, 38, 84, 84, "glow", 3.0),
-                _hs("chuseok/moon.svg", "center", 160, 50, 60, 60, "rise", 3.5, once=True),
+                _hs("chuseok/halo.svg", "span_r", 267.5 - 23, 9, 46, 46, "glow", 3.0),
+                _hs("chuseok/moon.svg", "span_r", 267.5 - 15, 17, 30, 30, "rise", 3.5, once=True),
                 _hs("chuseok/susuki_l.svg", "span_l", 106 - 40, 46, 80, 24, "sway", 3.2, origin=(0.5, 1.0)),
                 _hs("chuseok/susuki_r.svg", "span_r", 267.5 - 40, 46, 80, 24, "sway", 2.7, -1.1, origin=(0.5, 1.0)),
             ),
@@ -581,6 +706,19 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             ),
         ),
         "sticky_band": SurfaceDecor(sprites=(_bs("chuseok/sticky_band.svg", "center", 108, 0, 64, 30),)),
+        # 기본 크기: 보름달은 연월 글자 위 하늘에서 글자 뒤로부터 떠오르고, 억새는 글자 아래에서 흔들린다.
+        HEADER_COMPACT: SurfaceDecor(
+            sprites=(
+                _cs("chuseok/halo.svg", 182, -0.5, 16, 16, "glow", 3.0),
+                _cs("chuseok/moon.svg", 184, 1.5, 12, 12, "rise", 3.5, once=True),
+                _cs("chuseok/susuki_l.svg", 144, 38.8, 44, 13.2, "sway", 3.2, origin=(0.5, 1.0)),
+                _cs("chuseok/susuki_r.svg", 192, 38.8, 44, 13.2, "sway", 2.7, -1.1, origin=(0.5, 1.0)),
+            ),
+            particles=(
+                _cstar(40, 6, 5, cs, 141), _cstar(98, 3, 6, cs, 142), _cstar(258, 4, 5, cs, 143),
+                _cstar(300, 7, 6, cs, 144), _cstar(345, 3, 5, cs, 145),
+            ),
+        ),
     }
 
     # 개천절: 위 가운데서 내려오는 옅은 빛 + 좌우로 흐르는 전통 구름 4(머리줄).
@@ -599,6 +737,14 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         "sticky_band": SurfaceDecor(sprites=(
             _bs("gaecheon/cloud_solid.svg", "center", 108, 6, 36, 16),
             _bs("gaecheon/cloud_solid.svg", "center", 150, 11, 30, 14),
+        )),
+        # 기본 크기: 옅은 빛은 그대로(넓은 바탕), 전통 구름은 연월 글자 위 양쪽, 민무늬 구름은 버튼 위 띠.
+        HEADER_COMPACT: SurfaceDecor(sprites=(
+            _cs("gaecheon/beam.svg", 130, -9, 120, 70),
+            _cs("gaecheon/cloud_swirl.svg", 142, 3, 22, 10, "drift", 7.0),
+            _cs("gaecheon/cloud_swirl.svg", 216, 5, 22, 10, "drift", 9.0, -3.0),
+            _cs("gaecheon/cloud_plain.svg", 60, 2, 22, 10, "drift", 9.0, -3.0),
+            _cs("gaecheon/cloud_plain.svg", 300, 3, 22, 10, "drift", 7.0),
         )),
     }
 
@@ -621,6 +767,16 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
             badges=(Badge("한", (170, 38, 22, 22), "#B5443B", "#FFFFFF", 12, -8, "full"),),
         ),
         "sticky_band": SurfaceDecor(base="hangul/sticky_band.svg", base_tile=15),
+        # 기본 크기: 원고지는 바탕, 자모는 버튼 사이 세로 틈에서 떠오르고, '한' 도장은 오른쪽 끝 아래.
+        HEADER_COMPACT: SurfaceDecor(
+            base="hangul/header.svg", base_tile=19,
+            particles=tuple(
+                _pt(HEADER_COMPACT, "jamo", "full", x, y, 0, 0, 1, (12, 12), jam, seed, ch)
+                for x, y, seed, ch in ((1, 30, 161, "ㄱ"), (62, 26, 162, "ㅎ"), (104, 28, 163, "ㅏ"),
+                                       (138.5, 24, 164, "ㄴ"), (229.5, 30, 165, "ㅇ"))
+            ),
+            badges=(Badge("한", (366.5, 37, 13, 13), "#B5443B", "#FFFFFF", 8, -6, "full"),),
+        ),
     }
 
     # 크리스마스: 위쪽 솔잎 가랜드·장식 볼·아래 쌓인 눈 + 내리는 눈(머리줄), 트리·눈(D-Day), 솔가지(띠).
@@ -637,6 +793,11 @@ def _build() -> dict[str, dict[str, SurfaceDecor]]:
         "sticky_band": SurfaceDecor(
             base="christmas/sticky_band.svg", base_tile=11,
             sprites=(_bs("christmas/branch.svg", "center", 112, 9, 46, 19),),
+        ),
+        # 기본 크기: 가랜드·눈 더미 바탕과 내리는 눈(머리줄과 같다, 높이만 실제 52px).
+        HEADER_COMPACT: SurfaceDecor(
+            base="christmas/header.svg", base_tile=76,
+            particles=(_pt(HEADER_COMPACT, "snow", "full", 0, 0, 380, 52, 26, (2, 4.5), "#FFFFFF", 11),),
         ),
     }
     return d

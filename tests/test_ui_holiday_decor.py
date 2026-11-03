@@ -331,8 +331,8 @@ def test_chuseok_halo_is_not_solid_when_still(qtbot, monkeypatch):
     parent = _host(qtbot, 380, 104)
     layer = DecorationLayer("header", parent)
     layer.set_theme("chuseok")
-    # 후광(148..232, 38..122)의 위쪽 가장자리 안쪽: 보름달(60px)은 y 50부터라 닿지 않는다.
-    alpha = _alpha_at(layer, 190, 44)
+    # 후광(244.5..290.5, 9..55, 오른쪽 빈 곳 기준)의 위쪽 안: 보름달(지름 30, y 17~47)에는 닿지 않는다.
+    alpha = _alpha_at(layer, 267, 13)
     assert 0 < alpha < 128, alpha
 
 
@@ -561,14 +561,17 @@ def test_header_signature_pieces_sit_at_bottom_of_the_row(monkeypatch, win):
             count, _ = _opaque(_alpha_rows(layer), band - 14, band, min_alpha=15)   # 흰색 28% 점선(가는 선이라 알파가 낮다)
             assert count >= 30, ("labor stitching", where, count)
 
-            _wear(monkeypatch, win, "chuseok")           # 달: 연월 글자 아래 가운데에 호로 보인다
-            band = _bar_bottom(win)
-            center = int(layer.anchors()["center"])
-            count, _ = _opaque(_alpha_rows(layer), 42, band, center - 40, center + 40)
-            assert count >= 80, ("chuseok moon", where, count)
-            # 글자 자리(연월)에는 달이 올라오지 않는다
-            count, _ = _opaque(_alpha_rows(layer), 0, 36, center - 40, center + 40)
-            assert count == 0, ("chuseok moon over title", where, count)
+            _wear(monkeypatch, win, "chuseok")           # 보름달: 온전한 원으로 보인다
+            rows = _alpha_rows(layer)
+            if scale == "compact":                       # 연월 글자 위 하늘(지름 12)
+                cx, top, size = int(layer.anchors()["center"]), 1, 12
+            else:                                        # 오른쪽 빈 곳 가운데, 억새 위(지름 30)
+                cx, top, size = int(layer.anchors()["span_r"]), 8, 30
+            count, _ = _opaque(rows, top, top + size, cx - size // 2, cx + size // 2)
+            assert count >= 0.6 * size * size, ("chuseok moon", where, count)
+            # 연월 글자 자리에는 달·후광의 불투명한 픽셀이 없다
+            tx, ty, tw, th = (int(v) for v in layer._blockers[-1])
+            assert _opaque(rows, ty, ty + th, tx, tx + tw)[0] == 0, ("chuseok over title", where)
 
 
 def test_header_built_without_search_row_is_52px_and_decor_fills_it(monkeypatch, app_dir, qtbot):
@@ -605,19 +608,6 @@ def test_search_row_toggle_and_scale_switch_resync_header_decor(monkeypatch, win
     assert layer.anchors()["right"] == pytest.approx(win._header_section.width(), abs=1)
     assert layer.anchors()["right"] > before
     assert layer._band_h == 52
-
-
-def test_wide_header_keeps_decor_that_compact_must_drop(monkeypatch, win):
-    """기본 크기는 오른쪽 장식이 대부분 빠지고, 넓은 머리줄은 빈 곳에 그대로 놓인다."""
-    _wear(monkeypatch, win, "seollal")
-    layer = win._header_decor
-    counts = {}
-    for scale in ("compact", "medium"):
-        db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
-        win._apply_calendar_scale()
-        QApplication.processEvents()
-        counts[scale] = len(layer._visible_sprites(layer._decor, layer.anchors(), layer._virtual_width()))
-    assert counts["medium"] == 2 and counts["compact"] < counts["medium"]
 
 
 def _free_spans(win):
@@ -661,7 +651,7 @@ def test_header_span_anchors_are_the_centers_of_the_free_spans(monkeypatch, win)
 
 def test_samil_hand_flags_fill_both_free_spans_in_medium_and_large(monkeypatch, win):
     """삼일절 손 태극기 6개: 중간·크게에서 빈 곳 두 군데에 3개씩, 버튼·연월 글자와 겹치지 않고 번갈아 흔들린다.
-    기본 크기는 빈 곳이 12px 이하라 지금처럼 그리지 않는다(기본 크기 전용 배치는 사용자 확인 뒤 과제)."""
+    기본 크기는 빈 곳이 12px 이하라 작은 배치의 작은 깃발 5개(연월 글자 위 3개, '+' 옆·오른쪽 끝 1개씩)를 쓴다."""
     monkeypatch.setattr(ui_holiday_decor, "motion_allowed", lambda: False)
     layer = win._header_decor
     for scale in ("compact", "medium", "large"):
@@ -670,7 +660,9 @@ def test_samil_hand_flags_fill_both_free_spans_in_medium_and_large(monkeypatch, 
         _wear(monkeypatch, win, "samil")
         flags = _shown(layer, "samil/flag.svg")
         if scale == "compact":
-            assert flags == []
+            assert len(flags) == 5
+            assert len({(s.period, s.phase) for s, _ in flags}) == 5
+            assert all(not any(_overlaps(r, b) for b in layer._blockers) for _s, r in flags)
             continue
         spans = _free_spans(win)
         assert len(flags) == 6, scale
@@ -690,9 +682,9 @@ def test_samil_hand_flags_fill_both_free_spans_in_medium_and_large(monkeypatch, 
 
 
 def test_gaecheon_plain_clouds_and_chuseok_grass_sit_in_free_spans(monkeypatch, win):
-    """개천절 민무늬 구름과 추석 억새는 중간·크게에서 빈 곳 안에 놓이고, 기본 크기에서는 지금처럼 빠진다."""
+    """개천절 민무늬 구름과 추석 억새는 중간·크게에서 빈 곳 안에 놓인다(기본 크기는 작은 배치가 따로 정한다)."""
     layer = win._header_decor
-    for scale in ("compact", "medium", "large"):
+    for scale in ("medium", "large"):
         db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
         assert win._apply_calendar_scale()
         QApplication.processEvents()
@@ -701,9 +693,6 @@ def test_gaecheon_plain_clouds_and_chuseok_grass_sit_in_free_spans(monkeypatch, 
                             ("chuseok", ("chuseok/susuki_l.svg", "chuseok/susuki_r.svg"))):
             _wear(monkeypatch, win, key)
             pieces = [r for asset in assets for _s, r in _shown(layer, asset)]
-            if scale == "compact":
-                assert pieces == [], key
-                continue
             assert len(pieces) == 2, (scale, key)
             assert [sum(_in_span(r, span) for r in pieces) for span in spans] == [1, 1], (scale, key)
             for r in pieces:
@@ -711,18 +700,101 @@ def test_gaecheon_plain_clouds_and_chuseok_grass_sit_in_free_spans(monkeypatch, 
                 assert not any(_overlaps(r, b) for b in layer._blockers), (scale, key, r)
 
 
-def test_compact_header_keeps_its_current_piece_counts(monkeypatch, win):
-    """R18: 기본 크기(380px)는 이번 재배치로 바뀌지 않는다(그려지는 조각 수 고정)."""
-    layer = win._header_decor
-    db.save_setting(db.SETTING_CALENDAR_SCALE, "compact")
+def _scale_to(win, scale):
+    db.save_setting(db.SETTING_CALENDAR_SCALE, scale)
     assert win._apply_calendar_scale()
-    counts = {}
+    QApplication.processEvents()
+
+
+def test_compact_header_draws_every_piece_clear_of_buttons(monkeypatch, win):
+    """기본 크기(380px)는 작은 배치(HEADER_COMPACT)를 쓰고, 13개 테마 모두 그 배치의 조각이 하나도 빠지거나
+    줄지 않는다. 버튼·연월 글자와 겹치지 않고 위쪽 막대 행 안에 있으며, 반짝이·자모·도장도 버튼 위에 없다.
+    법령검색 줄을 숨겨도 같다."""
+    monkeypatch.setattr(ui_holiday_decor, "motion_allowed", lambda: False)
+    layer = win._header_decor
+    _scale_to(win, "compact")
+    for shown in (True, False):
+        _set_search_row(win, shown)
+        for key in THEME_KEYS:
+            _wear(monkeypatch, win, key)
+            assert layer.variant() == hd.HEADER_COMPACT
+            decor = hd.DECOR[key][hd.HEADER_COMPACT]
+            assert layer._decor is decor, key
+            assert layer._band_h == 52 and len(layer._blockers) >= 8
+            drawn = layer._visible_sprites(decor, layer.anchors(), layer._virtual_width())
+            assert [s for s, _r in drawn] == list(decor.sprites), (key, shown)      # 하나도 빠지지 않았다
+            for sprite, rect in drawn:
+                assert rect == pytest.approx(sprite.rect), (key, sprite.asset)      # 줄이거나 옮기지 않았다
+                if is_backdrop(hd.HEADER_COMPACT, sprite.rect[2]):
+                    continue
+                assert not any(_overlaps(rect, b) for b in layer._blockers), (key, sprite.asset, rect)
+                assert -1 <= rect[1] and rect[1] + rect[3] <= layer._band_h, (key, sprite.asset)
+            for spec in decor.particles:
+                if spec.kind == "snow":
+                    continue
+                for pt in hd.place_particles(spec):
+                    box = (pt.x, pt.y, pt.size, pt.size)
+                    assert not any(_overlaps(box, b) for b in layer._blockers), (key, pt)
+            for badge in decor.badges:
+                assert not any(_overlaps(badge.rect, b) for b in layer._blockers), (key, badge)
+    # 실제로 보인다: 조각마다 제자리에 불투명한 그림이 있다(가는 막대·김처럼 따라붙는 조각과 넓은 바탕은 빼고)
+    _set_search_row(win, True)
     for key in THEME_KEYS:
         _wear(monkeypatch, win, key)
-        counts[key] = len(layer._visible_sprites(layer._decor, layer.anchors(), layer._virtual_width()))
-    assert counts == {"newyear": 2, "seollal": 0, "samil": 0, "labor": 0, "children": 0, "buddha": 1,
-                      "memorial": 1, "constitution": 0, "liberation": 1, "chuseok": 2, "gaecheon": 1,
-                      "hangul": 0, "christmas": 0}
+        rows = _alpha_rows(layer)
+        for sprite in hd.DECOR[key][hd.HEADER_COMPACT].sprites:
+            if sprite.follows or is_backdrop(hd.HEADER_COMPACT, sprite.rect[2]):
+                continue
+            x, y, w, h = sprite.rect
+            count, _total = _opaque(rows, max(0, int(y)), int(y + h) + 1, int(x), int(x + w) + 1, min_alpha=100)
+            # 억새는 가는 선 그림이라 불투명한 픽셀 비율이 낮다
+            assert count >= max(6, (0.04 if "susuki" in sprite.asset else 0.1) * w * h), (key, sprite.asset, count)
+
+
+def test_medium_and_large_draw_every_header_piece(monkeypatch, win):
+    """중간·크게는 시안 배치의 조각이 13개 테마 모두 빠짐없이 그려진다(풍선·연등은 빈 곳으로 옮겼다)."""
+    layer = win._header_decor
+    for scale in ("medium", "large"):
+        _scale_to(win, scale)
+        for key in THEME_KEYS:
+            _wear(monkeypatch, win, key)
+            assert layer.variant() == "header"
+            decor = hd.DECOR[key]["header"]
+            drawn = layer._visible_sprites(decor, layer.anchors(), layer._virtual_width())
+            assert [s for s, _r in drawn] == list(decor.sprites), (scale, key)
+
+
+def test_header_layout_switches_with_scale_and_restarts_motion(monkeypatch, win):
+    _wear(monkeypatch, win, "seollal")
+    layer = win._header_decor
+    _scale_to(win, "medium")
+    assert layer.variant() == "header" and layer._decor is hd.DECOR["seollal"]["header"]
+    _scale_to(win, "compact")
+    assert layer.variant() == hd.HEADER_COMPACT and layer._decor is hd.DECOR["seollal"][hd.HEADER_COMPACT]
+    assert layer.theme_key() == "seollal" and layer.isVisible()
+    _scale_to(win, "large")
+    assert layer.variant() == "header" and layer._decor is hd.DECOR["seollal"]["header"]
+
+
+def test_set_compact_only_changes_the_header_surface(qtbot):
+    hosts = []
+    for surface in ("dday", "sticky_band"):
+        hosts.append(_host(qtbot, 220, 95))
+        layer = DecorationLayer(surface, hosts[-1])
+        layer.set_theme("liberation")
+        before = layer._decor
+        assert before is not None
+        layer.set_compact(True)
+        assert layer.variant() == surface and layer._decor is before
+    hosts.append(_host(qtbot))
+    layer = DecorationLayer("header", hosts[-1])
+    layer.set_theme("newyear")
+    layer.set_compact(True)
+    assert layer._decor is hd.DECOR["newyear"][hd.HEADER_COMPACT]
+    layer.set_theme(None)
+    assert not layer.isVisible()
+    layer.set_theme("christmas")                     # 같은 배치 안에서 테마를 바꿔도 작은 배치를 유지한다
+    assert layer._decor is hd.DECOR["christmas"][hd.HEADER_COMPACT]
 
 
 def test_lock_pauses_and_unlock_resumes_decorations(monkeypatch, app_dir, qtbot):

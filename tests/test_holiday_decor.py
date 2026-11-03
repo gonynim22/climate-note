@@ -139,12 +139,94 @@ def test_motion_state_rejects_bad_input():
 
 def test_constants():
     assert SURFACES == ("header", "dday", "sticky_band", "hat")
+    assert hd.HEADER_COMPACT == "header_compact"
     assert DESIGN_SIZE == {"header": (380, 70), "dday": (220, 95),
-                           "sticky_band": (220, 30), "hat": (100, 130)}
+                           "sticky_band": (220, 30), "hat": (100, 130), "header_compact": (380, 52)}
     assert ANCHOR_REF["header"] == {"full": 0.0, "left_gap": 77.0, "center": 190.0,
                                     "right_gap": 245.0, "right": 380.0,
                                     "span_l": 106.0, "span_r": 267.5}
+    assert ANCHOR_REF["header_compact"] == {"full": 0.0}
     assert STICKER_DESIGN == 48
+
+
+# 기본 크기(380px) 위쪽 막대 행에서 버튼·연월 글자가 차지하는 자리(실제 레이어 장애물과 같은 값,
+# 화면 시험 test_compact_header_draws_every_piece_clear_of_buttons가 실제 위젯에서 다시 확인한다).
+_COMPACT_BLOCKERS = ((14, 14, 48, 28), (74, 14, 28, 28), (118, 14, 20, 28), (242, 14, 20, 28),
+                     (266, 14, 28, 28), (302, 14, 28, 28), (338, 14, 28, 28), (151, 17.5, 78, 21))
+
+
+def _hits(rect, blockers=_COMPACT_BLOCKERS):
+    x, y, w, h = rect
+    return [b for b in blockers if x < b[0] + b[2] and b[0] < x + w and y < b[1] + b[3] and b[1] < y + h]
+
+
+def test_every_theme_has_a_compact_header_layout_clear_of_buttons():
+    """기본 크기 작은 배치: 13개 모두 있고, 기준점은 full뿐이며, 바탕은 머리줄과 같은 그림이다.
+    조각·반짝이·자모·도장은 버튼·연월 글자 자리 밖, 52px 행 안에 놓인다(넓은 옅은 바탕 조각만 예외)."""
+    for key in THEME_KEYS:
+        compact = DECOR[key][hd.HEADER_COMPACT]
+        header = DECOR[key]["header"]
+        assert compact.sprites or compact.particles or compact.badges, key
+        header_base = header.base or next(
+            (s.asset for s in header.sprites if s.rect[2] == 380 and s.rect[3] == 70), None)
+        assert compact.base == header_base, key
+        assert compact.base_tile == header.base_tile, key
+        for s in compact.sprites:
+            assert s.anchor == "full", (key, s.asset)
+            if s.rect[2] >= 380 * 0.3:                        # 빛줄기·옅은 빛: 버튼 뒤로 지나가는 바탕
+                continue
+            x, y, w, h = s.rect
+            assert 0 <= x and x + w <= 380 and -1 <= y and y + h <= 52, (key, s.asset, s.rect)
+            assert _hits(s.rect) == [], (key, s.asset, s.rect)
+        for spec in compact.particles:
+            assert spec.anchor == "full", key
+            if spec.kind == "snow":
+                assert spec.area == (0, 0, 380, 52), key
+                continue
+            for pt in place_particles(spec):
+                assert _hits((pt.x, pt.y, pt.size, pt.size)) == [], (key, pt)
+        for badge in compact.badges:
+            assert badge.anchor == "full" and _hits(badge.rect) == [], (key, badge)
+    # 대표 조각이 실제로 있다(기본 크기에서 빠지던 테마)
+    assets = {k: {s.asset for s in DECOR[k][hd.HEADER_COMPACT].sprites} for k in THEME_KEYS}
+    assert {"newyear/sun.svg"} <= assets["newyear"]
+    assert {"seollal/pouch.svg", "seollal/kite.svg"} <= assets["seollal"]
+    assert [s.asset for s in DECOR["samil"][hd.HEADER_COMPACT].sprites] == ["samil/flag.svg"] * 5
+    assert {"labor/cup.svg", "labor/steam.svg"} <= assets["labor"]
+    assert {"children/pinwheel_a.svg", "children/pinwheel_b.svg", "children/balloon_yellow.svg",
+            "children/balloon_pink.svg"} <= assets["children"]
+    assert len(DECOR["buddha"][hd.HEADER_COMPACT].sprites) == 9
+    assert {"memorial/chrysanthemum.svg", "memorial/halfmast.svg"} <= assets["memorial"]
+    assert {"constitution/book.svg", "constitution/flag.svg"} <= assets["constitution"]
+    assert {"liberation/mugunghwa.svg", "liberation/flag.svg"} <= assets["liberation"]
+    assert {"chuseok/moon.svg", "chuseok/susuki_l.svg", "chuseok/susuki_r.svg"} <= assets["chuseok"]
+    assert {"gaecheon/cloud_swirl.svg", "gaecheon/cloud_plain.svg"} <= assets["gaecheon"]
+    assert len(DECOR["hangul"][hd.HEADER_COMPACT].particles) == 5
+    assert DECOR["hangul"][hd.HEADER_COMPACT].badges
+
+
+def test_compact_lanterns_hang_from_the_string_above_buttons():
+    """기본 크기 연등은 바탕 줄에 매달리고(매다는 점 = 줄 높이), 버튼 위에서도 아래 끝이 버튼에 닿지 않는다."""
+    for s in DECOR["buddha"][hd.HEADER_COMPACT].sprites:
+        x, y, w, h = s.rect
+        assert (w, h) == (9, 10.8)
+        assert y + 1.35 == pytest.approx(hd._compact_string_y(x + w / 2)), s
+        assert y + h < 14 or _hits(s.rect) == [], s
+
+
+def test_wide_header_pieces_that_sat_on_buttons_moved_into_free_spans():
+    """시안 자리가 실제 버튼 위라 중간·크게에서도 빠지던 조각(풍선·연등)과 글자 아래에 호만 남던 보름달은
+    빈 곳(span_l·span_r) 기준으로 옮겼다."""
+    kids = {s.asset: s.anchor for s in DECOR["children"]["header"].sprites}
+    assert kids["children/balloon_yellow.svg"] == "span_l" and kids["children/balloon_pink.svg"] == "span_r"
+    lanterns = DECOR["buddha"]["header"].sprites
+    assert [s.anchor for s in lanterns] == ["span_l"] * 4 + ["span_r"] * 5
+    for anchor, expected in (("span_l", [-63.0, -21.0, 21.0, 63.0]), ("span_r", [-84.0, -42.0, 0.0, 42.0, 84.0])):
+        centers = [s.rect[0] + s.rect[2] / 2 for s in lanterns if s.anchor == anchor]
+        assert centers == expected
+    moon = {s.asset: s for s in DECOR["chuseok"]["header"].sprites}
+    assert moon["chuseok/moon.svg"].anchor == moon["chuseok/halo.svg"].anchor == "span_r"
+    assert moon["chuseok/moon.svg"].rect[2:] == (30, 30)
 
 
 def test_decor_covers_all_themes():
@@ -169,7 +251,7 @@ def test_every_theme_has_visible_decoration_somewhere():
 
 def test_memorial_has_no_motion():
     assert THEMES["memorial"].motion is False
-    for surface in _SURFACE_KEYS:
+    for surface in _SURFACE_KEYS + (hd.HEADER_COMPACT,):
         decor = DECOR["memorial"][surface]
         assert all(s.motion is None for s in decor.sprites), surface
         assert decor.particles == (), surface

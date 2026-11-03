@@ -3567,6 +3567,9 @@ class MainCalendarWindow(QWidget):
         def x_in_header(widget) -> int:
             return widget.mapTo(header, QPoint(0, 0)).x()
 
+        # 기본 크기(380px)는 버튼 묶음 사이 빈 곳이 거의 없어서 시안 배치 대신 작은 배치(HEADER_COMPACT:
+        # 버튼 위 띠·연월 글자 위·버튼 사이 틈)를 쓴다. 중간·크게는 넓어진 빈 곳에 시안 배치를 놓는다.
+        layer.set_compact(self._current_calendar_scale() == "compact")
         add_right = float(x_in_header(self._add_btn) + self._add_btn.width())
         next_right = float(x_in_header(self.next_btn) + self.next_btn.width())
         # 오른쪽 버튼 묶음(검색·위치 편집·완료·더보기) 중 보이는 것의 가장 왼쪽 끝
@@ -3592,8 +3595,8 @@ class MainCalendarWindow(QWidget):
         bar_bottom = self._add_btn.mapTo(header, QPoint(0, 0)).y() + self._add_btn.height() \
             + header.layout().spacing()
         layer.set_band_height(min(header.height(), bar_bottom))
-        # 버튼·연월 글자 자리: 장식은 여기를 덮지 않는다(겹치면 줄이거나 뺀다). 기본 크기는 버튼
-        # 묶음 사이에 빈 곳이 거의 없어서(오늘·+ 묶음과 ◀ 사이 12px뿐) 오른쪽 장식이 많이 빠진다.
+        # 버튼·연월 글자 자리: 장식은 여기를 덮지 않는다(겹치면 줄이거나 뺀다). 기본 크기의 작은 배치는
+        # 처음부터 이 자리 밖에만 놓아 빠지는 조각이 없다(시험이 고정).
         blockers = []
         controls = (
             self.findChild(QWidget, "headerTodayButton"), self._add_btn, self.prev_btn, self.next_btn,
