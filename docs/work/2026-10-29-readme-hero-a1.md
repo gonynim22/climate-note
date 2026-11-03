@@ -37,3 +37,15 @@
 - 남은 문제 / 수동 확인: GitLab 웹에서 실제 표시 확인.
 - 변경한 정본 문서: README 대표 이미지와 대체 텍스트.
 - 배포·커밋·push: 사용자 승인에 따라 `README.md`, `readme/app.png`, 이 기록만 커밋하고 `git push origin main`으로 올린다. EXE 배포는 하지 않는다.
+
+## 2026-11-03 후속: 크게 모드 오른쪽 잘림 수정
+
+- 요청: 대표 이미지의 크게 모드 창이 오른쪽 사이드바(일정 목록·D-Day·집중 모드·스티키 노트)에서 잘려 보인다. 전부 보이게 다시 만든다.
+- 원인: `.large`가 `left:520px; width:900px`이고 `rotateY(-17deg)` 원근으로 오른쪽 끝이 가까워져 커지므로, 투영된 오른쪽 끝이 약 1486px로 1280px 화면을 넘었다.
+- 변경: 새 소스 `output/design/readme-hero-a1-20261103/`에서 `.large`만 `left:480px; top:111px; width:720px`로 바꿨다(투영 오른쪽 끝 약 1235px). 회전·그림자·작게 창·글자·배경은 그대로다.
+
+| 명령/범위 | 상태 | 실행 ID / 결과 경로 | 검사 입력·유의사항 |
+|---|---|---|---|
+| `render.py` 렌더 | 통과 | `output/harness/20261103-readme-hero-a1/`, `output/design/readme-hero-a1-20261103/hero-final.png` | 2560×1280 RGB, 크게 창 오른쪽 사이드바 전체·둥근 모서리 보임 시각 확인 |
+| `readme/app.png` 교체 | 통과 | SHA-256 `a17cd8f79109ba2d3e2f822dd4f7d34cb6f086c82a0aab5a6ffb3f3beb54d5c4`, 358,311 bytes | 렌더 결과를 그대로 복사 |
+| 전체 pytest / release | 미실행 | 해당 없음 | 제품 코드·EXE 변경 없음 |
