@@ -104,9 +104,10 @@
 - 설정의 라이선스는 `ui_licenses.py`의 별도 오프라인 원문 창으로 제공한다. 기본 목록 정본은 `licenses/components.json`, 선택형 OCR 목록은 `screen_text/licenses/components.json`이며 OCR 폴더를 제거하면 해당 항목도 제외한다. 루트 GPLv3 원문과 구성요소별 저작권·라이선스·출처를 번들에 포함하고, HWP 명세 지정 문구와 PaddleOCR 원저작권을 보존한다. 열람·전체 복사·닫기와 부모 숨김/잠금 시 닫기를 유지하며 DB·설정 키·모델/사전·의존성을 변경하지 않는다. 전수 SBOM·대응 소스 전달·기관/자산/공모전 조건·서명 확인을 고지 화면 구현만으로 완료 처리하지 않는다. 상세 계약과 증빙은 [UI 계약](docs/UI_PATTERNS.md), [라이선스 정비 기록](docs/work/2026-10-09-license-notices-update.md)을 따른다.
 - 테스트/EXE 검증은 실행별 합성 데이터 폴더에서만 수행한다. 실사용 AppData·DB·salt 또는 기존 실행 중인 앱을 검사·정리 대상으로 쓰지 않는다.
 
-## 저장소 (GitLab)
+## 저장소 (GitLab, GitHub 미러)
 
 - **origin**: `https://gitlab.aigov.go.kr/whrhkdrh/climate-note` — 기관 내부 GitLab, visibility **Public**
+- **github**: `https://github.com/gonynim22/climate-note` — GitLab의 공개 미러(2026-11-03 연결, `main`과 태그만). "push"는 두 곳 모두를 뜻한다. `git push origin main`이 성공한 뒤에만 `git push github main`을 실행한다(GitLab push 보안 검사가 거절한 커밋을 GitHub에 먼저 올리지 않도록 `origin`에 pushurl을 묶지 않는다). 새 태그는 `git push origin <태그>` 성공 후 `git push github <태그>`로 하나씩 올린다. EXE는 GitHub에 올리지 않고 README의 GitLab Releases 링크를 쓴다.
 - `main`이 정본이다. v3.5 시점의 부모 없는 orphan 커밋에서 시작하므로 v3.5 이전 개발 이력은 원격에 없고 로컬 `archive/local-v3.5` 브랜치에만 있다.
 
 > 🚫 **`archive/local-v3.5`는 절대 push하지 않는다.** 이 브랜치의 첫 커밋에 `security/` 폴더가 들어 있고 그 안에 금강청 소스코드 취약점 점검 상세·요약 보고서와 CODEMIND 반론서가 있다. 저장소가 Public이므로 push하면 그대로 노출된다. `git push --all`과 `git push --mirror`는 이 브랜치까지 올리므로 **사용 금지**. push는 항상 `git push origin main`처럼 브랜치를 명시한다.
