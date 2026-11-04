@@ -10,11 +10,12 @@
 
 import math
 
-from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, QUrl
+from PySide6.QtCore import QByteArray, QEvent, QPoint, QRectF, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout,
+    QWidget,
 )
 
 from qfluentwidgets.components.dialog_box.mask_dialog_base import MaskDialogBase
@@ -43,6 +44,9 @@ ONNARA = {"accent": "#1E7A46", "bg": "#E3F3E8", "line": "#C2E4CE", "hover": "#D6
 GITLAB = {"accent": "#1D4ED8", "bg": "#DFE8FD", "line": "#C3D3FA", "hover": "#D2DFFC", "pressed": "#C6D6FA"}
 MASK_COLOR = QColor(1, 20, 48, 112)  # 남색 기운의 바탕 막(44%)
 DOT_COLOR = "#F04438"  # 새 버전이 있다는 점
+TOAST_WIDTH = 348
+TOAST_GAP = 8  # 머리줄과 알림 사이
+TOAST_DURATION_MS = 10_000  # 공휴일 자료 만료 알림과 같은 시간
 
 _SVG_HEAD = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{c}" '
              'stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round">')
@@ -54,6 +58,8 @@ ICONS = {
     "chevron_right": '<path d="M9 6l6 6-6 6"/>',
     "chevron_left": '<path d="M15 6l-6 6 6 6"/>',
     "external": '<path d="M7 17L17 7"/><path d="M8 7h9v9"/>',
+    "arrow_up": '<path d="M12 19V5"/><path d="M6 11l6-6 6 6"/>',
+    "close": '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
 }
 
 
@@ -61,6 +67,11 @@ def update_guide_text() -> str:
     """온나라 안내 문구 전체(평문). 화면과 같은 문구를 테스트·복사용으로 한곳에서 만든다."""
     steps = "\n".join(f"{i}. {step}" for i, step in enumerate(ONNARA_STEPS, start=1))
     return f"{UPDATE_GUIDE_HIGHLIGHT}\n\n{steps}\n\n현재 앱 버전: {APP_VERSION}"
+
+
+def open_latest_release_page() -> None:
+    """기본 브라우저로 GitLab 최신 Release 페이지를 연다. 앱은 접속하지 않는다."""
+    QDesktopServices.openUrl(QUrl(GITLAB_LATEST_URL))
 
 
 def update_guide_dialog_width(parent=None) -> int:
@@ -105,12 +116,13 @@ def _label(text: str, parent: QWidget, name: str, *, font: QFont | None = None, 
     return label
 
 
-def _icon_label(parent: QWidget, name: str, icon: str, color: str, size: int, box: int, ratio: float) -> QLabel:
+def _icon_label(parent: QWidget, name: str, icon: str, color: str, size: int, box: int, ratio: float,
+                stroke: float = 1.8) -> QLabel:
     label = QLabel(parent)
     label.setObjectName(name)
     label.setFixedSize(box, box)
     label.setAlignment(Qt.AlignCenter)
-    label.setPixmap(icon_pixmap(icon, color, size, ratio=ratio))
+    label.setPixmap(icon_pixmap(icon, color, size, stroke=stroke, ratio=ratio))
     return label
 
 
@@ -141,6 +153,108 @@ class UpdateDot(QWidget):
         painter.setBrush(QColor(DOT_COLOR))
         painter.drawEllipse(QRectF(self._ring, self._ring, self._diameter, self._diameter))
         painter.end()
+
+
+TOAST_QSS = f"""
+QFrame#updateToast {{ background: #FFFFFF; border: 1px solid #D7E3FB; border-radius: 12px; }}
+QLabel#updateToastIcon {{ background: {GITLAB['bg']}; border: none; border-radius: 16px; }}
+QLabel#updateToastTitle {{ color: {INK}; background: transparent; border: none; }}
+QLabel#updateToastSub {{ color: {SUB}; background: transparent; border: none; }}
+QPushButton#updateToastGet {{
+    color: #FFFFFF; background: #2563EB; border: none; border-radius: 8px;
+    padding: 0px 14px; font-size: 12px; font-weight: 700; }}
+QPushButton#updateToastGet:hover {{ background: {GITLAB['accent']}; }}
+QPushButton#updateToastClose {{ background: transparent; border: none; border-radius: 8px; }}
+QPushButton#updateToastClose:hover {{ background: #F1F4F9; }}
+"""
+
+
+class UpdateToast(QFrame):
+    """새 버전을 처음 발견했을 때 캘린더 머리줄 아래에 잠깐 뜨는 알림. 받기는 브라우저를 열 뿐이다."""
+
+    closed = Signal()
+
+    def __init__(self, parent: QWidget, *, anchor: QWidget, header: QWidget, latest: str,
+                 current: str = APP_VERSION):
+        super().__init__(parent)
+        self._anchor = anchor
+        self._header = header
+        self.setObjectName("updateToast")
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setFixedWidth(TOAST_WIDTH)
+        self.setStyleSheet(TOAST_QSS)
+        ratio = max(2.0, float(math.ceil(parent.devicePixelRatioF())))
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 10, 8, 10)
+        layout.setSpacing(10)
+        layout.addWidget(_icon_label(self, "updateToastIcon", "arrow_up", GITLAB["accent"], 18, 32, ratio, stroke=2.2))
+        texts = QVBoxLayout()
+        texts.setSpacing(2)
+        self.title_label = _label(f"새 버전 {latest}이 나왔습니다", self, "updateToastTitle",
+                                  font=_font(14, QFont.Weight.Bold, display=True))
+        self.sub_label = _label(f"지금 쓰는 버전 {current}", self, "updateToastSub", font=_font(11))
+        texts.addWidget(self.title_label)
+        texts.addWidget(self.sub_label)
+        layout.addLayout(texts, 1)
+        self.get_button = QPushButton("받기", self)
+        self.get_button.setObjectName("updateToastGet")
+        self.get_button.setFixedHeight(32)
+        self.get_button.setCursor(Qt.PointingHandCursor)
+        self.get_button.clicked.connect(self._on_get)
+        layout.addWidget(self.get_button)
+        self.close_button = QPushButton(self)
+        self.close_button.setObjectName("updateToastClose")
+        self.close_button.setFixedSize(32, 32)
+        self.close_button.setIcon(icon_pixmap("close", SUB, 14, stroke=2.4, ratio=ratio))
+        self.close_button.setIconSize(QSize(14, 14))
+        self.close_button.setAccessibleName("알림 닫기")
+        self.close_button.setCursor(Qt.PointingHandCursor)
+        self.close_button.clicked.connect(self.close)
+        layout.addWidget(self.close_button)
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(30)
+        shadow.setOffset(0, 10)
+        shadow.setColor(QColor(1, 20, 48, 90))
+        self.setGraphicsEffect(shadow)
+
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(TOAST_DURATION_MS)
+        self._timer.timeout.connect(self.close)
+        anchor.installEventFilter(self)
+        header.installEventFilter(self)
+        self.adjustSize()
+        layout.activate()
+        if self.title_label.width() < self.title_label.sizeHint().width():  # 긴 태그(v4.10a)도 잘리지 않게
+            self.title_label.setFont(_font(13, QFont.Weight.Bold, display=True))
+        self.reposition()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._timer.start()
+
+    def closeEvent(self, event) -> None:
+        self._timer.stop()
+        self.closed.emit()
+        super().closeEvent(event)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() in (QEvent.Resize, QEvent.Move):
+            self.reposition()
+        return super().eventFilter(obj, event)
+
+    def reposition(self) -> None:
+        """캘린더(사이드바·일정 칸 제외) 가로 가운데, 머리줄 바로 아래."""
+        parent = self.parentWidget()
+        left = self._anchor.mapTo(parent, QPoint(0, 0)).x()
+        bottom = self._header.mapTo(parent, QPoint(0, self._header.height())).y()
+        self.move(left + (self._anchor.width() - TOAST_WIDTH) // 2, bottom + TOAST_GAP)
+
+    def _on_get(self) -> None:
+        open_latest_release_page()
+        self.close()
 
 
 class UpdateTile(QPushButton):
@@ -355,8 +469,7 @@ class UpdateGuideDialog(MaskDialogBase):
         self._fit()
 
     def open_gitlab(self) -> None:
-        """기본 브라우저로 GitLab 최신 Release 페이지를 연다. 앱은 접속하지 않는다."""
-        QDesktopServices.openUrl(QUrl(GITLAB_LATEST_URL))
+        open_latest_release_page()
         self.accept()
 
     def _fit(self) -> None:

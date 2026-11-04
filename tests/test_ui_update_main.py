@@ -6,16 +6,33 @@ from PySide6.QtCore import QPoint, QRect, Qt
 
 import database as db
 import holiday_theme as ht
+import ui_update
 import update_check
+from app_info import APP_VERSION
 from holidays import KOREAN_HOLIDAYS
 from ui_main import MainCalendarWindow, NAVY
-from ui_update import UpdateDot
+from ui_update import GITLAB_LATEST_URL, TOAST_WIDTH, UpdateDot, UpdateToast
 from update_check import CheckResult
 
 
 @pytest.fixture(autouse=True)
 def no_network(app_dir, monkeypatch):  # 키를 켠 테스트의 예약이 울려도 나가지 않게 한다
     monkeypatch.setattr(update_check, "check_latest", lambda opener=None: CheckResult())
+
+
+@pytest.fixture
+def opened(monkeypatch):
+    """브라우저 열기를 가로챈다. 테스트가 실제 브라우저를 띄우지 않게 한다."""
+    urls = []
+
+    class FakeDesktop:
+        @staticmethod
+        def openUrl(url):
+            urls.append(url.toString())
+            return True
+
+    monkeypatch.setattr(ui_update, "QDesktopServices", FakeDesktop)
+    return urls
 
 
 def _make(qtbot, **settings):
@@ -113,3 +130,152 @@ def test_import_keeps_and_reset_clears(qtbot, app_dir):
     db.reset_database()
     win._on_factory_reset()
     assert win._update_check.latest is None and not win._update_dot.isVisible()
+
+
+# ── ① 처음 발견 알림 ──────────────────────────────────────
+
+def _toast(win, tag="v4.7") -> UpdateToast:
+    win._update_check._set_latest(tag)
+    assert isinstance(win._update_toast, UpdateToast)
+    return win._update_toast
+
+
+@pytest.mark.parametrize(("sidebar", "law", "expected"), [
+    ("1", "1", (96, 112)), ("0", "1", (16, 112)), ("1", "0", (96, 60))])
+def test_toast_position_default_size(qtbot, app_dir, sidebar, law, expected):
+    win = _make(qtbot, **{db.SETTING_CALENDAR_SCALE: "compact", db.SETTING_SHOW_SIDEBAR: sidebar,
+                          db.SETTING_SHOW_LAW_SEARCH: law})
+    toast = _toast(win)
+    assert toast.parent() is win.container
+    assert (toast.x(), toast.y()) == expected
+    assert toast.width() == TOAST_WIDTH == 348
+
+
+def test_toast_stays_centered_after_scale_change(qtbot, app_dir):
+    win = _make(qtbot, **{db.SETTING_CALENDAR_SCALE: "compact"})
+    toast = _toast(win)
+    db.save_setting(db.SETTING_CALENDAR_SCALE, "medium")
+    win._apply_calendar_scale()
+    header = win._header_section
+
+    def centered():
+        below = header.mapTo(win.container, QPoint(0, header.height())).y() + 8
+        return (abs(toast.geometry().center().x() - win.right_content.geometry().center().x()) <= 1
+                and toast.y() == below)
+
+    qtbot.waitUntil(centered)
+
+
+def test_toast_content(qtbot, app_dir):
+    toast = _toast(_make(qtbot))
+    assert toast.title_label.text() == "새 버전 v4.7이 나왔습니다"
+    assert toast.title_label.font().pixelSize() == 14
+    assert toast.sub_label.text() == f"지금 쓰는 버전 {APP_VERSION}"
+    assert toast.get_button.text() == "받기" and toast.get_button.height() == 32
+    assert toast.close_button.accessibleName() == "알림 닫기"
+    assert (toast.close_button.width(), toast.close_button.height()) == (32, 32)
+
+
+def test_long_tag_fits_toast(qtbot, app_dir):
+    win = _make(qtbot, **{db.SETTING_CALENDAR_SCALE: "compact", db.SETTING_SHOW_SIDEBAR: "0"})
+    toast = _toast(win, "v4.10a")
+    qtbot.waitUntil(toast.isVisible)
+    assert toast.title_label.width() >= toast.title_label.sizeHint().width()
+    assert toast.get_button.geometry().right() < toast.close_button.geometry().left()
+    assert toast.close_button.geometry().right() < TOAST_WIDTH
+
+
+def test_get_button_opens_page_and_closes(qtbot, app_dir, opened):
+    win = _make(qtbot)
+    toast = _toast(win)
+    qtbot.mouseClick(toast.get_button, Qt.LeftButton)
+    assert opened == [GITLAB_LATEST_URL]
+    assert win._update_toast is None
+
+
+def test_close_button_does_not_open_browser(qtbot, app_dir, opened):
+    win = _make(qtbot)
+    toast = _toast(win)
+    qtbot.mouseClick(toast.close_button, Qt.LeftButton)
+    assert opened == [] and win._update_toast is None
+
+
+def test_toast_closes_after_ten_seconds(qtbot, app_dir):
+    win = _make(qtbot)
+    toast = _toast(win)
+    assert toast._timer.interval() == 10_000 and toast._timer.isActive() and toast._timer.isSingleShot()
+    toast._timer.timeout.emit()
+    assert win._update_toast is None
+
+
+def test_toast_once_per_run(qtbot, app_dir):
+    win = _make(qtbot)
+    _toast(win, "v4.7").close()
+    win._update_check._set_latest("v4.8")
+    assert win._update_toast is None
+    assert win._update_dot.isVisible() and win._update_check.latest == "v4.8"
+
+
+def test_hidden_then_shown(qtbot, app_dir):
+    win = _make(qtbot)
+    win._minimize_to_tray()
+    win._update_check._set_latest("v4.7")
+    assert win._update_toast is None
+    win.toggle_visibility()
+    qtbot.waitUntil(lambda: win._update_toast is not None)
+
+
+def test_locked_then_unlocked(qtbot, app_dir):
+    win = _make(qtbot)
+    win._lock()
+    win._update_check._set_latest("v4.7")
+    assert win._update_toast is None
+    win._unlock()
+    assert win._update_toast is not None
+
+
+def test_locked_and_hidden_waits_for_both(qtbot, app_dir):
+    win = _make(qtbot)
+    win._lock()
+    win._minimize_to_tray()
+    win._update_check._set_latest("v4.7")
+    win.toggle_visibility()
+    qtbot.wait(50)
+    assert win._update_toast is None
+    win._unlock()
+    assert win._update_toast is not None
+
+
+def test_lock_closes_visible_toast_without_repeat(qtbot, app_dir):
+    win = _make(qtbot)
+    _toast(win)
+    win._lock()
+    assert win._update_toast is None
+    win._unlock()
+    assert win._update_toast is None
+
+
+def test_tray_closes_visible_toast(qtbot, app_dir):
+    win = _make(qtbot)
+    _toast(win)
+    win._minimize_to_tray()
+    assert win._update_toast is None
+    win.toggle_visibility()
+    qtbot.wait(50)
+    assert win._update_toast is None
+
+
+def test_turning_off_closes_toast(qtbot, app_dir):
+    win = _make(qtbot, **{db.SETTING_INTERNET_ACCESS: "1"})
+    _toast(win)
+    db.save_setting(db.SETTING_INTERNET_ACCESS, "0")
+    win._update_check.apply_setting()
+    assert win._update_toast is None and not win._update_dot.isVisible()
+
+
+def test_quit_stops_everything(qtbot, app_dir):
+    win = _make(qtbot, **{db.SETTING_INTERNET_ACCESS: "1"})
+    qtbot.waitUntil(win._update_check._timer.isActive)
+    _toast(win)
+    assert win.prepare_for_quit()
+    assert not win._update_check._timer.isActive() and win._update_toast is None

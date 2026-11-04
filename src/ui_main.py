@@ -423,7 +423,7 @@ from ui_schedule_options import (
 )
 from ui_calendar_spans import CalendarSpanOverlay, SpanBar
 from ui_schedule_alarm import ScheduleAlarmCard, ScheduleAlarmScheduler
-from ui_update import UpdateDot, show_update_guide
+from ui_update import UpdateDot, UpdateToast, show_update_guide
 from ui_update_check import UpdateCheckController
 from fluent_icons import fluent_icon
 import optional_mini_apps
@@ -1652,6 +1652,8 @@ class MainCalendarWindow(QWidget):
         # 첫 판정은 화면을 다 만든 뒤에 한다.
         self._holiday_theme = HolidayThemeController(self)
         self._update_check = UpdateCheckController(self)
+        self._update_toast = None
+        self._update_toast_shown = False  # 알림은 실행당 한 번(저장하지 않는다)
         self._build_ui()
         self._apply_sidebar_visibility()
         self._apply_calendar_scale()
@@ -4321,6 +4323,30 @@ class MainCalendarWindow(QWidget):
     def _on_update_latest_changed(self, latest: str | None) -> None:
         """새 버전을 알게 됐거나(태그) 지웠다(None). 메뉴와 안내창은 열 때 latest를 읽는다."""
         self._update_dot.setVisible(latest is not None)
+        if latest is None:
+            self._close_update_toast()
+        else:
+            self._maybe_show_update_toast()
+
+    def _maybe_show_update_toast(self) -> None:
+        """창이 보이고 잠금이 아닐 때 한 번만 띄운다. 숨김·잠금 중이면 다음 표시·해제 때 다시 불린다."""
+        latest = self._update_check.latest
+        if (latest is None or self._update_toast_shown or self._is_locked or self._hidden_to_tray
+                or not self.isVisible()):
+            return
+        self._update_toast_shown = True
+        self._update_toast = UpdateToast(self.container, anchor=self.right_content,
+                                         header=self._header_section, latest=latest)
+        self._update_toast.closed.connect(self._forget_update_toast)
+        self._update_toast.show()
+        self._update_toast.raise_()
+
+    def _forget_update_toast(self) -> None:
+        self._update_toast = None
+
+    def _close_update_toast(self) -> None:
+        if self._update_toast is not None and isValid(self._update_toast):
+            self._update_toast.close()
 
     def _navigate_to_date(self, date_str: str):
         """검색 결과 클릭 시 해당 날짜로 캘린더 이동"""
@@ -4508,6 +4534,7 @@ class MainCalendarWindow(QWidget):
         self._hide_document_converter()
         self._hide_optional_mini_apps()
         self._hidden_to_tray = True
+        self._close_update_toast()
         self._finish_calendar_move_edit()
         self._close_schedule_emoji_popups()
         self.hide()
@@ -4573,6 +4600,7 @@ class MainCalendarWindow(QWidget):
             self._close_schedule_emoji_popups()
             self._schedule_alarm_scheduler.stop(persist=True)
             self._update_check.stop()
+            self._close_update_toast()
             self._close_alarm_card()
             return True
         _logger.error("스티키 노트 저장 실패로 앱 종료를 보류합니다")
@@ -5228,6 +5256,7 @@ class MainCalendarWindow(QWidget):
         self._disable_optional_mini_apps()
         self._is_locked = True
         self._holiday_theme.set_paused(True)  # 잠금 화면 뒤에서 장식이 돌지 않게 한다
+        self._close_update_toast()
         self._finish_calendar_move_edit()
         self._cancel_sticky_file_links()
         self._close_schedule_emoji_popups()
@@ -5280,9 +5309,11 @@ class MainCalendarWindow(QWidget):
         for windows in (self._sticky_windows, self._dday_windows, self._focus_windows):
             for win in windows.values():
                 self._show_floating_widget(win)
+        self._maybe_show_update_toast()
 
     def showEvent(self, event):
         super().showEvent(event)
+        QTimer.singleShot(0, self, self._maybe_show_update_toast)  # 숨김 중에 발견한 새 버전
         if (
             not self._keep_desktop_unavailable_warned
             and self._keep_desktop_enabled()
