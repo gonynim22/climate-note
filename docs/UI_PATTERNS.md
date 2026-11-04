@@ -123,9 +123,13 @@
 
 ## Update Guide
 
-- The header's more menu opens the update guide alongside Settings and Trash.
-- Settings retains update guidance and the separately styled Factory Reset action.
-- Both entry points call `ui_update.show_update_guide()`, which displays the current `APP_VERSION` and opens `https://www.onnara.go.kr/kndg/home/kngList` only when the user clicks the bottom button.
+- 머리줄 더보기 메뉴의 `앱 업데이트`가 `ui_update.show_update_guide()`를 연다(설정에는 업데이트 안내 카드가 없고 초기화 단추만 따로 있다).
+- **두 갈래 안내창(2026-11-04 B안, Design 캔버스에서 확정)**: `UpdateGuideDialog`(qfluentwidgets `MaskDialogBase`, 남색 기운 바탕 막 44%)가 부모 창 위에 뜬다. 폭은 `min(420, max(340, 부모 폭 − 56))`(기본 크기 460px 창에서 404px), 높이는 내용에 맞춘다.
+  - 첫 화면: `현재 <버전>` 꼬리표, `어디에서 받을까요?`, 좌우 타일 두 개, "어느 쪽이든 일정·메모·설정은 그대로 남습니다", `닫기`.
+  - 온나라 타일(연한 초록 `#E3F3E8`·진한 `#1E7A46`, 꼬리표 '공공기관 업무망'): 같은 창 안에서 온나라 안내로 바뀐다. 문구(제목·강조 한 줄·5단계·현재 앱 버전)는 v4.6과 같고 `받는 곳 다시 고르기`로 돌아간다. 브라우저를 열지 않는다.
+  - GitLab 타일(연한 파랑 `#DFE8FD`·진한 `#1D4ED8`, 꼬리표 '외부 인터넷망'): 기본 브라우저로 `https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases/permalink/latest`(늘 최신 Release로 이동)를 열고 창을 닫는다. 앱이 직접 접속하지 않는다.
+  - 타일 그림·화살표는 코드 안의 선 SVG(QtSvg Tiny 범위)이고 제목은 Pretendard, 본문은 맑은 고딕이다. 잠금 때는 공통 처리(활성 모달 `reject()`)로 닫힌다. DB·설정을 읽거나 쓰지 않는다.
+  - 테스트(`tests/test_ui_update.py`)는 온나라 문구 불변·주소·폭·화면 전환·브라우저 열기/닫기와, 타일·꼬리표·번호 동그라미가 실제로 그 색으로 그려지는지(QSS가 다른 규칙에 덮이지 않는지)를 고정한다.
 
 ---
 

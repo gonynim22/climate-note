@@ -34,13 +34,6 @@ from ui_search import SearchWindow
 from ui_settings import (
     HEADER_BG, HEADER_BORDER, ScheduleColorPicker, SettingsWindow,
 )
-from ui_update import (
-    UPDATE_GUIDE_HIGHLIGHT,
-    UPDATE_GUIDE_URL,
-    update_guide_dialog_size,
-    update_guide_html,
-    update_guide_text,
-)
 
 @pytest.fixture(scope="session")
 def qapp():
@@ -596,33 +589,6 @@ def test_settings_credit_uses_v46_metadata(qtbot, app_dir, qapp):
 
     assert APP_VERSION == "v4.6"
     assert win.author_label.text().startswith(f"{APP_VERSION}  ·  {APP_RELEASE_DATE}")
-
-
-def test_update_guide_text_uses_current_version():
-    text = update_guide_text()
-    html = update_guide_html()
-
-    assert UPDATE_GUIDE_HIGHLIGHT in text
-    assert UPDATE_GUIDE_HIGHLIGHT in html
-    assert 'bgcolor="#F7F6F3"' in html
-    assert "기후노트" in text
-    assert "기존 파일을 지우고, 새로 받은 파일을 실행합니다." in text
-    assert "기존 파일을 지우고, 새로 받은 파일을 실행합니다." in html
-    assert f"현재 앱 버전: {APP_VERSION}" in text
-    assert f"현재 앱 버전: <b>{APP_VERSION}</b>" in html
-    assert UPDATE_GUIDE_URL == "https://www.onnara.go.kr/kndg/home/kngList"
-
-
-def test_update_guide_dialog_size_fits_calendar_width(qtbot, qapp):
-    parent = QWidget()
-    qtbot.addWidget(parent)
-    parent.resize(380, 660)
-
-    width, height = update_guide_dialog_size(parent)
-
-    assert width <= parent.width()
-    assert width == 340
-    assert height == 360
 
 
 def test_settings_update_guide_card_removed(qtbot, app_dir, qapp):
