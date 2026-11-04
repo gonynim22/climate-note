@@ -1,7 +1,7 @@
 """v4.6 공휴일 테마: 설정 스위치와 왼쪽 열 행 높이(36px) 계약.
 
 설정창은 800x560 무스크롤이다. 왼쪽 열에 행 하나를 더할 자리를 만들려고
-왼쪽 열(화면 표시·위젯·도구)의 40px 행을 36px로 줄였다. 오른쪽 열은 그대로 40px다.
+왼쪽 열(화면 표시·위젯·도구)의 40px 행을 36px로 줄였다. 오른쪽 열도 인터넷 접속 줄을 넣으며 36px로 맞췄다.
 """
 import os
 import subprocess
@@ -83,13 +83,13 @@ def test_layout_fits_without_compression(qtbot, app_dir):
         assert column.height() >= column.sizeHint().height()
 
 
-def test_left_rows_36_right_rows_40(qtbot, app_dir):
+def test_both_columns_rows_36(qtbot, app_dir):
     win = _window(qtbot)
     left, right = _columns(win)
     left_heights = {r.minimumHeight() for r in left.findChildren(QWidget, "settingsRow")}
     right_heights = {r.minimumHeight() for r in right.findChildren(QWidget, "settingsRow")}
-    assert 40 not in left_heights and 36 in left_heights
-    assert right_heights == {40}
+    assert 40 not in left_heights and 36 in left_heights  # 화면 위치 줄만 2×2 격자라 60px다
+    assert right_heights == {36}
 
 
 @pytest.mark.parametrize("factor", ["1.25", "1.5"])

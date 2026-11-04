@@ -52,8 +52,11 @@ SETTING_KEEP_ON_SHOW_DESKTOP = "keep_on_show_desktop"  # Win+D/모두최소화�
 SETTING_CALENDAR_POSITION_MODE = "calendar_position_mode"  # corner / free (v3.3)
 SETTING_CALENDAR_MOVE_ENABLED = "calendar_move_enabled"  # v3.9a J안부터 읽지 않음. 기존 행·Export 값은 보존
 SETTING_SCHEDULE_ALARM_SEEN_AT = "schedule_alarm_seen_at"  # v4.1: 여기까지의 알림은 처리함(Export 제외)
+SETTING_INTERNET_ACCESS = "internet_access_enabled"  # "1"이면 새 버전 확인. 키 없으면 꺼짐(PC마다 망이 달라 Export 제외)
 # Export에 넣지 않고 Import에서도 쓰지 않는 설정(평문 PIN, 이 PC의 알림 처리 시각)
-EXPORT_EXCLUDED_SETTINGS = frozenset({SETTING_PRIVACY_PIN, SETTING_SCHEDULE_ALARM_SEEN_AT})
+EXPORT_EXCLUDED_SETTINGS = frozenset({
+    SETTING_PRIVACY_PIN, SETTING_SCHEDULE_ALARM_SEEN_AT, SETTING_INTERNET_ACCESS,
+})
 
 # v4.1(DB v18): 일정 표에 열만 더한다. 이름 → 고정 SQL(외부 값이 섞이지 않는 상수).
 SCHEDULE_V18_COLUMNS = (

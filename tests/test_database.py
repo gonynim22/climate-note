@@ -1529,6 +1529,16 @@ class TestExportImport:
         assert f["mode_key"] == "50/10"
         assert f["focus_minutes"] == 50
 
+    def test_internet_access_stays_on_this_pc(self, app_dir):
+        assert db.get_setting(db.SETTING_INTERNET_ACCESS, "missing") == "missing"  # 마이그레이션에 넣지 않는다
+        db.save_setting(db.SETTING_INTERNET_ACCESS, "1")
+        exported = json.loads(db.export_all_data())
+        assert db.SETTING_INTERNET_ACCESS not in exported["settings"]
+        db.save_setting(db.SETTING_INTERNET_ACCESS, "0")
+        exported["settings"][db.SETTING_INTERNET_ACCESS] = "1"  # 손으로 고친 파일이어도 받지 않는다
+        db.import_all_data(json.dumps(exported))
+        assert db.get_setting(db.SETTING_INTERNET_ACCESS, "") == "0"
+
     def test_export_includes_settings_excludes_pin(self, app_dir):
         db.save_setting(db.SETTING_APP_OPACITY, "75")
         db.save_setting(db.SETTING_CALENDAR_SCALE, "medium")
