@@ -47,7 +47,7 @@
 
 ## 미해결과 인계
 
-- 남은 문제 / 수동 확인: `tools/dev_update_check_preview.py --latest v4.7`로 ①~④를 중간·크게·공휴일 테마·Windows 애니메이션 끔에서 보기. 업무망 PC(또는 망 차단)에서 스위치 켬 → 아무 표시·오류 창 없음·조작 지연 없음. 스위치 꺼짐에서 요청 없음(방화벽·프록시 기록으로 확인 가능하면). 실제 새 버전 알림은 다음 Release가 나와야 실기로 볼 수 있다.
+- 남은 문제 / 수동 확인: `tools/dev_update_check_preview.py --latest v4.8`로 ①~④를 중간·크게·공휴일 테마·Windows 애니메이션 끔에서 보기. 업무망 PC(또는 망 차단)에서 스위치 켬 → 아무 표시·오류 창 없음·조작 지연 없음. 스위치 꺼짐에서 요청 없음(방화벽·프록시 기록으로 확인 가능하면). 실제 새 버전 알림은 다음 Release가 나와야 실기로 볼 수 있다.
 - 변경한 정본 문서: `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/CODING_STANDARDS.md`, `docs/UI_PATTERNS.md`, `docs/TESTING.md`.
 - 다음 행동: 사용자 결정(병합·버전 번호·Release). 위 Minor 7건은 사용자가 고를 일이다. 서버 보안 검사(Semgrep)는 로컬에 없어 push 때 처음 돈다. `fetch_data.py`와 같은 구조로 맞췄다.
 - 배포·커밋·push 여부: 브랜치 `feature/update-check`에 커밋. push·버전 올리기·EXE 배포는 수행하지 않음.
