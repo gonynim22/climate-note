@@ -10,7 +10,9 @@
 
 import math
 
-from PySide6.QtCore import QByteArray, QEvent, QPoint, QRectF, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import (
+    QByteArray, QElapsedTimer, QEvent, QPoint, QRectF, QSize, Qt, QTimer, QUrl, Signal,
+)
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
 from qfluentwidgets.components.dialog_box.mask_dialog_base import MaskDialogBase
 
 from app_info import APP_VERSION
+from ui_holiday_decor import motion_allowed
 
 
 UPDATE_GUIDE_TITLE = "최신 업데이트 확인 방법"
@@ -47,6 +50,13 @@ DOT_COLOR = "#F04438"  # 새 버전이 있다는 점
 TOAST_WIDTH = 348
 TOAST_GAP = 8  # 머리줄과 알림 사이
 TOAST_DURATION_MS = 10_000  # 공휴일 자료 만료 알림과 같은 시간
+MOTION_PERIOD_MS = 1600  # 물결·화살표 한 주기
+MOTION_INTERVAL_MS = 33  # 초당 30회 이하
+RIPPLE_SPREAD = 14  # 물결이 타일 둘레로 퍼지는 최대 폭
+RIPPLE_END = 0.7  # 주기의 70%에서 끝나고 나머지는 쉰다
+RIPPLE_OPACITY = 0.55
+TILE_RADIUS = 14
+HERE_BADGE_OVERLAP = 12  # 꼬리표가 타일 위로 걸치는 높이
 
 _SVG_HEAD = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{c}" '
              'stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round">')
@@ -60,6 +70,7 @@ ICONS = {
     "external": '<path d="M7 17L17 7"/><path d="M8 7h9v9"/>',
     "arrow_up": '<path d="M12 19V5"/><path d="M6 11l6-6 6 6"/>',
     "close": '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
+    "arrow_right": '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
 }
 
 
@@ -67,6 +78,20 @@ def update_guide_text() -> str:
     """온나라 안내 문구 전체(평문). 화면과 같은 문구를 테스트·복사용으로 한곳에서 만든다."""
     steps = "\n".join(f"{i}. {step}" for i, step in enumerate(ONNARA_STEPS, start=1))
     return f"{UPDATE_GUIDE_HIGHLIGHT}\n\n{steps}\n\n현재 앱 버전: {APP_VERSION}"
+
+
+def ripple_state(elapsed_ms: int) -> tuple[float, float]:
+    """물결의 (퍼진 폭 px, 불투명도). 시안의 ease-out 키프레임과 같다."""
+    progress = (elapsed_ms % MOTION_PERIOD_MS) / MOTION_PERIOD_MS / RIPPLE_END
+    if progress >= 1:
+        return 0.0, 0.0
+    eased = 1 - (1 - progress) ** 2
+    return RIPPLE_SPREAD * eased, RIPPLE_OPACITY * (1 - eased)
+
+
+def arrow_offset(elapsed_ms: int) -> int:
+    """↗ 화살표가 오른쪽 위로 움직인 거리(0~2px)."""
+    return round(2 * math.sin(math.pi * (elapsed_ms % MOTION_PERIOD_MS) / MOTION_PERIOD_MS))
 
 
 def open_latest_release_page() -> None:
@@ -257,6 +282,35 @@ class UpdateToast(QFrame):
         self.close()
 
 
+class _TileRipple(QWidget):
+    """타일 둘레로 퍼지는 파란 물결. 타일 아래에 깔려 있어 바깥 고리만 보인다."""
+
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._spread = 0.0
+        self._opacity = 0.0
+
+    def set_state(self, spread: float, opacity: float) -> None:
+        self._spread = spread
+        self._opacity = opacity
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        if self._opacity <= 0:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        color = QColor(GITLAB["accent"])
+        color.setAlphaF(self._opacity)
+        painter.setBrush(color)
+        inset = RIPPLE_SPREAD - self._spread
+        radius = TILE_RADIUS + self._spread
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(inset, inset, -inset, -inset), radius, radius)
+        painter.end()
+
+
 class UpdateTile(QPushButton):
     """받는 곳 타일 하나: 원 안의 그림, 두 줄 제목, 망 꼬리표, 아래 동작 안내."""
 
@@ -295,6 +349,16 @@ class UpdateTile(QPushButton):
             child.setAttribute(Qt.WA_TransparentForMouseEvents)  # 타일 어디를 눌러도 타일이 눌린다
 
 
+    def set_highlight(self, latest: str) -> None:
+        """새 버전이 있을 때: 테두리 2px과 '받으러 가기' 안내. 내용은 그 자리에 둔다."""
+        self.hint.setText(f"{latest} 받으러 가기")
+        self.layout().setContentsMargins(8, 21, 8, 15)  # 위아래는 테두리만큼. 좌우는 긴 태그 자리(내용은 가운데 정렬)
+        self.setAccessibleDescription(f"{self.chip.text()}. 여기서 받으세요. {self.hint.text()}")
+        self.setProperty("updateHighlight", "true")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+
 def _tile_qss(name: str, tone: dict) -> str:
     return f"""
 QPushButton#{name} {{ background: {tone['bg']}; border: 1px solid {tone['line']}; border-radius: 14px; }}
@@ -328,14 +392,26 @@ QPushButton#updateBackButton {{
     color: #3F4852; background: transparent; border: none; border-radius: 10px;
     padding: 0px 12px 0px 6px; font-size: 13px; text-align: left; }}
 QPushButton#updateBackButton:hover {{ background: #F1F4F9; }}
-""" + _tile_qss("updateTileOnnara", ONNARA) + _tile_qss("updateTileGitLab", GITLAB)
+""" + _tile_qss("updateTileOnnara", ONNARA) + _tile_qss("updateTileGitLab", GITLAB) + f"""
+QPushButton#updateTileGitLab[updateHighlight="true"],
+QPushButton#updateTileGitLab[updateHighlight="true"]:hover,
+QPushButton#updateTileGitLab[updateHighlight="true"]:pressed,
+QPushButton#updateTileGitLab[updateHighlight="true"]:focus {{ border: 2px solid {GITLAB['accent']}; }}
+QLabel#updateNewVersionPill {{
+    color: #FFFFFF; background: {GITLAB['accent']}; border-radius: 10px; padding: 3px 10px; }}
+QLabel#updateHereBadge {{
+    color: #FFFFFF; background: {GITLAB['accent']}; border-radius: 11px; padding: 4px 10px; }}
+"""
 
 
 class UpdateGuideDialog(MaskDialogBase):
     """부모 창 위에 뜨는 '앱 업데이트' 안내창. 첫 화면(받는 곳 고르기) ↔ 온나라 안내를 같은 창에서 바꾼다."""
 
-    def __init__(self, parent: QWidget):
+    here_badge = None  # 새 버전을 알 때만 만든다. 부모 클래스가 __init__ 도중에 이벤트를 보내므로 클래스에 둔다
+
+    def __init__(self, parent: QWidget, latest: str | None = None):
         super().__init__(parent)
+        self._latest = latest
         self.setMaskColor(MASK_COLOR)
         self.setShadowEffect(56, (0, 14), QColor(1, 20, 48, 90))
         self._hBoxLayout.removeWidget(self.widget)
@@ -362,9 +438,30 @@ class UpdateGuideDialog(MaskDialogBase):
         self.onnara_tile.clicked.connect(self.show_onnara_guide)
         self.gitlab_tile.clicked.connect(self.open_gitlab)
         self.back_button.clicked.connect(self.show_choice)
+
+        self._ripple = None
+        self._motion_clock = QElapsedTimer()
+        self._arrow_home = QPoint()
+        self._motion_timer = QTimer(self)
+        self._motion_timer.setInterval(MOTION_INTERVAL_MS)
+        self._motion_timer.timeout.connect(self._tick)
+        if latest is not None:
+            self._build_highlight(latest, parent)
         self.show_choice()
 
     # ── 화면 구성 ──────────────────────────────────────────
+    def _build_highlight(self, latest: str, parent: QWidget) -> None:
+        """새 버전을 알 때만 만든다. 꼬리표와 물결은 카드의 자식이다(페이지 자식이면 가장자리에서 잘린다)."""
+        self.gitlab_tile.set_highlight(latest)
+        self.here_badge = _label("여기서 받으세요", self.widget, "updateHereBadge",
+                                 font=_font(11, QFont.Weight.Bold), align=Qt.AlignCenter)
+        self.here_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._ripple = _TileRipple(self.widget)
+        self._ripple.hide()
+        self._ripple.lower()  # 페이지 아래: 페이지는 투명이라 비치고 타일이 안쪽을 덮는다
+        self.gitlab_tile.installEventFilter(self)
+        parent.installEventFilter(self)
+
     def _build_choice_page(self) -> QWidget:
         page = QWidget(self.widget)
         page.setObjectName("updateChoicePage")
@@ -376,7 +473,19 @@ class UpdateGuideDialog(MaskDialogBase):
         title = _label("어디에서 받을까요?", page, "updateTitle", font=_font(20, QFont.Weight.Bold, display=True),
                        align=Qt.AlignCenter)
         sub = _label("PC가 연결된 망에 맞는 쪽을 고르세요", page, "updateSub", font=_font(13), align=Qt.AlignCenter)
-        layout.addWidget(pill, 0, Qt.AlignHCenter)
+        if self._latest is None:
+            layout.addWidget(pill, 0, Qt.AlignHCenter)
+        else:
+            versions = QHBoxLayout()
+            versions.setSpacing(6)
+            versions.addStretch(1)
+            versions.addWidget(pill)
+            versions.addWidget(_icon_label(page, "updateVersionArrow", "arrow_right", SUB, 12, 12, self._ratio,
+                                           stroke=2.4))
+            versions.addWidget(_label(f"새 {self._latest}", page, "updateNewVersionPill",
+                                      font=_font(11, QFont.Weight.Bold)))
+            versions.addStretch(1)
+            layout.addLayout(versions)
         layout.addSpacing(10)
         layout.addWidget(title)
         layout.addSpacing(6)
@@ -461,16 +570,68 @@ class UpdateGuideDialog(MaskDialogBase):
         self.choice_page.show()
         self._layout.setContentsMargins(20, 26, 20, 18)
         self._fit()
+        self._update_motion()
 
     def show_onnara_guide(self) -> None:
         self.choice_page.hide()
         self.onnara_page.show()
         self._layout.setContentsMargins(20, 16, 20, 18)
         self._fit()
+        self._update_motion()
 
     def open_gitlab(self) -> None:
         open_latest_release_page()
         self.accept()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._update_motion()
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self._update_motion()
+
+    def eventFilter(self, obj, event) -> bool:
+        if self.here_badge is not None:
+            kind = event.type()
+            if obj is self.gitlab_tile and kind in (QEvent.Resize, QEvent.Move):
+                self._place_highlight()
+            elif obj is self.parentWidget() and kind in (QEvent.Show, QEvent.Hide):
+                self._update_motion()  # 캘린더가 숨으면(트레이) 안내창이 남아 있어도 멈춘다
+        return super().eventFilter(obj, event)
+
+    def _place_highlight(self) -> None:
+        tile = self.gitlab_tile
+        at = tile.mapTo(self.widget, QPoint(0, 0))
+        self._ripple.setGeometry(at.x() - RIPPLE_SPREAD, at.y() - RIPPLE_SPREAD,
+                                 tile.width() + 2 * RIPPLE_SPREAD, tile.height() + 2 * RIPPLE_SPREAD)
+        self.here_badge.adjustSize()
+        self.here_badge.move(at.x() + (tile.width() - self.here_badge.width()) // 2, at.y() - HERE_BADGE_OVERLAP)
+
+    def _update_motion(self) -> None:
+        """강조의 표시와 움직임을 한 곳에서 맞춘다. 첫 화면이 보이고 움직임이 허용될 때만 돈다."""
+        if self.here_badge is None:
+            return
+        self._place_highlight()
+        choosing = not self.choice_page.isHidden()
+        self.here_badge.setVisible(choosing)
+        running = self._motion_timer.isActive()
+        wanted = choosing and self.isVisible() and self.parentWidget().isVisible() and motion_allowed()
+        if wanted and not running:
+            self._arrow_home = self.gitlab_tile.hint_icon.pos()
+            self._motion_clock.start()
+            self._ripple.show()
+            self._motion_timer.start()
+        elif running and not wanted:
+            self._motion_timer.stop()
+            self._ripple.hide()
+            self.gitlab_tile.hint_icon.move(self._arrow_home)
+
+    def _tick(self) -> None:
+        elapsed = self._motion_clock.elapsed()
+        self._ripple.set_state(*ripple_state(elapsed))
+        offset = arrow_offset(elapsed)
+        self.gitlab_tile.hint_icon.move(self._arrow_home + QPoint(offset, -offset))
 
     def _fit(self) -> None:
         self.widget.setFixedWidth(self._width)
@@ -481,6 +642,7 @@ class UpdateGuideDialog(MaskDialogBase):
 
 
 def show_update_guide(parent, latest: str | None = None) -> None:
-    dlg = UpdateGuideDialog(parent)
+    dlg = UpdateGuideDialog(parent, latest)
     dlg.close_button.setFocus()
     dlg.exec()
+    dlg.deleteLater()  # 0026_RESLEAK: 부모에 건 이벤트 필터도 함께 풀린다
