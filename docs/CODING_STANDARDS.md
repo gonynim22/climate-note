@@ -226,7 +226,7 @@ def get_config():
 기관 GitLab은 push마다 저장소 전체를 Gitleaks·Semgrep·OSV-Scanner·Trivy·Syft로 검사한다. 현재 서버 로그에서는 검사 실패로 push가 거절됐다. 세부 차단 기준은 담당자 확인이 필요하며 다음 원칙으로 원인을 수정한다.
 
 - XML은 `defusedxml`로 읽는다(`from defusedxml import ElementTree`). 제품의 오류 처리에서는 `ElementTree.ParseError`와 `DefusedXmlException`을 기존 실패 처리로 넘긴다. 하네스의 XML 거부도 검증 실패로 기록하고 성공 처리하지 않는다.
-- 개발용 API 호출은 `fetch_data.py`의 고정 HTTPS 주소와 전용 `urllib.request.OpenerDirector`를 사용한다. HTTPS용 프록시·HTTPS·거부(Unknown)·HTTP 오류 처리기만 등록한다. 비HTTPS URL을 HTTPS 프록시로 우회하지 못하도록 다른 scheme의 프록시는 등록하지 않는다. HTTPS 프록시와 `no_proxy` 동작은 유지한다. `urlopen(변수)`나 `http.client.HTTPSConnection`으로 대체하지 않는다. 앱 런타임은 오프라인 전용이다.
+- 개발용 API 호출은 `fetch_data.py`의 고정 HTTPS 주소와 전용 `urllib.request.OpenerDirector`를 사용한다. HTTPS용 프록시·HTTPS·거부(Unknown)·HTTP 오류 처리기만 등록한다. 비HTTPS URL을 HTTPS 프록시로 우회하지 못하도록 다른 scheme의 프록시는 등록하지 않는다. HTTPS 프록시와 `no_proxy` 동작은 유지한다. `urlopen(변수)`나 `http.client.HTTPSConnection`으로 대체하지 않는다. 앱 런타임은 오프라인 전용이고(설정에서 인터넷 접속을 켠 경우는 제외), 그 경우의 새 버전 확인(`src/update_check.py`)도 같은 opener 규칙을 따른다. `OpenerDirector()` 생성과 `.open()` 호출은 `fetch_data.py`처럼 다른 함수에 둔다.
 - `nosemgrep` 주석·규칙 제외 같은 검사 우회는 쓰지 않는다. `tests/test_security_scan_rules.py`가 추적 Python 파일의 표준 `xml` import와 `urlopen` 호출 재발을 검사하며, 실제 로컬 Semgrep 결과도 별도로 확인한다.
 - 의존성 취약점은 사용자 EXE 포함 여부로 나눠 대응한다. EXE에 들어가지 않는 개발·빌드 패키지는 취약점을 해소하는 최소 버전으로 올린다. EXE에 들어가는 패키지, 특히 `cryptography`는 기존 데이터 양방향 호환 검증을 거친 별도 단계에서만 바꾼다. 빌드 도구의 간접 영향을 확인하기 위해 EXE 모듈 구성과 암호화·Qt 바이너리도 대조한다. 상세는 [1단계 작업 기록](work/2026-10-05-push-security-scan-step1.md).
 

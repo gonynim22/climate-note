@@ -6,6 +6,7 @@
 - **날짜 독립(`app_dir`)**: `tests/conftest.py`의 `app_dir`는 `holiday_theme.current_match`를 `lambda today=None: None`으로 기본 패치한다. 실제 오늘이 테마 기간(예: 12/22~25)이어도 기존 UI 테스트의 색·배치가 변하지 않는다(패치를 빼면 `test_ui_calendar_cells.py` 5개가 실패하는 것을 확인했다). 테마를 검사하는 테스트는 이 위에 `current_match`를 다시 패치한다. `app_dir`를 쓰지 않는 직접 호출 테스트(`current_match` 자체)는 영향받지 않는다. 배포 EXE에 날짜 우회 옵션이 없으므로 EXE 확인은 시스템 날짜를 바꾼 테스트 PC에서 한다.
 - **표시 전용 증명**: 테마 적용·해제·전환 중 `database`의 `save_`·`update_`·`create_`·`add_`·`delete_`·`trash_`·`restore_`·`import_`·`reset_`·`backup_` 접두 함수 전부를 예외로 바꿔 두고 실행한다(`_forbid_db_writes`). 스티키 크기 저장 같은 디바운스 타이머(500ms)가 이 구간 안에 만료되면 테마가 쓴 것으로 오인하므로 검사 전에 `_resize_timer`·`_save_timer`를 멈춘다(부하가 큰 PC에서 재현된 비결정 실패였다).
 - **개발 미리보기**: `tools/dev_holiday_theme_preview.py --date YYYY-MM-DD`(PowerShell)는 `output/harness/<run-id>/appdata`를 `LOCALAPPDATA`로 잡고(하네스와 같은 격리·자동 실행 레지스트리 갱신 끔) `holiday_theme.current_match`만 그 날짜로 패치한 뒤 `main.py`와 같은 경로로 앱을 띄운다. 새 합성 DB에 일정·스티키·D-Day·집중 위젯을 넣고 크기 선택 창을 건너뛴다. `--scale`, `--theme on|off`, `--reuse <run-id>`(같은 합성 데이터), `--no-seed`, `--check-only`(앱 없이 경로·판정 JSON). 실제 AppData·`.lock`·실행 중인 기후노트를 건드리지 않으며(단일 인스턴스 잠금은 `APP_DIR`의 파일뿐, 프로세스 간 통신 없음) 트레이 아이콘이 하나 더 생긴다. `test_source_layout.py`가 `build.spec`·`build_app.py`·`src/`·`main.py`에 이 도구가 없음과, 바깥 `LOCALAPPDATA`가 있어도 합성 폴더만 쓰고 날짜가 고정됨을 단언한다.
+- **새 버전 알림 미리보기**: `tools/dev_update_check_preview.py --latest v4.7`(PowerShell)은 같은 합성 폴더 규칙으로 앱을 띄우고 `update_check.check_latest`를 바꿔 끼워 네트워크 없이 알림·점·안내창 강조를 1초 뒤 보여 준다. `--scale`, `--date`(공휴일 머리줄), `--reuse`, `--check-only`. `--latest`는 지금 버전보다 새로워야 한다. `test_source_layout.py`가 빌드 제외와 합성 폴더를 단언한다.
 - **CPU 측정**: 개발 미리보기를 같은 합성 폴더로 테마 켬/끔 각각 띄워(메인 창+D-Day+스티키+집중 위젯, 시작 후 20초 대기) 앱 프로세스의 `TotalProcessorTime` 증가를 60초 평균으로 잰다. 한 코어 기준과 작업 관리자식(논리 프로세서 수로 나눔)을 함께 적는다. 측정 결과와 한계는 [작업 기록](work/2026-11-01-v4.6-holiday-theme.md)에 있다. 오프스크린에서 머리줄 레이어 그리기는 프레임당 약 0.4ms(한 코어의 약 1%)이므로 비용의 대부분은 그리기 자체가 아니라 부모·버튼 다시 그리기와 투명 창 내보내기(D-Day는 그림자 효과 다시 계산 포함)로 추정한다(창별 분리 측정은 머리줄 약 7%·D-Day 약 4.5%·스티키 약 0.5%, 한 코어 기준).
 - **수동 확인(자동 검사 밖)**: 125%·150% 실제 배율, 혼합 DPI 모자 선명도, 트레이 숨김→복귀, PIN 잠금·해제 중 장식 정지, Win+D 후 복귀, 일정 입력 중 한글 IME, 설정 스위치 끔/켬, 집중 위젯 마우스 올림(큰 모자), 기본 크기 작은 배치의 실제 화면 모양, 태극기 규격(국기법 시행령 별표) 대조, 실제 EXE(합성 데이터·시스템 날짜 변경)는 [작업 기록](work/2026-11-01-v4.6-holiday-theme.md)의 '수동 확인 대기' 표에 기록한다. 자동 검사 통과는 이 항목의 통과를 뜻하지 않는다.
 
@@ -58,7 +59,7 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 | `quick` | 리소스·시작 경로·공휴일·실행기·핵심 DB/UI 소규모 회귀 | 일상 개발 + `--tests`로 관련 검사 추가 |
 | `data` | DB·암호화·건강 검사·백업·Import/Export·스티키 저장·메인 UI·스트레스 | 데이터 또는 저장/보기 전환 변경 |
 | `full` | 전체 pytest 1회 | 공통 실행기·격리 변경, 기능 마무리 |
-| `release` | 공휴일 최신화(네트워크·`.env` 키 필요) → 전체 pytest 1회 → 새 EXE 빌드 → 격리 실행 5개 시나리오(신규·기존·차단·v17 업그레이드·v18 업그레이드) | 배포 산출물 검증 |
+| `release` | 공휴일 최신화(네트워크·`.env` 키 필요) → 전체 pytest 1회 → 새 EXE 빌드 → 격리 실행 6개 시나리오(신규·기존·차단·v17 업그레이드·v18 업그레이드·새 버전 확인) | 배포 산출물 검증 |
 
 `data`는 저장 계약 검사가 들어 있는 `test_ui.py`도 포함하므로 짧은 단위 테스트 묶음이 아니다.
 정확한 대상은 `tools/verify.py`의 `QUICK_TESTS`·`DATA_TESTS`가 정본이다.
@@ -180,6 +181,7 @@ VC 런타임(`vcruntime140*`·`msvcp140*`)만 허용하고, EXE 안 Qt DLL은 �
 2. 기존 데이터: 현재 저장 계약의 합성 일정(색 3개와 시각+알림·기간·반복 끝 날짜/건너뛴 날 세부 설정)·메모·닫힌/휴지통 스티키·D-Day·집중/세션·바로가기·설정 → 실행 전후 raw/복호화 내용 해시·ID·일정 세부 설정 값·salt 불변과 최초 보호백업 확인. seed에 세부 설정 일정이 빠지면 실패한다. 알림은 검사 중 울리지 않게 한 달 뒤로 두며, 열린 스티키는 창 크기 5mm 격자 저장 때문에 seed하지 않는다.
 3. 시작 차단: 합성 DB의 salt 손상 → 데이터 보호 오류창만 표시 → 원본 DB·salt·기존 보호백업 해시 불변 확인.
 4. 업그레이드(v4.1): `tests/fixtures/schema_v17.sql`로 만든 v17 합성 데이터 → 새 EXE 시작 → 모든 표의 기존 열 값 해시·salt 불변, 새 열 기본값, v18, `calendar_pre_v18_v17.db`가 원본과 같은지, 그리고 '기후노트 업데이트 안내' 창이 떴는지 확인. 다른 시나리오에서 이 창이 뜨면 실패다. v4.3에서는 보호백업 후 PIN 검증값 승격을 별도 확인한다. 새 검증값이 이전 PIN을 검증함을 확인한 뒤 `privacy_pin` 하나만 이전 값으로 정규화해 기존 열 해시를 대조하며, 마이그레이션 전 보호본은 정규화 없이 원본 전체를 대조한다.
+5. 새 버전 확인: 합성 데이터에서 `인터넷 접속`을 켜고 닫힌 포트(`HTTPS_PROXY=http://127.0.0.1:9`)를 준 EXE가 90초 안에 `error.log`에 `새 버전 확인 실패: connection`을 남긴다. 실패가 화면에 보이지 않는 기능이라 이 기록이 EXE에서 확인이 돈다는 근거다(인터넷 불필요). 실제 TLS는 인터넷 PC에서 `tools/smoke_release.py --exe <EXE> --run-dir <실행 폴더> --live-update-check`로 75초 동안 실패 기록이 없는지 본다(`release`에는 넣지 않는다).
 
 **격리된 EXE 창이 잠시 표시된다.** 각 시나리오는 60초 안에 창 응답과 백업 상태를 확인한다.
 Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 허용하고, 실패/중단 시에도
