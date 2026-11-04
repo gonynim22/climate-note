@@ -73,8 +73,6 @@ a = Analysis(
         'wx',
         'PyQt5',
         'PyQt6',
-        'email',
-        'http',
         'xmlrpc',
         'unittest',
         'pydoc',

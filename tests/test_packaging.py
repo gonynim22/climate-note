@@ -235,6 +235,11 @@ def _spec_analysis(spec_dir):
     return captured
 
 
+def test_build_spec_keeps_modules_update_check_needs(tmp_path):
+    # urllib.request는 http.client·email을 쓴다. 제외하면 빌드는 성공하고 EXE만 시작하지 못한다.
+    assert not {"http", "email", "urllib", "ssl", "socket"} & set(_spec_analysis(tmp_path)["excludes"])
+
+
 def test_build_spec_bundles_screen_text_only_when_folder_exists(tmp_path):
     # 저장소의 screen_text/ 폴더에 기대지 않는다: 걷어낸 뒤에도 이 시험이 통과해야 한다.
     present_dir = tmp_path / "present"
