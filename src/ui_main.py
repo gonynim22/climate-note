@@ -423,7 +423,7 @@ from ui_schedule_options import (
 )
 from ui_calendar_spans import CalendarSpanOverlay, SpanBar
 from ui_schedule_alarm import ScheduleAlarmCard, ScheduleAlarmScheduler
-from ui_update import UpdateDot, UpdateToast, show_update_guide
+from ui_update import UpdateDot, UpdateGuideDialog, UpdateToast, show_update_guide
 from ui_update_check import UpdateCheckController
 from fluent_icons import fluent_icon
 import optional_mini_apps
@@ -5266,6 +5266,9 @@ class MainCalendarWindow(QWidget):
         modal = QApplication.activeModalWidget()
         if isinstance(modal, QDialog):
             modal.reject()
+        # 앱 업데이트 창은 메인 창의 자식 위젯이라 위에서 잡히지 않고, 남으면 잠금 덮개 위에 떠서 PIN도 못 넣는다.
+        for dialog in self.findChildren(UpdateGuideDialog):
+            dialog.reject()
         popup = QApplication.activePopupWidget()
         if popup is not None:
             popup.close()

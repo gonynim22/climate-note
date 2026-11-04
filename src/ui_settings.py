@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog, QLineEdit, QApplication,
     QPushButton, QFrame, QLabel, QSizePolicy,
 )
-from PySide6.QtCore import Qt, QUrl, Signal, QSize, QPoint
+from PySide6.QtCore import Qt, QUrl, Signal, QSignalBlocker, QSize, QPoint
 from PySide6.QtGui import QDesktopServices, QColor, QPainter, QPen, QPixmap, QIcon
 
 from qfluentwidgets import (
@@ -1183,7 +1183,7 @@ class SettingsWindow(QWidget):
                     if self.on_reset_callback:
                         self.on_reset_callback()
                 audit("전체 초기화(Factory Reset)", "성공")
-                self._sync_internet_switch()  # 설정이 지워져 꺼짐이다. 열린 창의 스위치도 맞춘다
+                self._set_internet_switch(False)  # 설정이 지워져 꺼짐이다. 열린 창의 스위치도 맞춘다
                 self.reset_succeeded.emit()
                 InfoBar.success(
                     title="초기화 완료",
@@ -1264,8 +1264,8 @@ class SettingsWindow(QWidget):
         """키 하나만 저장한다. 끄기 저장이 실패한 채 화면만 꺼지면 요청이 계속 나가므로 스위치를 되돌린다."""
         try:
             db.save_setting(db.SETTING_INTERNET_ACCESS, "1" if checked else "0")
-        except sqlite3.Error as e:
-            self._sync_internet_switch()
+        except (sqlite3.Error, OSError, ValueError) as e:
+            self._set_internet_switch(not checked)  # DB를 다시 읽지 않는다: 읽기도 실패할 수 있다
             audit("인터넷 접속 설정", f"실패: {type(e).__name__}")
             InfoBar.error(
                 title="설정 오류",
@@ -1279,11 +1279,10 @@ class SettingsWindow(QWidget):
         if self.on_internet_access_changed:
             self.on_internet_access_changed()
 
-    def _sync_internet_switch(self) -> None:
-        """저장값대로 스위치만 맞춘다. 신호를 막아야 처리기가 저장을 다시 시도하지 않는다."""
-        self.internet_switch.blockSignals(True)
-        self.internet_switch.setChecked(db.get_setting(db.SETTING_INTERNET_ACCESS, "0") == "1")
-        self.internet_switch.blockSignals(False)
+    def _set_internet_switch(self, checked: bool) -> None:
+        """저장 없이 스위치 모양만 맞춘다. 신호를 막아야 처리기가 저장을 다시 시도하지 않는다."""
+        with QSignalBlocker(self.internet_switch):
+            self.internet_switch.setChecked(checked)
 
     def _on_font_changed(self, index: int):
         font_key = self.font_combo.itemData(index)

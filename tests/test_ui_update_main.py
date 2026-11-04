@@ -2,7 +2,7 @@
 from datetime import date
 
 import pytest
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer
 
 import database as db
 import holiday_theme as ht
@@ -11,7 +11,9 @@ import update_check
 from app_info import APP_VERSION
 from holidays import KOREAN_HOLIDAYS
 from ui_main import MainCalendarWindow, NAVY
-from ui_update import GITLAB_LATEST_URL, TOAST_WIDTH, UpdateDot, UpdateToast
+from ui_update import (
+    GITLAB_LATEST_URL, TOAST_WIDTH, UpdateDot, UpdateGuideDialog, UpdateToast, show_update_guide,
+)
 from update_check import CheckResult
 
 
@@ -120,6 +122,32 @@ def test_lock_overlay_covers_dot(qtbot, app_dir):
     spot = win.container.mapFromGlobal(win._update_dot.mapToGlobal(QPoint(6, 6)))
     top = win.container.childAt(spot)
     assert top is win.lock_overlay or win.lock_overlay.isAncestorOf(top)
+
+
+def test_lock_closes_update_guide_during_exec(qtbot, app_dir, monkeypatch):
+    """안내창은 메인 창의 자식 위젯이라 activeModalWidget()으로 잡히지 않는다. 남으면 PIN도 못 넣는다."""
+    monkeypatch.setattr(ui_update, "motion_allowed", lambda: True)
+    win = _make(qtbot)
+    seen = {}
+
+    def lock():
+        dialog = win.findChild(UpdateGuideDialog)
+        seen["timer"] = dialog._motion_timer
+        seen["ran"] = dialog._motion_timer.isActive()
+        win._lock()
+
+    def give_up():  # 고치기 전에는 exec()가 돌아오지 않아 테스트가 멈춘다
+        dialog = win.findChild(UpdateGuideDialog)
+        if dialog is not None and dialog.isVisible():
+            seen["stuck"] = True
+            dialog.reject()
+
+    QTimer.singleShot(150, win, lock)
+    QTimer.singleShot(1500, win, give_up)
+    show_update_guide(win, "v4.7")
+    assert seen["ran"]
+    assert "stuck" not in seen
+    assert not seen["timer"].isActive()
 
 
 def test_import_keeps_and_reset_clears(qtbot, app_dir):
