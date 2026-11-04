@@ -1,5 +1,13 @@
 # 릴리스 검증 이력과 보류 과제
 
+## v4.7 (2026-11-05, 새 버전 알림)
+
+- 설정 › 시스템 `인터넷 접속`(기본 꺼짐)을 켠 PC만 GitLab 공개 Release에서 최신 태그 하나를 받아 현재 버전과 비교한다. 새 버전이면 캘린더 위 알림 한 번, 더보기 단추·메뉴의 빨간 점, 앱 업데이트 창의 GitLab 타일 강조를 보여 준다. 앱 업데이트 창을 온나라/GitLab 두 갈래로 바꾼 작업도 이 버전에 들어간다. 받는 동작은 브라우저로 Release 페이지를 여는 것뿐이다.
+- 데이터: DB v19·Export v4·salt·기존 키는 그대로이고 새 키 `internet_access_enabled` 하나만 더했다(마이그레이션 없음, Export 제외). 오프라인 계약을 '설정에서 인터넷 접속을 켠 경우는 제외'로 바꿨다. `build.spec` 제외 목록에서 `http`·`email`을 뺐다(EXE +0.27MB).
+- 검증: PowerShell release `20261105-013953-5324feab10`(입력 `24375b3`)의 공휴일 최신 확인·3,564개·새 빌드·EXE 구성(BINARY 64·검증 환경 밖 0·Qt DLL 15 원본 일치·`src/` 앱 모듈 58개)·격리 실행 6개 통과. 실제 EXE의 `--live-update-check`(TLS)도 통과했다. 로컬 OSV 0건, push 서버 보안 검사 5종 통과(Semgrep 포함).
+- EXE `dist/기후노트_v4.7.exe` 94,681,350 bytes(v4.6 대비 +271,299), Windows 4.7.0.0, SHA-256 `E23BD81D5175096F7A3755735ADD41D0E822558A6656644D1D8BEF369CFC6201`, `NotSigned`.
+- 남은 것: 개발 미리보기로 중간·크게·공휴일 테마·움직임 끔 확인, 업무망 PC 확인, 미룬 Minor 7건([작업 기록](work/2026-11-04-update-check.md)). 실제 알림은 v4.7 이후 Release가 나와야 실기로 볼 수 있다. GitLab Release 게시는 사용자가 한다.
+
 ## v4.6 (2026-11-03, 공휴일 테마)
 
 - 공휴일 묶음 첫날 3일 전부터 마지막 날(대체공휴일 포함)까지 캘린더 머리줄·오늘 칸·공휴일 칸·인사말·D-Day 커버·스티키 띠와 스티커·집중 위젯 바탕과 토마토 모자를 13개 공휴일의 색과 SVG 장식으로 바꾸는 **표시 전용** 기능을 더했다. 날짜는 `holidays.KOREAN_HOLIDAYS`만 쓰고, 유일한 쓰기는 설정 스위치 `holiday_theme_enabled`다. DB v19·Export v4·salt·암호문·기존 설정 키·저장색·의존성은 v4.5a와 같다. 계약은 [AGENTS.md](../AGENTS.md)·[UI 계약](UI_PATTERNS.md), 설계·계획·증거는 [작업 기록](work/2026-11-01-v4.6-holiday-theme.md)을 따른다(Subagent-Driven 7태스크 + 최종 리뷰, 결정 R1~R18).

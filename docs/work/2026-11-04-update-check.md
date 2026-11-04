@@ -1,6 +1,6 @@
 # 작업 기록: 새 버전 알림(인터넷 접속을 켠 PC만)
 
-작성일: 2026-11-04 / 상태: 구현 완료, 수동 확인 대기
+작성일: 2026-11-04 / 상태: v4.7로 main push 완료, Release·수동 확인 대기
 
 ## 목표와 범위
 
@@ -40,6 +40,8 @@
 | `release`(전체 pytest 3,564개·빌드·smoke 6개) | 통과 | `20261105-004300-46c005886f` | e2c33a9, 공휴일 최신, BINARY 환경 밖 0개, `dist/` 변경 0개, 시험 EXE SHA `C0735B7A…` |
 | smoke `update_check`(닫힌 포트) | 통과 | 위 실행 `smoke/update_check/` | 69초 만에 `새 버전 확인 실패: connection` 기록. EXE에서 확인이 돈다는 근거 |
 | `--live-update-check`(인터넷 PC, 실제 EXE) | 통과 | 위 실행 `smoke/update_check_live/` | 75초 동안 실패 기록 없음(`error.log` 0바이트). TLS까지 성공했다는 근거 |
+| `release`(v4.7 최종) | 통과 | `20261105-013953-5324feab10` | 24375b3, 3,564개, smoke 6개, `--live-update-check` 통과, EXE SHA `E23BD81D…` |
+| push 서버 보안 검사 | 통과 | GitLab push 로그 | 24375b3, Gitleaks·Semgrep·OSV-Scanner·Trivy·Syft 5종 |
 | `release`(이전 시도) | 실패 | `20261104-223632-f4b1cd4450` | 70bd183, 3,564개 중 1개 실패, 빌드 전 중단. 위 결정 참고. 그 전 `20261104-215726-28abaf2c44`(27f99d3)는 통과했지만 이후 코드가 바뀌어 근거로 쓰지 않는다 |
 | 화면 대조(①②③④⑤) | 통과 | `output/design/update-guide-20261104/check_compact_*.png` | 기본 크기만 그림. 설정창 레이아웃 최소 높이 551px |
 
@@ -49,5 +51,5 @@
 
 - 남은 문제 / 수동 확인: `tools/dev_update_check_preview.py --latest v4.8`로 ①~④를 중간·크게·공휴일 테마·Windows 애니메이션 끔에서 보기. 업무망 PC(또는 망 차단)에서 스위치 켬 → 아무 표시·오류 창 없음·조작 지연 없음. 스위치 꺼짐에서 요청 없음(방화벽·프록시 기록으로 확인 가능하면). 실제 새 버전 알림은 다음 Release가 나와야 실기로 볼 수 있다.
 - 변경한 정본 문서: `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/CODING_STANDARDS.md`, `docs/UI_PATTERNS.md`, `docs/TESTING.md`.
-- 다음 행동: 사용자 결정(병합·버전 번호·Release). 위 Minor 7건은 사용자가 고를 일이다. 서버 보안 검사(Semgrep)는 로컬에 없어 push 때 처음 돈다. `fetch_data.py`와 같은 구조로 맞췄다.
-- 배포·커밋·push 여부: 브랜치 `feature/update-check`에 커밋. push·버전 올리기·EXE 배포는 수행하지 않음.
+- 다음 행동: GitLab Release 게시(사용자). 위 Minor 7건은 사용자가 고를 일이다.
+- 배포·커밋·push 여부: v4.7로 올려 main을 GitLab·GitHub에 push했고 EXE는 `dist/기후노트_v4.7.exe`에 두었다. Release 게시는 사용자가 한다.
