@@ -1,5 +1,6 @@
 """EXE를 빌드하지 않고 경로 제한·프로세스 소유권·합성 데이터 도구 검증."""
 
+from contextlib import closing, contextmanager
 from ctypes import wintypes as W
 import copy
 import os
@@ -7,6 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -173,6 +175,107 @@ def test_smoke_failure_and_interruption_are_recorded(tmp_path, monkeypatch):
     monkeypatch.setattr(smoke, "scenario", interrupted)
     assert smoke.main(["--exe", str(exe), "--run-dir", str(tmp_path)]) == 130
     assert verify.read_json(tmp_path / "smoke.json")["status"] == "interrupted"
+
+
+def test_update_check_scenario_runs_in_release():
+    assert smoke.SCENARIOS == ("fresh", "existing", "blocked", "upgrade", "upgrade_v18", "update_check")
+
+
+def test_enable_internet_access_writes_only_that_key():
+    directory = verify.create_run_dir()
+    data_root = directory / "synthetic"
+    data_root.mkdir()
+    before = smoke.data_step("seed", data_root, directory / "seed.json")
+    database = data_root / "MyDesktopCalendar" / "calendar.db"
+    with closing(sqlite3.connect(database)) as conn:
+        settings = dict(conn.execute("SELECT key, value FROM app_settings"))
+    assert smoke.data_step("enable_internet_access", data_root, directory / "on.json") == {"internet_access": "1"}
+    with closing(sqlite3.connect(database)) as conn:
+        after = dict(conn.execute("SELECT key, value FROM app_settings"))
+        schedules = [row[0] for row in conn.execute("SELECT id FROM schedules ORDER BY id")]
+    assert after == {**settings, "internet_access_enabled": "1"}
+    assert schedules == sorted(before["ids"]["schedules"])
+
+
+def _fake_launch(monkeypatch, log_text=""):
+    """EXE 없이 시나리오 흐름만 돌린다. 합성 폴더 만들기·실행을 가짜로 바꾼다."""
+    def data_step(action, data_root, result_path):
+        if action == "enable_internet_access" and log_text:
+            folder = data_root / "MyDesktopCalendar"
+            folder.mkdir()
+            (folder / "error.log").write_text(log_text, encoding="utf-8")
+        return {}
+
+    launches = []
+
+    @contextmanager
+    def managed_launch(command, env, log_path):
+        launches.append(env)
+        yield None, SimpleNamespace(poll=lambda: None, returncode=None)
+
+    monkeypatch.setattr(smoke, "data_step", data_step)
+    monkeypatch.setattr(smoke, "managed_launch", managed_launch)
+    return launches
+
+
+def test_update_check_scenario_detects_missing_log(monkeypatch):
+    _fake_launch(monkeypatch)
+    monkeypatch.setattr(smoke, "UPDATE_CHECK_WAIT_SECONDS", 0)
+    with pytest.raises(TimeoutError, match="update_check"):
+        smoke.update_check_scenario("x.exe", verify.create_run_dir())
+
+
+def test_update_check_scenario_uses_closed_proxy_and_passes_on_log(monkeypatch):
+    launches = _fake_launch(monkeypatch, "새 버전 확인 실패: connection\n")
+    assert smoke.update_check_scenario("x.exe", verify.create_run_dir())["status"] == "passed"
+    assert launches[0]["HTTPS_PROXY"] == "http://127.0.0.1:9" and "NO_PROXY" not in launches[0]
+
+
+def test_live_scenario_fails_on_logged_failure(monkeypatch):
+    launches = _fake_launch(monkeypatch, "새 버전 확인 실패: http-503\n")
+    with pytest.raises(RuntimeError, match="http-503"):
+        smoke.update_check_scenario("x.exe", verify.create_run_dir(), live=True)
+    assert launches[0].get("HTTPS_PROXY") != "http://127.0.0.1:9"
+
+
+def test_live_scenario_passes_when_nothing_is_logged(monkeypatch):
+    _fake_launch(monkeypatch)
+    monkeypatch.setattr(smoke, "UPDATE_CHECK_LIVE_SECONDS", 0)
+    assert smoke.update_check_scenario("x.exe", verify.create_run_dir(), live=True)["status"] == "passed"
+
+
+def test_early_exit_fails_the_scenario(monkeypatch):
+    _fake_launch(monkeypatch)
+
+    @contextmanager
+    def exited(command, env, log_path):
+        yield None, SimpleNamespace(poll=lambda: 3, returncode=3)
+
+    monkeypatch.setattr(smoke, "managed_launch", exited)
+    with pytest.raises(RuntimeError, match="종료"):
+        smoke.update_check_scenario("x.exe", verify.create_run_dir())
+
+
+def test_live_flag_runs_only_that_scenario(tmp_path, monkeypatch):
+    exe = tmp_path / "test.exe"
+    exe.write_bytes(b"synthetic")
+    monkeypatch.setattr(smoke, "validate_paths", lambda *_: (exe, tmp_path))
+    monkeypatch.setattr(smoke, "scenario", lambda *_: pytest.fail("다른 시나리오를 돌렸다"))
+
+    def live(_exe, run_dir, *, live=False):
+        assert live
+        (run_dir / "smoke" / "update_check_live").mkdir(parents=True)
+        return {"status": "passed"}
+
+    monkeypatch.setattr(smoke, "update_check_scenario", live)
+    assert smoke.main(["--exe", str(exe), "--run-dir", str(tmp_path), "--live-update-check"]) == 0
+    assert verify.read_json(tmp_path / "smoke" / "update_check_live" / "result.json")["status"] == "passed"
+
+    def failed(*_args, **_kwargs):
+        raise RuntimeError("실제 확인 실패")
+
+    monkeypatch.setattr(smoke, "update_check_scenario", failed)
+    assert smoke.main(["--exe", str(exe), "--run-dir", str(tmp_path), "--live-update-check"]) == 1
 
 
 @pytest.mark.parametrize("version", [17, 18])

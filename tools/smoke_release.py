@@ -28,6 +28,12 @@ else:
 # 앱의 ui_main.UPGRADE_NOTICE_TITLE과 같아야 한다(tests/test_upgrade_notice.py가 대조한다).
 UPGRADE_NOTICE_TITLE = "기후노트 업데이트 안내"
 NOTICE_SETTLE_SECONDS = 2.0  # 안내창 지연(0.8초)보다 넉넉히 더 지켜보는 시간
+SCENARIOS = ("fresh", "existing", "blocked", "upgrade", "upgrade_v18", "update_check")
+# 새 버전 확인: 실패가 화면에 보이지 않는 기능이라 EXE에서 안 돌아도 로그로만 알 수 있다.
+CLOSED_PROXY = "http://127.0.0.1:9"  # 닫힌 포트. 인터넷 없이 연결 실패가 보장된다
+UPDATE_CHECK_FAILED = "새 버전 확인 실패"
+UPDATE_CHECK_WAIT_SECONDS = 90  # 첫 확인이 창이 뜬 뒤 60초
+UPDATE_CHECK_LIVE_SECONDS = 75  # 첫 확인 60초 + 시간 제한 10초가 끝난 뒤까지 지켜본다
 
 
 class _BasicLimits(ctypes.Structure):
@@ -406,6 +412,9 @@ def _data_worker(action, data_root, result_path):
         result["salt_sha256"] = file_hash(security.SALT_FILE)
         log = db.APP_DIR / "error.log"
         result["error_log_bytes"] = log.stat().st_size if log.exists() else 0
+    elif action == "enable_internet_access":
+        db.save_setting(db.SETTING_INTERNET_ACCESS, "1")
+        result = {"internet_access": db.get_setting(db.SETTING_INTERNET_ACCESS, "")}
     elif action == "inspect":
         health = db.inspect_startup_data_health()
         if not health.ok:
@@ -485,7 +494,44 @@ def protected_hashes(data_root):
     return {path.relative_to(folder).as_posix(): file_hash(path) for path in paths if path.is_file()}
 
 
+def update_check_scenario(exe, run_dir, *, live=False):
+    """스위치를 켠 EXE가 실제로 새 버전을 확인하는지 error.log로 본다.
+
+    기본: 닫힌 포트를 프록시로 주면 약 60초 뒤 연결 실패가 기록돼야 한다(http·ssl 모듈까지 EXE에서 돈다는 근거).
+    live: 프록시를 건드리지 않고 기록되는 실패가 없어야 한다. 기본 시나리오와 함께 보면 TLS까지 성공했다는 근거다.
+    """
+    folder = run_dir / "smoke" / ("update_check_live" if live else "update_check")
+    folder.mkdir(parents=True)
+    data_root = folder / "appdata"
+    data_root.mkdir()
+    data_step("seed", data_root, folder / "before.json")
+    data_step("enable_internet_access", data_root, folder / "enabled.json")
+    env = data_env(data_root)
+    if not live:
+        env["HTTPS_PROXY"] = CLOSED_PROXY
+        env.pop("NO_PROXY", None)
+    marker = UPDATE_CHECK_FAILED if live else f"{UPDATE_CHECK_FAILED}: connection"
+    log = data_root / "MyDesktopCalendar" / "error.log"
+    command = [sys.executable, str(Path(__file__).resolve()), "_launch", str(exe)]
+    found = ""
+    with managed_launch(command, env, folder / "exe.log") as (_job, process):
+        deadline = time.monotonic() + (UPDATE_CHECK_LIVE_SECONDS if live else UPDATE_CHECK_WAIT_SECONDS)
+        while not found and time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError(f"update_check: 시간 전에 EXE 종료 ({process.returncode})")
+            found = next((line for line in (log.read_text(encoding="utf-8").splitlines() if log.is_file() else [])
+                          if marker in line), "")
+            time.sleep(0.2)
+    if live and found:
+        raise RuntimeError(f"update_check: 실제 확인 실패 기록: {found}")
+    if not live and not found:
+        raise TimeoutError(f"update_check: {marker} 기록이 없습니다.")
+    return {"status": "passed", "live": live, "log_line": found}
+
+
 def scenario(exe, run_dir, name):
+    if name == "update_check":
+        return update_check_scenario(exe, run_dir)
     folder = run_dir / "smoke" / name
     folder.mkdir(parents=True)  # 기존 시나리오 폴더는 재사용하지 않는다.
     data_root = folder / "appdata"
@@ -576,12 +622,23 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", required=True)
     parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--live-update-check", action="store_true",
+                        help="실제 인터넷으로 새 버전 확인 시나리오 하나만 돌린다(release에는 포함하지 않는다).")
     args = parser.parse_args(argv)
     exe, directory = validate_paths(args.exe, args.run_dir)
+    if args.live_update_check:
+        try:
+            result = update_check_scenario(exe, directory, live=True)
+        except (OSError, ValueError, RuntimeError, sqlite3.Error, subprocess.SubprocessError) as exc:
+            print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        write_json(directory / "smoke" / "update_check_live" / "result.json", result)
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        return 0
     report = {"status": "running", "exe_sha256": file_hash(exe), "scenarios": {}}
     write_json(directory / "smoke.json", report)
     try:
-        for name in ("fresh", "existing", "blocked", "upgrade", "upgrade_v18"):
+        for name in SCENARIOS:
             print(f"[smoke] {name}", flush=True)
             report["scenarios"][name] = {"status": "running"}
             write_json(directory / "smoke.json", report)
