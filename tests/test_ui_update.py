@@ -205,6 +205,15 @@ def test_new_version_row_and_tile(qtbot, calendar, opened, motion_on):
     assert "여기서 받으세요" in gitlab.accessibleDescription()
 
 
+def test_highlight_keeps_tile_contents_level_with_onnara(qtbot, calendar, opened, monkeypatch):
+    monkeypatch.setattr(ui_update, "motion_allowed", lambda: False)  # 화살표가 움직이지 않는 상태로 잰다
+    dlg = _open(qtbot, calendar, "v4.7")
+    onnara, gitlab = dlg.onnara_tile, dlg.gitlab_tile
+    assert gitlab.icon.y() == onnara.icon.y()
+    assert gitlab.chip.y() == onnara.chip.y()
+    assert gitlab.hint.y() == onnara.hint.y()
+
+
 def test_hover_and_focus_keep_two_pixel_border(qtbot, calendar, opened, motion_on):
     dlg = _open(qtbot, calendar, "v4.7")
     gitlab = dlg.gitlab_tile

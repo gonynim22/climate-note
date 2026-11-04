@@ -350,9 +350,9 @@ class UpdateTile(QPushButton):
 
 
     def set_highlight(self, latest: str) -> None:
-        """새 버전이 있을 때: 테두리 2px과 '받으러 가기' 안내. 내용은 그 자리에 둔다."""
+        """새 버전이 있을 때: 테두리 2px과 '받으러 가기' 안내. 내용은 온나라 타일과 같은 높이다."""
         self.hint.setText(f"{latest} 받으러 가기")
-        self.layout().setContentsMargins(8, 21, 8, 15)  # 위아래는 테두리만큼. 좌우는 긴 태그 자리(내용은 가운데 정렬)
+        self.layout().setContentsMargins(8, 22, 8, 16)  # 좌우는 긴 태그 자리. 위아래는 그대로(Qt 레이아웃은 테두리를 빼지 않는다)
         self.setAccessibleDescription(f"{self.chip.text()}. 여기서 받으세요. {self.hint.text()}")
         self.setProperty("updateHighlight", "true")
         self.style().unpolish(self)
