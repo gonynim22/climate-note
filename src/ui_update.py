@@ -10,7 +10,7 @@
 
 import math
 
-from PySide6.QtCore import QByteArray, QSize, Qt, QUrl
+from PySide6.QtCore import QByteArray, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
@@ -42,6 +42,7 @@ SUB = "#5B6678"
 ONNARA = {"accent": "#1E7A46", "bg": "#E3F3E8", "line": "#C2E4CE", "hover": "#D6EEDF", "pressed": "#CBE8D5"}
 GITLAB = {"accent": "#1D4ED8", "bg": "#DFE8FD", "line": "#C3D3FA", "hover": "#D2DFFC", "pressed": "#C6D6FA"}
 MASK_COLOR = QColor(1, 20, 48, 112)  # 남색 기운의 바탕 막(44%)
+DOT_COLOR = "#F04438"  # 새 버전이 있다는 점
 
 _SVG_HEAD = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{c}" '
              'stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round">')
@@ -111,6 +112,35 @@ def _icon_label(parent: QWidget, name: str, icon: str, color: str, size: int, bo
     label.setAlignment(Qt.AlignCenter)
     label.setPixmap(icon_pixmap(icon, color, size, ratio=ratio))
     return label
+
+
+class UpdateDot(QWidget):
+    """새 버전이 있다는 빨간 점. 마우스 입력을 막지 않는다. 테두리는 놓인 바탕색을 따른다."""
+
+    def __init__(self, parent: QWidget, *, diameter: int, ring_color: str, ring: int = 2):
+        super().__init__(parent)
+        self._diameter = diameter
+        self._ring = ring
+        self._ring_color = ring_color
+        self.setFixedSize(diameter + 2 * ring, diameter + 2 * ring)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+
+    def ring_color(self) -> str:
+        return self._ring_color
+
+    def set_ring_color(self, color: str) -> None:
+        self._ring_color = color
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(self._ring_color))
+        painter.drawEllipse(QRectF(self.rect()))
+        painter.setBrush(QColor(DOT_COLOR))
+        painter.drawEllipse(QRectF(self._ring, self._ring, self._diameter, self._diameter))
+        painter.end()
 
 
 class UpdateTile(QPushButton):
@@ -337,7 +367,7 @@ class UpdateGuideDialog(MaskDialogBase):
         self.widget.setFixedHeight(max(height, self._layout.minimumSize().height()))
 
 
-def show_update_guide(parent) -> None:
+def show_update_guide(parent, latest: str | None = None) -> None:
     dlg = UpdateGuideDialog(parent)
     dlg.close_button.setFocus()
     dlg.exec()

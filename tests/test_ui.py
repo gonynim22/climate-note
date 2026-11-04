@@ -603,7 +603,7 @@ def test_settings_update_guide_card_removed(qtbot, app_dir, qapp):
 
 def test_main_window_more_menu_contains_secondary_actions(qtbot, app_dir, qapp, monkeypatch):
     calls = []
-    monkeypatch.setattr("ui_main.show_update_guide", lambda parent=None: calls.append(parent))
+    monkeypatch.setattr("ui_main.show_update_guide", lambda parent=None, latest=None: calls.append(parent))
 
     win = MainCalendarWindow()
     qtbot.addWidget(win)

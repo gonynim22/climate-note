@@ -423,7 +423,8 @@ from ui_schedule_options import (
 )
 from ui_calendar_spans import CalendarSpanOverlay, SpanBar
 from ui_schedule_alarm import ScheduleAlarmCard, ScheduleAlarmScheduler
-from ui_update import show_update_guide
+from ui_update import UpdateDot, show_update_guide
+from ui_update_check import UpdateCheckController
 from fluent_icons import fluent_icon
 import optional_mini_apps
 from ui_mini_apps import MiniAppsButton, MiniAppsPocket, pocket_position
@@ -442,6 +443,9 @@ from ui_holiday_theme import HolidayThemeController
 
 # 공휴일 테마가 없을 때의 머리줄·오늘 칸 남색(holiday_theme.DEFAULT_HEADER와 같은 값)
 NAVY = holiday_theme.DEFAULT_HEADER
+# 메뉴 아이콘 칸은 14px이라 점(전체 11px)을 아이콘에 그리면 시안처럼 칸 밖으로 걸치지 못한다.
+# 그래서 메뉴 목록 위에 위젯으로 얹는다. 값은 항목 왼쪽 위 기준.
+MENU_DOT_OFFSET = QPoint(27, 3)
 
 
 def header_section_qss(background: str) -> str:
@@ -1647,6 +1651,7 @@ class MainCalendarWindow(QWidget):
         # 공휴일 테마(표시 전용). 달력을 처음 그릴 때 읽으므로 화면보다 먼저 만들고,
         # 첫 판정은 화면을 다 만든 뒤에 한다.
         self._holiday_theme = HolidayThemeController(self)
+        self._update_check = UpdateCheckController(self)
         self._build_ui()
         self._apply_sidebar_visibility()
         self._apply_calendar_scale()
@@ -1656,6 +1661,7 @@ class MainCalendarWindow(QWidget):
         self._apply_app_opacity()
         self._holiday_theme.themeChanged.connect(self._apply_holiday_theme)
         self._holiday_theme.pausedChanged.connect(self._on_holiday_paused)
+        self._update_check.latestChanged.connect(self._on_update_latest_changed)
         self._holiday_theme.refresh()
 
         # ── 주기적 자동 저장 (30초) ──
@@ -1675,6 +1681,8 @@ class MainCalendarWindow(QWidget):
 
         # 일정 알림은 창이 뜬 뒤 시작한다(놓친 알림은 지난 12시간 것만).
         QTimer.singleShot(0, self, self._schedule_alarm_scheduler.start)
+        # 새 버전 확인은 설정에서 켠 PC만 예약한다(꺼져 있으면 아무것도 하지 않는다).
+        QTimer.singleShot(0, self, self._update_check.start)
 
         # ── 화면 변경 감지 (듀얼 모니터/GPU 전환) ──
         self._screen_change_timer = QTimer(self)
@@ -2330,6 +2338,9 @@ class MainCalendarWindow(QWidget):
         self._more_btn.setStyleSheet(header_flat_icon_style)
         self._more_btn.clicked.connect(self._on_more_menu)
         right_group.addWidget(self._more_btn)
+        self._update_dot = UpdateDot(self._more_btn, diameter=8, ring_color=NAVY)
+        self._update_dot.move(18, 2)
+        self._update_dot.hide()
         top_bar.addWidget(right_widget)
 
         parent_layout.addLayout(top_bar)
@@ -2426,11 +2437,16 @@ class MainCalendarWindow(QWidget):
         menu.setWindowOpacity(1.0)
         self._apply_header_menu_style(menu)
         menu.addAction(self._make_menu_action(menu, "arrow_sort_color", "자동정렬", self._on_arrange_sticky_notes))
-        menu.addAction(self._make_menu_action(menu, "arrow_sync_color", "앱 업데이트", self._on_update_guide))
+        update_action = self._make_menu_action(menu, "arrow_sync_color", "앱 업데이트", self._on_update_guide)
+        menu.addAction(update_action)
         menu.addAction(self._make_menu_action(menu, "delete_color", "휴지통", self._on_open_trash))
         menu.addAction(self._make_menu_action(menu, "settings_color", "설정", self._on_settings))
         menu.addSeparator()
         menu.addAction(self._make_menu_action(menu, "subtract_color", "앱 최소화", self._minimize_to_tray))
+        if self._update_check.latest is not None:
+            dot = UpdateDot(menu.view.viewport(), diameter=7, ring_color="#FFFFFF")
+            dot.move(menu.view.visualItemRect(update_action.property("item")).topLeft() + MENU_DOT_OFFSET)
+            dot.show()
         return menu
 
     def _on_more_menu(self):
@@ -3518,6 +3534,7 @@ class MainCalendarWindow(QWidget):
         입힌다. 장식의 멈춤 상태는 마지막에 다시 맞춘다.
         """
         theme = match.theme if match is not None else None
+        self._update_dot.set_ring_color(theme.header if theme is not None else NAVY)
         self._header_section.setStyleSheet(
             header_section_qss(theme.header if theme is not None else NAVY))
         self._header_decor.set_theme(theme.key if theme is not None else None)
@@ -4299,7 +4316,11 @@ class MainCalendarWindow(QWidget):
         self._search_window.raise_()
 
     def _on_update_guide(self):
-        show_update_guide(self)
+        show_update_guide(self, self._update_check.latest)
+
+    def _on_update_latest_changed(self, latest: str | None) -> None:
+        """새 버전을 알게 됐거나(태그) 지웠다(None). 메뉴와 안내창은 열 때 latest를 읽는다."""
+        self._update_dot.setVisible(latest is not None)
 
     def _navigate_to_date(self, date_str: str):
         """검색 결과 클릭 시 해당 날짜로 캘린더 이동"""
@@ -4339,6 +4360,7 @@ class MainCalendarWindow(QWidget):
                 on_prepare_data_change=self.prepare_for_data_change,
                 on_before_reset=self._discard_data_widgets,
                 on_holiday_theme_changed=self._on_holiday_theme_setting_changed,
+                on_internet_access_changed=self._update_check.apply_setting,
             )
             self._settings_window.reset_succeeded.connect(self._discard_unit_converter)
             self._settings_window.reset_succeeded.connect(self._discard_date_time_calculator)
@@ -4453,6 +4475,7 @@ class MainCalendarWindow(QWidget):
         self._apply_app_opacity()
         self._on_keep_desktop_changed()
         self._on_law_search_changed()
+        self._update_check.apply_setting()  # 초기화로 꺼졌으면 예약과 표시를 지운다(가져오기는 이 키를 바꾸지 않는다)
         self.sidebar.load_shortcuts()
         self._update_schedule_color_btn()
         if self._selected_date:
@@ -4549,6 +4572,7 @@ class MainCalendarWindow(QWidget):
             self._discard_optional_mini_apps()
             self._close_schedule_emoji_popups()
             self._schedule_alarm_scheduler.stop(persist=True)
+            self._update_check.stop()
             self._close_alarm_card()
             return True
         _logger.error("스티키 노트 저장 실패로 앱 종료를 보류합니다")
