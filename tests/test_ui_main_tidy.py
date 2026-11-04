@@ -1,7 +1,7 @@
 """디자인 점검 10·13·14번: 바로가기 칸, 일정 줄 삭제 아이콘, 날짜 머리줄 색."""
 from collections import Counter
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QSize
+from PySide6.QtCore import QEvent, QPoint, QPointF, QSize, Qt
 from PySide6.QtGui import QEnterEvent
 from PySide6.QtWidgets import QApplication
 
@@ -31,8 +31,10 @@ def _sidebar(qtbot):
     sidebar = ShortcutSidebarWidget()
     qtbot.addWidget(sidebar)
     sidebar.load_shortcuts()
+    # 화면에 띄우지 않는다. 창이 실제 커서 밑에 뜨면 합성 Leave 뒤에 진짜 Enter가 들어와 결과가 커서 위치에 흔들린다.
+    sidebar.setAttribute(Qt.WA_DontShowOnScreen, True)
     sidebar.show()
-    qtbot.waitExposed(sidebar)
+    qtbot.waitUntil(sidebar.isVisible)
     return sidebar
 
 
