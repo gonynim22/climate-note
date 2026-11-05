@@ -6,6 +6,7 @@ SHA-256을 확인한 번들 모델만 불러온다. 계약은 docs/SCREEN_TEXT.m
 import hashlib
 import json
 import os
+from bisect import bisect_left
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +27,10 @@ MAX_REC_BATCH_WIDTH = 8192 # 한 배치의 패딩 폭 합계 상한
 MAX_SIDE = 4000            # 입력 이미지 긴 변 상한 (넘으면 줄인다)
 UPSCALE = 1.0              # 작은 글씨 확대 배율 (Task 4 측정으로 확정)
 CHARSET_SIZE = 11945
+SPACE_GAP_RATIO = 0.40     # 글자 높이의 이 비율 이상 빈 열이 이어지면 단어 사이 (실제 PDF·합성·글꼴 6종 시험에서 0.38~0.42가 안정)
+SPACE_MIN_GAP = 3          # 아주 작은 글자에서도 이보다 좁은 틈은 단어 사이로 보지 않는다(픽셀)
+INK_MIN_DIFF = 24          # 배경 중앙값과 이만큼(0~255) 달라야 글자 픽셀
+INK_PEAK_FRACTION = 0.3    # 그리고 가장 진한 글자 픽셀 차이의 이 비율 이상
 DET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 DET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -157,17 +162,65 @@ def expand_box(x0, y0, x1, y1, ratio=UNCLIP_RATIO):
     return x0 - distance, y0 - distance, x1 + 1 + distance, y1 + 1 + distance
 
 
-def ctc_decode(probs, charset):
-    """(timestep, class) 확률에서 반복·blank(0)를 지운 글자와 평균 확신도."""
+def ctc_decode_detail(probs, charset):
+    """(timestep, class) 확률에서 반복·blank(0)를 지운 글자 목록과 평균 확신도.
+
+    글자 목록은 [(글자, 중심 단계)]이며, 중심은 그 글자가 이어진 단계들의 평균 위치다.
+    """
     indices = probs.argmax(axis=1)
     confidence = probs.max(axis=1)
-    text, scores, previous = [], [], 0
+    pieces, scores, previous = [], [], 0
     for step, index in enumerate(indices.tolist()):
         if index != 0 and index != previous:
-            text.append(charset[index - 1])
+            pieces.append([charset[index - 1], [step]])
             scores.append(float(confidence[step]))
+        elif index != 0 and pieces:
+            pieces[-1][1].append(step)
         previous = index
-    return "".join(text), (float(np.mean(scores)) if scores else 0.0)
+    return [(char, sum(run) / len(run)) for char, run in pieces], (float(np.mean(scores)) if scores else 0.0)
+
+
+def ctc_decode(probs, charset):
+    """(timestep, class) 확률에서 반복·blank(0)를 지운 글자와 평균 확신도."""
+    pieces, score = ctc_decode_detail(probs, charset)
+    return "".join(char for char, _ in pieces), score
+
+
+def ink_gap_cuts(crop):
+    """한 줄 크롭에서 글자 높이에 견줘 충분히 넓은 빈 열(단어 사이)의 가운데 x 목록.
+
+    배경은 중앙값 색으로 보고, 배경과 충분히 다른 픽셀만 글자로 센다(옅은 잡음은 무시). 가장자리 여백과
+    글자 사이의 좁은 틈은 세지 않는다. 화면에 실제로 있는 틈을 잴 뿐 글자를 추정하지 않는다.
+    """
+    if crop.size == 0:
+        return []
+    gray = crop.astype(np.float32) @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    diff = np.abs(gray - np.median(gray))
+    peak = float(diff.max())
+    if peak <= 0:
+        return []
+    ink = diff > max(INK_MIN_DIFF, INK_PEAK_FRACTION * peak)
+    columns = np.flatnonzero(ink.any(axis=0))
+    rows = np.flatnonzero(ink.any(axis=1))
+    if columns.size < 2 or rows.size == 0:
+        return []
+    need = max(SPACE_MIN_GAP, int(round(SPACE_GAP_RATIO * (rows[-1] - rows[0] + 1))))
+    empty = np.diff(columns) - 1  # 글자가 있는 열 사이에 낀 빈 열 수
+    return [int(columns[k + 1] - empty[k] // 2 - 1) for k in np.flatnonzero(empty >= need)]
+
+
+def insert_gap_spaces(pieces, cuts, steps, width):
+    """빈 틈(크롭 x)을 글자 위치(CTC 단계)에 대응시켜, 틈 왼쪽 글자 뒤에 공백만 넣은 문자열.
+
+    모델이 이미 공백을 낸 자리, 첫 글자 앞·마지막 글자 뒤의 틈, 같은 자리의 중복 틈에는 넣지 않는다.
+    """
+    centers = [center for _, center in pieces]
+    after = [False] * len(pieces)
+    for cut in cuts if width > 0 else ():
+        left = bisect_left(centers, cut * steps / width) - 1  # 중심이 틈보다 왼쪽인 마지막 글자
+        if 0 <= left < len(pieces) - 1 and pieces[left][0] != " " and pieces[left + 1][0] != " ":
+            after[left] = True
+    return "".join(char + (" " if gap else "") for (char, _), gap in zip(pieces, after))
 
 
 class OcrEngine:
@@ -276,7 +329,12 @@ class OcrEngine:
                 if cancelled():
                     raise RecognitionCancelled
                 steps = max(1, int(np.ceil(probs.shape[1] * widths[i] / widest)))
-                results[i] = ctc_decode(probs[slot, :steps], self._charset)
+                text, score = ctc_decode(probs[slot, :steps], self._charset)  # 진단 도구가 가로채는 지점: 상자마다 한 번
+                pieces, _ = ctc_decode_detail(probs[slot, :steps], self._charset)
+                if "".join(char for char, _ in pieces) == text:  # 글자와 위치가 맞을 때만 공백 위치를 쓴다
+                    x0, y0, x1, y1 = boxes[i]
+                    text = insert_gap_spaces(pieces, ink_gap_cuts(image[y0:y1, x0:x1]), steps, x1 - x0)
+                results[i] = (text, score)
             del probs, batch
             start = end
         return results

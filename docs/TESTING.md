@@ -86,6 +86,8 @@ PowerShell release 후 새 frozen EXE에서 qpdf 플러그인·offscreen 일괄�
 
 ### 화면 글자 따기 정확도 진단 도구
 
+`test_screen_text_space_gaps.py`는 공백 복원을 검사한다. 순수 함수(`ink_gap_cuts`는 글자 높이에 비례한 틈 기준·가장자리 여백·어두운 배경·옅은 잡음 무시, `ctc_decode_detail`은 반복·blank 처리와 글자 중심 위치, `insert_gap_spaces`는 가장자리·중복·모델이 낸 공백 처리)와 실제 모델로 Qt 합성 줄 13/14/16px(마침표·괄호 뒤 공백 복원, 붙여 쓴 단어와 일반 문장에 공백이 끼어들지 않음)를 확인한다. `ctc_decode`는 상자마다 정확히 한 번 불려야 하므로(`tools/screen_text_lab`의 진단이 그 지점을 가로챈다) 이 경로를 바꾸면 `test_screen_text_lab_*` 전체도 함께 실행한다. 실제 공문서 PDF 평가(`output/screen_text_lab/pdf-eval-20261105/`, 1,188장)는 수동 개발 도구의 증거이며 통상 테스트가 아니다.
+
 `test_screen_text_layout.py`의 순수 좌표 회귀는 병합 라벨에 의한 행 흡수, 여러 줄 셀의 읽기 순서/경고 위치, 인접 열의 작은 겹침, 한 셀의 겹친 판독 조각, 병합 머리글과 떨어진 문장 구별을 검사한다. 100/125/150/200% 좌표·평행 이동·입력 역순도 포함하며 OCR 재추론이나 실제 혼합 DPI 검사가 아니다. 실제 공개 문서 16영역과 기존 합성 dev 1,920개의 고정 상자 재구성 비교는 [표 구성 기록](work/2026-10-11-screen-text-table-layout.md)의 별도 수동 실행 증거다.
 
 개발용 진단은 [개발 계획](work/2026-10-10-screen-text-lab-plan.md)의 자료 검증·채점·실제 엔진 실행·HTML 비교와 조건별 합성 자료·영역/CTC/입력·모델 비교를 `tools/screen_text_lab/`에 제공한다. [사용법](SCREEN_TEXT_LAB.md)의 별도 명령으로 실행한다. 첫 100개 합성 자료는 도구 검증용이며, 현재 조건 자료는 200원문×12조건이다. 원본 약 1,000개와 실제 캡처·새 원문 독립 평가 확대는 후속 범위다. 자료는 `output/screen_text_lab/corpus/`, 실행 증거와 HTML 보고서는 `output/harness/<run-id>/`에 둔다.
