@@ -14,6 +14,9 @@ SEARCH_LEFT = 2.5          # 상자 높이의 이 배수만큼 왼쪽(왼쪽 이
 SEARCH_RIGHT = 4.0         # 상자 시작에서 상자 높이의 이 배수까지만 본다(기호와 뒤 글자의 간격을 알기에 충분하다)
 MIN_SYMBOL_PX = 3          # 이보다 작은 덩어리(마침표·쉼표)는 기호가 아니다
 SYMBOL_GAP_RATIO = 0.5     # 기호와 뒤 글자의 간격은 기호 폭의 이 비율(최소 3px) 이상
+FILLED_MIN_FILL = 0.96     # 속이 찬 정사각의 채움(실측 ▪ 56개 모두 0.98 이상). 색 배지는 글자 구멍 때문에 0.95 이하다
+FILLED_MIN_HEIGHT = 0.22   # 줄 글자 높이 대비 하한. 3~4px의 둥근 • 는 픽셀로는 네모라 크기로 가른다(• 0.21 이하, ▪ 0.22 이상)
+OUTSIDE_REACH = 0.25       # 상자 밖으로 상자 높이의 이 비율만큼 계속 이어지면 기호가 아니라 줄 옆의 배지·그림이다
 TIP_SIZE = 0.1             # 꼭짓점 칸의 크기(덩어리 폭·높이 대비). 네모는 여기까지 차 있고 고리·마름모는 비어 있다
 SQUARE_TIPS = 0.75         # 네 꼭짓점 칸 중 이만큼 차 있으면 속이 빈 정사각(실측 □ 82개 모두 1.0, 고리 약 370개 중 예외 2개)
 BIG_RING_RATIO = 0.72      # 고리가 줄 글자 높이의 이 비율 이상이면 자모 ㅇ(실측 0.65 이하)보다 커서 ○로 낸다
@@ -39,9 +42,13 @@ CONFUSABLE = frozenset("0oOㅇCcD.:-·□■▪○●ㅁ")
 DASH_LIKE = frozenset("-‐‑–—−~ㅡ一_")
 
 
+def _gray(pixels):
+    return pixels.astype(np.float32) @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+
+
 def ink_mask(crop):
     """배경(중앙값 색)과 충분히 다른 글자 픽셀. 옅은 잡음은 글자로 세지 않는다."""
-    gray = crop.astype(np.float32) @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    gray = _gray(crop)
     diff = np.abs(gray - np.median(gray))
     peak = float(diff.max())
     if peak <= 0:
@@ -78,6 +85,7 @@ def _blobs(ink, reference_height=0, limit=4):
         tips = float(np.mean([blob[:th, :tw].any(), blob[:th, -tw:].any(), blob[-th:, :tw].any(), blob[-th:, -tw:].any()]))
         blobs.append(dict(width=blob_w, height=blob_h, fill=float(blob.mean()), center=center, corners=corners, tips=tips,
                           relative_height=blob_h / height, line_height=height, left=int(a), right=int(b),
+                          top=int(occupied[0]), bottom=int(occupied[-1]),
                           middle=((occupied[0] + occupied[-1]) / 2 - rows[0]) / max(1, rows[-1] - rows[0]),
                           gap=int(runs[k + 1][0] - b - 1) if k + 1 < len(runs) else 10 ** 6))
     return blobs
@@ -105,7 +113,8 @@ def _classify(blob):
         return None
     aspect = blob["width"] / blob["height"]
     relative = blob["relative_height"]
-    if blob["fill"] >= .85 and blob["center"] >= .9 and .7 <= aspect <= 1.4 and .2 <= relative <= 1.05:
+    if (blob["fill"] >= FILLED_MIN_FILL and blob["center"] >= .9 and .7 <= aspect <= 1.4
+            and FILLED_MIN_HEIGHT <= relative <= 1.05):
         return FILLED
     if blob["center"] <= .1 and .75 <= aspect <= 1.3 and relative >= .15:
         if blob["tips"] >= SQUARE_TIPS:
@@ -158,6 +167,23 @@ def _same_row(a, b):
     return min(a[3], b[3]) - max(a[1], b[1]) >= .5 * min(a[3] - a[1], b[3] - b[1])
 
 
+def _continues_outside(image, crop, blob, x_from, y0, y1):
+    """덩어리가 상자 위나 아래 경계에서 잘려 밖으로 한참 이어지는가. 줄 옆의 색 배지·그림이 그렇다.
+
+    글머리 기호는 줄 안에 든다. 상자가 기호 끝 한 줄을 잘랐거나 바로 옆에 표 선이 있어도 1~2행이면 끝난다.
+    """
+    background = float(np.median(_gray(crop)))
+    a, b = x_from + blob["left"], x_from + blob["right"] + 1
+    reach = max(3, int(round(OUTSIDE_REACH * (y1 - y0))))
+    outside = ((blob["top"] == 0, range(max(0, y0 - reach), y0)),
+               (blob["bottom"] == crop.shape[0] - 1, range(y1, min(image.shape[0], y1 + reach))))
+    for touches, rows in outside:
+        if touches and len(rows) >= 2 and all(
+                (np.abs(_gray(image[row, a:b]) - background) > INK_MIN_DIFF).mean() >= .5 for row in rows):
+            return True
+    return False
+
+
 def leading_symbol(image, index, boxes, readable=None):
     """index번 상자의 줄 맨 앞 기호. (종류, 시작 x, 끝 x, 기호만 든 상자인가) 또는 None.
 
@@ -179,11 +205,12 @@ def leading_symbol(image, index, boxes, readable=None):
         return None
     reference = max((_ink_height(image, other) for j, other in enumerate(boxes)
                      if j != index and other[0] >= x0 and other[0] - x0 <= 10 * height and _same_row(other, box)), default=0)
-    for blob in _blobs(ink_mask(image[y0:y1, x_from:x_to]), reference):
+    crop = image[y0:y1, x_from:x_to]
+    for blob in _blobs(ink_mask(crop), reference):
         if _is_rule(blob):
             continue
         kind = _classify(blob)
-        if kind is None:
+        if kind is None or _continues_outside(image, crop, blob, x_from, y0, y1):
             return None
         alone = blob["gap"] >= 10 ** 6 and x_to == x1  # 상자 안에 이 기호밖에 없다
         return kind, x_from + blob["left"], x_from + blob["right"], alone

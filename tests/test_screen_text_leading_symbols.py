@@ -106,6 +106,55 @@ def test_tall_hollow_shape_is_not_a_symbol():
     assert symbols.leading_symbol(image, 0, [(0, 0, 50, HEIGHT)]) is None
 
 
+def test_small_round_bullet_is_not_taken_for_a_filled_square():
+    # 3~4px의 둥근 글머리 •는 픽셀로는 네모라 모양으로 가를 수 없고 크기로 가른다(• 0.20 안팎, ▪ 0.22 이상)
+    image, left, end = line_image("filled", 4)
+    assert symbols.leading_symbol(image, 0, [(left, 0, end, HEIGHT)]) is None
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("· 선정평가", 0.9)]) == [("· 선정평가", 0.9, 0)]
+
+
+def test_colored_badge_with_letters_is_not_taken_for_a_filled_square():
+    # 색 배지(수정·보기)는 통째로 글자 픽셀로 잡힌다. 글자 구멍 때문에 채움이 0.95 이하이고 진짜 ■ ▪는 0.98 이상이다
+    image, left, end = line_image("filled", 18)
+    image[8:12, 8:16] = 255
+    assert symbols.leading_symbol(image, 0, [(left, 0, end, HEIGHT)]) is None
+
+
+def test_part_of_a_tall_colored_badge_cut_by_the_box_is_not_a_symbol():
+    # 줄 왼쪽의 색 배지·그림은 글자 줄보다 커서 상자 높이로 잘리면 꽉 찬 네모처럼 보인다(실제 문서에서 없는 ■ 45개)
+    image = np.full((44, 120, 3), 255, np.uint8)
+    image[4:40, 4:26] = (240, 150, 120)                          # 상자 위아래로 이어지는 배지
+    for x in (40, 53, 66):
+        image[12:32, x:x + 2] = image[12:32, x + 9:x + 11] = 0
+        image[20:22, x:x + 11] = 0
+    boxes = [(38, 11, 79, 33)]
+    assert symbols.leading_symbol(image, 0, boxes) is None
+    assert symbols.apply_leading_symbols(image, boxes, [("대출 신청", 0.9)]) == [("대출 신청", 0.9, 0)]
+
+
+def test_real_symbol_touching_the_box_edge_is_still_found():
+    # 상자가 기호에 딱 맞아 경계에 닿아도 그 밖이 비어 있으면 온전한 기호다
+    image = np.full((44, 120, 3), 255, np.uint8)
+    image[14:30, 4:20] = 0
+    for x in (40, 53, 66):
+        image[12:32, x:x + 2] = image[12:32, x + 9:x + 11] = 0
+        image[20:22, x:x + 11] = 0
+    assert symbols.leading_symbol(image, 0, [(2, 14, 79, 30)])[0] == "■"
+
+
+@pytest.mark.parametrize("rule", [False, True])
+def test_symbol_whose_last_rows_fall_outside_the_box_is_still_found(rule):
+    # 상자가 기호의 끝 한 줄을 잘라도(실제 양식에서 □가 사라졌다), 바로 아래 표 선이 있어도 기호다. 배지는 한참 더 이어진다
+    image = np.full((44, 120, 3), 255, np.uint8)
+    image[12:30, 4:22][glyph("hollow", 18)] = 0
+    if rule:
+        image[30:32, :] = 0
+    for x in (40, 53, 66):
+        image[12:29, x:x + 2] = image[12:29, x + 9:x + 11] = 0
+        image[20:22, x:x + 11] = 0
+    assert symbols.leading_symbol(image, 0, [(38, 12, 79, 29)])[0] == "□"
+
+
 def test_vertical_table_rule_before_the_bullet_is_skipped():
     image, left, end = line_image("filled", 8, rule=True)
     assert symbols.leading_symbol(image, 0, outside_box(image, left, end))[0] == "■"
