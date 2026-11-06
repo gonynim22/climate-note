@@ -3,7 +3,8 @@
 인식 모델은 공문서의 글머리 기호를 거의 읽지 못한다(실제 공문서 PDF에서 ■ 94%·□ 100%·ㅇ 55% 누락). 줄(인식 상자)
 맨 앞의 글자 픽셀 덩어리가 글자보다 작고 뒤 글자와 떨어져 있으면 모양(속이 찬 정사각/속이 빈 정사각/마름모/
 고리/짧은 막대)으로 분류한다. 화면에 있는 모양을 읽을 뿐 글자를 추정하지 않는다. 고리는 ㅇ ◦ ○ o 를 모양으로 다
-구별할 수 없어 크기에 따라 'ㅇ'이나 '○'로 내되 확인 필요로 표시한다. 계약은 docs/SCREEN_TEXT.md를 따른다.
+구별할 수 없어 크기에 따라 'ㅇ'이나 '○'로 내되 확인 필요로 표시한다. 줄 가운데서 모델이 건너뛴 체크박스(□ ■)도
+같은 모양 분류로 찾는다. 계약은 docs/SCREEN_TEXT.md를 따른다.
 """
 import numpy as np
 
@@ -23,6 +24,8 @@ DASH_MAX_WIDTH = 0.6       # 이 비율 이하다. 표 선은 훨씬 길다
 DASH_MIDDLE = (0.4, 0.72)  # 줄 위(0)~아래(1)에서 막대 가운데의 자리(실측 0.47~0.68). 밑줄과 윗줄을 거른다
 DASH_MIN_FILL = 0.7
 DASH_GAP_RATIO = 0.75      # 뒤 글자와 막대 길이의 이 비율 이상 떨어져야 한다(실측 1.0 이상). 음수 기호는 붙어 있다
+CHECKBOX_MIN_HEIGHT = 0.6  # 줄 안 체크박스는 줄 글자 높이의 이 비율 이상(실측 0.79~0.93. ㄱ ㄷ 왼쪽 획은 0.71 이하이고 뒤 글자에 붙는다)
+CHECKBOX_MIN_PX = 6        # 이보다 작으면 마침표·가운뎃점이 네모로 보이는 크기다
 FILLED = "■"
 HOLLOW_SQUARE = "□"
 DIAMOND = "◇"
@@ -113,6 +116,37 @@ def _classify(blob):
     return None
 
 
+def _checkbox(blob, left_gap):
+    """줄 안의 체크박스(□ ■)면 그 기호. 글자 크기에 가깝고 양옆이 충분히 비어 있어야 글자의 획이나 문장 부호가 아니다."""
+    if (blob["height"] < CHECKBOX_MIN_PX or blob["relative_height"] < CHECKBOX_MIN_HEIGHT
+            or left_gap < max(3, SYMBOL_GAP_RATIO * blob["width"])):
+        return None
+    kind = _classify(blob)
+    return kind if kind in (FILLED, HOLLOW_SQUARE) else None
+
+
+def restore_inline_checkboxes(pieces, crop, steps, width):
+    """[(글자, 중심 단계)]에 모델이 건너뛴 줄 안 체크박스를 끼워 넣는다. 그 자리에 모델이 낸 글자가 있으면 건드리지 않는다.
+
+    양식의 '시 □ 군 ■ 구'처럼 한 상자 안에 든 체크박스가 대상이다. 표 선을 뺀 첫 덩어리는 줄 맨 앞이라
+    leading_symbol이 맡고, '동의 □'처럼 항목 뒤에 오는 경우가 있어 마지막 글자 뒤는 본다. 화면의 모양만 읽는다.
+    """
+    if not pieces or width <= 0:
+        return pieces
+    read = [center for char, center in pieces if char != " "]
+    per_pixel = steps / width
+    out, previous_right = list(pieces), None
+    for blob in _blobs(ink_mask(crop), limit=10 ** 6):
+        if _is_rule(blob):
+            continue
+        kind = _checkbox(blob, blob["left"] - previous_right - 1) if previous_right is not None else None
+        previous_right = blob["right"]
+        low, high = blob["left"] * per_pixel - 1, blob["right"] * per_pixel + 1
+        if kind and not any(low <= center <= high for center in read):
+            out.append((kind, (low + high) / 2))
+    return sorted(out, key=lambda piece: piece[1])
+
+
 def _ink_height(image, box):
     """상자 앞부분의 글자 픽셀이 차지하는 세로 높이(글자 없으면 0)."""
     x0, y0, x1, y1 = box
@@ -124,18 +158,20 @@ def _same_row(a, b):
     return min(a[3], b[3]) - max(a[1], b[1]) >= .5 * min(a[3] - a[1], b[3] - b[1])
 
 
-def leading_symbol(image, index, boxes):
+def leading_symbol(image, index, boxes, readable=None):
     """index번 상자의 줄 맨 앞 기호. (종류, 시작 x, 끝 x, 기호만 든 상자인가) 또는 None.
 
     기호는 상자 안이나 바로 왼쪽에 있을 수 있다. 위치 찾기가 기호를 글자와 따로 상자로 자르기도 하므로(기호만
     든 상자), 높이 비율은 같은 줄 오른쪽 이웃 상자의 글자 높이에 견주고 그 상자는 이 기호를 다시 찾지 않는다.
+    readable은 상자별로 모델이 글자를 읽었는지다. 빈 글자로 읽은 상자는 그 안의 기호를 내놓지 못하므로 왼쪽
+    탐색을 막지 않는다(양식의 '□ 시 □ 군 ■ 구'. 기호 일부나 속만 잘린 상자도 있어 그 상자에서 분류하지 않는다).
     """
     box = boxes[index]
     x0, y0, x1, y1 = box
     height = y1 - y0
     left_limit = 0
     for j, other in enumerate(boxes):  # 먼저 시작한 같은 줄의 상자(겹치면 그 상자) 몫인 왼쪽은 찾지 않는다
-        if j != index and other[0] < x0 and _same_row(other, box):
+        if j != index and other[0] < x0 and _same_row(other, box) and (readable is None or readable[j]):
             left_limit = max(left_limit, min(other[2] + 1, x0))
     x_from = max(left_limit, x0 - int(round(SEARCH_LEFT * height)))
     x_to = min(x1, x0 + int(round(SEARCH_RIGHT * height)))
@@ -156,10 +192,11 @@ def leading_symbol(image, index, boxes):
 
 def apply_leading_symbols(image, boxes, results):
     """[(글자, 점수)]를 [(글자, 점수, 확인 필요 앞글자 수)]로. 기호가 보이면 앞에 붙이거나(모델이 건너뜀) 닮은 글자를 교체한다."""
+    readable = [bool(text.strip()) for text, _ in results]
     out = []
     for index, (text, score) in enumerate(results):
         flagged = 0
-        found = leading_symbol(image, index, boxes) if text.strip() else None
+        found = leading_symbol(image, index, boxes, readable) if readable[index] else None
         if found:
             kind, _, right, alone = found
             body = text.lstrip()

@@ -118,6 +118,26 @@ def test_line_starting_with_a_dash_keeps_it(qapp, ocr, pixel_size):
     assert not any(b.unsure_prefix for b in boxes)
 
 
+@pytest.mark.parametrize("pixel_size", [14, 16, 20])
+def test_form_checkboxes_keep_their_order_in_a_line(qapp, ocr, pixel_size):
+    found, boxes = read(ocr, "현주소   □ 특별시   ■ 광역시   □ 도   □ 시   ■ 군   □ 구", pixel_size)
+    assert "".join(ch for ch in found if ch in "□■") == "□■□□■□", found
+    assert not any(b.unsure_prefix for b in boxes)
+
+
+@pytest.mark.parametrize("pixel_size", [14, 16, 20])
+def test_agree_checkboxes_are_both_read(qapp, ocr, pixel_size):
+    found, _ = read(ocr, "수집·이용에 동의   □ 동의   □ 동의하지 않음", pixel_size)
+    assert found.count("□") == 2, found
+
+
+@pytest.mark.parametrize("pixel_size", [13, 14, 16, 20])
+def test_no_checkbox_is_added_to_ordinary_lines(qapp, ocr, pixel_size):
+    for text in ("기후변화 대응 연구 추진계획", "다음 각 호의 기준에 따라 대기 환경을 개선한다", "국가 기술 표준 및 인증 절차", "(단위 : 억원) 2026년 예산"):
+        found, _ = read(ocr, text, pixel_size)
+        assert not set(found) & set("□■"), (text, found)
+
+
 @pytest.mark.parametrize("pixel_size", [13, 14, 16])
 def test_no_dash_is_added_to_ordinary_lines(qapp, ocr, pixel_size):
     for text in ("연간 배출량 감소 추진", "2026-11-06 회의", "연구-개발 연계", "(단위 : 억원)"):

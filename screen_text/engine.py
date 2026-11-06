@@ -14,7 +14,7 @@ import numpy as np
 from app_paths import resource_root
 from screen_text.corner_brackets import restore_corner_brackets
 from screen_text.layout import TextBox
-from screen_text.leading_symbols import apply_leading_symbols, ink_mask
+from screen_text.leading_symbols import apply_leading_symbols, ink_mask, restore_inline_checkboxes
 
 DET_LIMIT = 960            # 위치 모델 입력의 긴 변 상한
 DET_THRESHOLD = 0.3        # 글자 확률 이진화 기준
@@ -330,6 +330,7 @@ class OcrEngine:
                     x0, y0, x1, y1 = boxes[i]
                     crop = image[y0:y1, x0:x1]
                     pieces = restore_corner_brackets(pieces, crop, steps, x1 - x0)
+                    pieces = restore_inline_checkboxes(pieces, crop, steps, x1 - x0)
                     text = insert_gap_spaces(pieces, ink_gap_cuts(crop), steps, x1 - x0)
                 results[i] = (text, score)
             del probs, batch

@@ -186,6 +186,100 @@ def test_box_overlapping_the_symbol_box_does_not_claim_the_symbol_again():
     assert out == [("ㅇ", 0.3, 1), ("연간 배출량", 0.99, 0)]      # 'ㅇ ㅇ'으로 중복되지 않는다
 
 
+# ── 모델이 기호만 든 상자를 빈 글자로 읽은 경우(양식의 '□ 시 □ 군 ■ 구'). 그 상자가 왼쪽 탐색을 막으면 기호가 사라진다 ──
+def test_symbol_box_the_model_read_as_empty_gives_the_symbol_to_the_next_box():
+    image, end = separate_symbol_image("hollow", 12)
+    boxes = [(2, 2, 18, 20), (24, 0, end, HEIGHT)]
+    out = symbols.apply_leading_symbols(image, boxes, [("", 0.0), ("특별시", 0.99)])
+    assert out == [("", 0.0, 0), ("□ 특별시", 0.99, 0)]
+
+
+def test_box_cut_inside_a_filled_symbol_does_not_hide_it():
+    image, end = separate_symbol_image("filled", 12)
+    boxes = [(6, 8, 14, 14), (24, 0, end, HEIGHT)]               # 위치 찾기가 ■의 속만 작은 상자로 잘랐다
+    out = symbols.apply_leading_symbols(image, boxes, [("", 0.0), ("광역시", 0.99)])
+    assert out == [("", 0.0, 0), ("■ 광역시", 0.99, 0)]
+
+
+def test_empty_read_box_over_a_real_glyph_is_not_taken_for_a_symbol():
+    image = np.full((HEIGHT, 120, 3), 255, np.uint8)
+    draw_text_block(image, 8)                                    # 모델이 못 읽은 글자
+    draw_text_block(image, 34)
+    boxes = [(6, 0, 21, HEIGHT), (32, 0, 47, HEIGHT)]
+    assert symbols.apply_leading_symbols(image, boxes, [("", 0.0), ("본문", 0.9)]) == [("", 0.0, 0), ("본문", 0.9, 0)]
+
+
+# ── 한 상자 안에서 모델이 건너뛴 체크박스(양식의 '시 □ 군'). 위치는 CTC 단계(여기서는 4px당 한 단계) ──
+def checkbox_line(kind="hollow", size=16, gap=12):
+    """[글자] [간격] [체크박스] [간격] [글자] 흰 바탕 한 줄. (이미지, 체크박스 시작 x, 끝 글자 시작 x, 전체 폭)."""
+    image = np.full((HEIGHT, 120, 3), 255, np.uint8)
+    draw_text_block(image, 2)
+    box_left = 13 + gap
+    top = (HEIGHT - size) // 2
+    image[top:top + size, box_left:box_left + size][glyph(kind, size)] = 0
+    right = box_left + size + gap
+    draw_text_block(image, right)
+    return image, box_left, right, right + 13
+
+
+def read_pieces(image, right, end):
+    steps = end // 4
+    pieces = [("시", 7 / 4), ("군", (right + 5) / 4)]
+    return symbols.restore_inline_checkboxes(pieces, image[:, :end], steps, end), steps
+
+
+@pytest.mark.parametrize("kind, mark", [("hollow", "□"), ("filled", "■")])
+def test_checkbox_the_model_skipped_inside_a_box_is_inserted_in_place(kind, mark):
+    image, left, right, end = checkbox_line(kind)
+    pieces, _ = read_pieces(image, right, end)
+    assert [char for char, _ in pieces] == ["시", mark, "군"]
+    assert pieces[0][1] < pieces[1][1] < pieces[2][1]
+
+
+def test_checkbox_after_its_label_at_the_end_of_the_line_is_inserted():
+    image, left, right, end = checkbox_line()
+    end = left + 16 + 2
+    steps = end // 4
+    pieces = symbols.restore_inline_checkboxes([("동", 7 / 4)], image[:, :end], steps, end)
+    assert [char for char, _ in pieces] == ["동", "□"]
+
+
+def test_checkbox_the_model_read_is_left_alone():
+    image, left, right, end = checkbox_line()
+    pieces = [("시", 7 / 4), ("ㅁ", (left + 8) / 4), ("군", (right + 5) / 4)]
+    assert symbols.restore_inline_checkboxes(pieces, image[:, :end], end // 4, end) == pieces
+
+
+def test_leading_checkbox_stays_with_the_leading_symbol_rule():
+    image, left, right, end = checkbox_line()
+    image[:, :left - 1] = 255                                    # 앞 글자 없음
+    pieces = [("군", (right + 5) / 4)]
+    assert symbols.restore_inline_checkboxes(pieces, image[:, :end], end // 4, end) == pieces
+
+
+def test_checkbox_right_after_a_table_rule_is_not_counted_twice():
+    image, left, right, end = checkbox_line()
+    image[:, :left - 1] = 255
+    image[:, 3:5] = 0                                            # 상자 왼쪽에 걸린 표 세로선을 모델이 '|'로 읽었다
+    pieces = [("|", 4 / 4), ("군", (right + 5) / 4)]
+    boxes = [(0, 0, end, HEIGHT)]
+    assert symbols.restore_inline_checkboxes(pieces, image[:, :end], end // 4, end) == pieces
+    assert symbols.leading_symbol(image, 0, boxes)[0] == "□"     # 이 기호는 줄 맨 앞 규칙이 낸다
+
+
+@pytest.mark.parametrize("name, kwargs", [
+    ("글자 왼쪽 획처럼 뒤 글자에 붙음", dict(size=16, gap=4)),
+    ("줄 높이의 절반쯤인 작은 네모", dict(size=8)),
+    ("점이나 쉼표 크기", dict(kind="filled", size=4)),
+    ("고리", dict(kind="ring", size=16)),
+    ("마름모", dict(kind="diamond", size=20)),
+])
+def test_other_shapes_are_not_inline_checkboxes(name, kwargs):
+    image, left, right, end = checkbox_line(**kwargs)
+    pieces, _ = read_pieces(image, right, end)
+    assert [char for char, _ in pieces] == ["시", "군"], name
+
+
 # ── 줄 맨 앞 '-' (개조식 공문서에 흔하다. 상자가 그 오른쪽에서 시작해 모델이 못 보기도 한다) ──
 def dash_image(width=9, thick=2, top=11, gap=10, strokes=1):
     """[막대] [간격] [글자]: 글자 높이 20. (이미지, 글자 시작 x, 끝 x)."""
