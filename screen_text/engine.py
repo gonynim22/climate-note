@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from app_paths import resource_root
+from screen_text.corner_brackets import restore_corner_brackets
 from screen_text.layout import TextBox
 from screen_text.leading_symbols import apply_leading_symbols, ink_mask
 
@@ -327,7 +328,9 @@ class OcrEngine:
                 pieces, _ = ctc_decode_detail(probs[slot, :steps], self._charset)
                 if "".join(char for char, _ in pieces) == text:  # 글자와 위치가 맞을 때만 공백 위치를 쓴다
                     x0, y0, x1, y1 = boxes[i]
-                    text = insert_gap_spaces(pieces, ink_gap_cuts(image[y0:y1, x0:x1]), steps, x1 - x0)
+                    crop = image[y0:y1, x0:x1]
+                    pieces = restore_corner_brackets(pieces, crop, steps, x1 - x0)
+                    text = insert_gap_spaces(pieces, ink_gap_cuts(crop), steps, x1 - x0)
                 results[i] = (text, score)
             del probs, batch
             start = end

@@ -8,7 +8,7 @@
 - 변경 대상: 새 `screen_text/leading_symbols.py`, `engine.py`(`recognize()`가 `_read` 뒤에 적용, 글자 픽셀 판정을 새 모듈로 이동), `layout.py`(`TextBox.unsure_prefix`·`Cell.unsure_prefix`·`Cell.flagged`), `window.py`(표시·집계를 `flagged`로), 새 시험 2개 + `test_screen_text_ui.py` 4개, 문서 `SCREEN_TEXT.md`·`TESTING.md`·`SCREEN_TEXT_LAB.md`·`AGENTS.md`.
 - 데이터 영향: 없음. 모델·사전·MANIFEST·DB·설정 키·Export 변경 없음. 결과는 메모리 전용이다.
 - 계약 변경: "판독 글자는 바꾸지 않는다"에 예외 하나를 명시했다 — 줄 맨 앞에서 화면의 기호 모양이 분명할 때만 기호를 붙이거나 닮은 글자(`0 o O C c D . : - □ ■ ▪ ○ ● ㅁ`)를 교체한다.
-- 제외 범위: `△ ▲ ⇒ Ⅳ` 등 모델 사전에 없는 글자, `■`/`▪` 구분, 닮은 고리 구분. 버전 번호·EXE·release.
+- 제외 범위: `△ ▲` 등 모델 사전에 없는 글자와 사전에 있어도 거의 못 읽는 `⇒ Ⅳ`, `■`/`▪` 구분, 닮은 고리 구분. 버전 번호·EXE·release.
 
 ## 완료 조건
 
@@ -55,7 +55,7 @@
 
 ## 미해결과 인계
 
-- 남은 문제: `△ ▲ ⇒ Ⅳ Ⅴ` 등 모델 사전에 없는 글자(감소 `△`가 사라지면 증가로 읽힘), `■`/`▪`·닮은 고리 구분 불가, `◇`가 `□`로 나오는 드문 경우, 같은 줄에 이어 붙은 둘째 항목 기호와 표 칸 첫머리의 이웃 상자 의존.
+- 남은 문제: `△ ▲` 등 모델 사전에 없는 글자(감소 `△`가 사라지면 증가로 읽힘)와 사전에 있어도 거의 못 읽는 `⇒ Ⅳ Ⅴ`, `■`/`▪`·닮은 고리 구분 불가, `◇`가 `□`로 나오는 드문 경우, 같은 줄에 이어 붙은 둘째 항목 기호와 표 칸 첫머리의 이웃 상자 의존.
 - 한 문서·한 기관의 서식이다. 한글(HWP)·엑셀 화면, ClearType, 어두운 배경에서는 미측정이다.
 - 확인 필요 표시가 많다고 느끼면 `leading_symbols.apply_leading_symbols`의 `flagged = int(kind == RING)` 한 줄이 기준이다(표시를 없애도 `ㅇ` 글자는 그대로 나온다).
 - 변경한 정본 문서: `docs/SCREEN_TEXT.md`·`TESTING.md`·`SCREEN_TEXT_LAB.md`·`AGENTS.md`.
