@@ -1,4 +1,4 @@
-"""줄 맨 앞 글머리 기호(■ □ ◇ ㅇ)를 모양으로 알아본다. Qt를 쓰지 않고 numpy만 쓴다.
+"""줄 맨 앞 글머리 기호(■ □ ◇ ㅇ -)를 모양으로 알아본다. Qt를 쓰지 않고 numpy만 쓴다.
 
 인식 모델은 공문서의 글머리 기호를 거의 읽지 못한다(실제 공문서 PDF에서 ■ 94%·□ 100%·ㅇ 55% 누락). 줄(인식 상자)
 맨 앞의 글자 픽셀 덩어리가 글자보다 작고 뒤 글자와 떨어져 있으면 모양(속이 찬 정사각/속이 빈 정사각/마름모/
@@ -16,12 +16,21 @@ SYMBOL_GAP_RATIO = 0.5     # 기호와 뒤 글자의 간격은 기호 폭의 이
 SQUARE_HEIGHT_RATIO = 0.72  # 속이 빈 정사각은 줄 글자 높이의 이 비율 이상(고리 ㅇ은 0.12~0.65, 정사각은 0.69~0.95). 애매하면 확인 필요 표시가 붙는 고리 쪽이 안전하다
 SQUARE_CORNERS = 0.5       # 또는 네 모서리가 이만큼 차 있으면 정사각
 DIAMOND_CORNERS = 0.06     # 마름모는 네 모서리가 비어 있다
+DASH_MAX_HEIGHT = 0.22     # '-' 막대 굵기는 줄 글자 높이의 이 비율 이하(실측 0.05~0.20)
+DASH_MIN_WIDTH = 0.15      # '-' 막대 길이는 줄 글자 높이의 이 비율 이상(실측 0.22~0.52). 점보다 길고
+DASH_MAX_WIDTH = 0.6       # 이 비율 이하다. 표 선은 훨씬 길다
+DASH_MIDDLE = (0.4, 0.72)  # 줄 위(0)~아래(1)에서 막대 가운데의 자리(실측 0.47~0.68). 밑줄과 윗줄을 거른다
+DASH_MIN_FILL = 0.7
+DASH_GAP_RATIO = 0.75      # 뒤 글자와 막대 길이의 이 비율 이상 떨어져야 한다(실측 1.0 이상). 음수 기호는 붙어 있다
 FILLED = "■"
 HOLLOW_SQUARE = "□"
 DIAMOND = "◇"
 RING = "ㅇ"
+DASH = "-"
 # 모델이 기호를 닮은 글자로 읽었을 때 교체해도 되는 첫 글자
-CONFUSABLE = frozenset("0oOㅇCcD.:-□■▪○●ㅁ")
+CONFUSABLE = frozenset("0oOㅇCcD.:-·□■▪○●ㅁ")
+# '-' 자리에 이 글자가 있으면 모델이 이미 읽은 것이다. 판독을 그대로 둔다
+DASH_LIKE = frozenset("-‐‑–—−~ㅡ一_")
 
 
 def ink_mask(crop):
@@ -60,7 +69,8 @@ def _blobs(ink, reference_height=0, limit=4):
         cy0, cx0 = int(blob_h * .3), int(blob_w * .3)
         center = float(blob[cy0:max(cy0 + 1, int(blob_h * .7)), cx0:max(cx0 + 1, int(blob_w * .7))].mean())
         blobs.append(dict(width=blob_w, height=blob_h, fill=float(blob.mean()), center=center, corners=corners,
-                          relative_height=blob_h / height, left=int(a), right=int(b),
+                          relative_height=blob_h / height, line_height=height, left=int(a), right=int(b),
+                          middle=((occupied[0] + occupied[-1]) / 2 - rows[0]) / max(1, rows[-1] - rows[0]),
                           gap=int(runs[k + 1][0] - b - 1) if k + 1 < len(runs) else 10 ** 6))
     return blobs
 
@@ -70,7 +80,18 @@ def _is_rule(blob):
     return blob["width"] / max(blob["height"], 1) < .4 and blob["relative_height"] >= .6
 
 
+def _is_dash(blob):
+    """줄 가운데쯤의 짧고 납작한 막대. 표 선·밑줄은 길이와 자리로, 음수 기호는 뒤 글자와의 간격으로 걸러진다."""
+    width, height, line = blob["width"], blob["height"], blob["line_height"]
+    return (width >= 2 * height and height <= DASH_MAX_HEIGHT * line
+            and DASH_MIN_WIDTH * line <= width <= DASH_MAX_WIDTH * line
+            and DASH_MIDDLE[0] <= blob["middle"] <= DASH_MIDDLE[1] and blob["fill"] >= DASH_MIN_FILL
+            and blob["gap"] >= max(3, DASH_GAP_RATIO * width))
+
+
 def _classify(blob):
+    if _is_dash(blob):
+        return DASH
     if (blob["width"] < MIN_SYMBOL_PX or blob["height"] < MIN_SYMBOL_PX
             or blob["gap"] < max(3, int(SYMBOL_GAP_RATIO * blob["width"]))):
         return None
@@ -137,7 +158,9 @@ def apply_leading_symbols(image, boxes, results):
         if found:
             kind, _, right, alone = found
             body = text.lstrip()
-            if alone:  # 기호만 든 상자: 모델이 읽은 것은 모두 이 기호를 잘못 읽은 것이다
+            if kind == DASH and body[:1] in DASH_LIKE:  # 모델이 이미 읽었다
+                pass
+            elif alone:  # 기호만 든 상자: 모델이 읽은 것은 모두 이 기호를 잘못 읽은 것이다
                 text = kind
             else:
                 if right >= boxes[index][0] and body[:1] in CONFUSABLE:  # 상자 안에서 닮은 글자로 읽힌 기호

@@ -175,3 +175,55 @@ def test_box_overlapping_the_symbol_box_does_not_claim_the_symbol_again():
     boxes = [(2, 4, 30, 18), (24, 0, end, HEIGHT)]               # 앞 상자가 글자 상자의 시작과 겹친다
     out = symbols.apply_leading_symbols(image, boxes, [("0", 0.3), ("연간 배출량", 0.99)])
     assert out == [("ㅇ", 0.3, 1), ("연간 배출량", 0.99, 0)]      # 'ㅇ ㅇ'으로 중복되지 않는다
+
+
+# ── 줄 맨 앞 '-' (개조식 공문서에 흔하다. 상자가 그 오른쪽에서 시작해 모델이 못 보기도 한다) ──
+def dash_image(width=9, thick=2, top=11, gap=10, strokes=1):
+    """[막대] [간격] [글자]: 글자 높이 20. (이미지, 글자 시작 x, 끝 x)."""
+    image = np.full((HEIGHT, 120, 3), 255, np.uint8)
+    for k in range(strokes):
+        image[top + 4 * k:top + 4 * k + thick, 4:4 + width] = 0
+    x = 4 + width + gap
+    left = x
+    for _ in range(3):
+        draw_text_block(image, x)
+        x += 13
+    return image, left, x
+
+
+def test_dash_the_model_skipped_is_prepended_and_not_flagged():
+    image, left, end = dash_image()
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("기초연구 비전", 0.95)]) == [("- 기초연구 비전", 0.95, 0)]
+    assert symbols.apply_leading_symbols(image, [(0, 0, end, HEIGHT)], [("기초연구 비전", 0.95)]) == [("- 기초연구 비전", 0.95, 0)]
+
+
+@pytest.mark.parametrize("read", ["-설문조사", "- 설문조사", "–설문조사", "~설문조사"])
+def test_dash_the_model_already_read_keeps_the_text_as_it_is(read):
+    image, left, end = dash_image()
+    assert symbols.apply_leading_symbols(image, [(0, 0, end, HEIGHT)], [(read, 0.9)]) == [(read, 0.9, 0)]
+
+
+def test_dash_misread_as_a_middle_dot_is_replaced():
+    image, left, end = dash_image()
+    assert symbols.apply_leading_symbols(image, [(0, 0, end, HEIGHT)], [("· 생일 축하", 0.9)]) == [("- 생일 축하", 0.9, 0)]
+
+
+@pytest.mark.parametrize("name, kwargs", [
+    ("표 선처럼 길다", dict(width=40)),
+    ("글자 아래쪽(밑줄 높이)", dict(top=18)),
+    ("글자 위쪽", dict(top=2)),
+    ("두껍다", dict(thick=6, width=14)),
+    ("너무 짧다(점)", dict(width=3)),
+    ("뒤 글자에 붙었다(음수 기호)", dict(gap=2)),
+    ("두 줄이다(=)", dict(thick=2, top=8, strokes=2, width=10)),
+])
+def test_other_flat_shapes_are_not_a_dash(name, kwargs):
+    image, left, end = dash_image(**kwargs)
+    found = symbols.leading_symbol(image, 0, [(0, 0, end, HEIGHT)])
+    assert found is None or found[0] != "-", name
+
+
+def test_lone_dash_box_without_a_neighbor_is_left_alone():
+    image = np.full((HEIGHT, 40, 3), 255, np.uint8)
+    image[11:13, 10:19] = 0
+    assert symbols.apply_leading_symbols(image, [(8, 6, 22, 18)], [("-", 0.9)]) == [("-", 0.9, 0)]

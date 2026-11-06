@@ -102,3 +102,17 @@ def test_no_symbol_is_added_to_ordinary_lines(qapp, ocr, pixel_size):
         found, boxes = read(ocr, text, pixel_size)
         assert found[:1] not in "■□◇ㅇ", (text, found)
         assert not any(b.unsure_prefix for b in boxes)
+
+
+@pytest.mark.parametrize("pixel_size", [13, 14, 16, 20])
+def test_line_starting_with_a_dash_keeps_it(qapp, ocr, pixel_size):
+    found, boxes = read(ocr, "- 기초연구 비전 수립 및 추진", pixel_size)
+    assert found.startswith("-"), found
+    assert not any(b.unsure_prefix for b in boxes)
+
+
+@pytest.mark.parametrize("pixel_size", [13, 14, 16])
+def test_no_dash_is_added_to_ordinary_lines(qapp, ocr, pixel_size):
+    for text in ("연간 배출량 감소 추진", "2026-11-06 회의", "연구-개발 연계", "(단위 : 억원)"):
+        found, _ = read(ocr, text, pixel_size)
+        assert not found.startswith("-"), (text, found)
