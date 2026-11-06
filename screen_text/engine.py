@@ -13,6 +13,7 @@ import numpy as np
 
 from app_paths import resource_root
 from screen_text.layout import TextBox
+from screen_text.leading_symbols import apply_leading_symbols, ink_mask
 
 DET_LIMIT = 960            # 위치 모델 입력의 긴 변 상한
 DET_THRESHOLD = 0.3        # 글자 확률 이진화 기준
@@ -29,8 +30,6 @@ UPSCALE = 1.0              # 작은 글씨 확대 배율 (Task 4 측정으로 �
 CHARSET_SIZE = 11945
 SPACE_GAP_RATIO = 0.40     # 글자 높이의 이 비율 이상 빈 열이 이어지면 단어 사이 (실제 PDF·합성·글꼴 6종 시험에서 0.38~0.42가 안정)
 SPACE_MIN_GAP = 3          # 아주 작은 글자에서도 이보다 좁은 틈은 단어 사이로 보지 않는다(픽셀)
-INK_MIN_DIFF = 24          # 배경 중앙값과 이만큼(0~255) 달라야 글자 픽셀
-INK_PEAK_FRACTION = 0.3    # 그리고 가장 진한 글자 픽셀 차이의 이 비율 이상
 DET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 DET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -194,12 +193,7 @@ def ink_gap_cuts(crop):
     """
     if crop.size == 0:
         return []
-    gray = crop.astype(np.float32) @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
-    diff = np.abs(gray - np.median(gray))
-    peak = float(diff.max())
-    if peak <= 0:
-        return []
-    ink = diff > max(INK_MIN_DIFF, INK_PEAK_FRACTION * peak)
+    ink = ink_mask(crop)
     columns = np.flatnonzero(ink.any(axis=0))
     rows = np.flatnonzero(ink.any(axis=1))
     if columns.size < 2 or rows.size == 0:
@@ -254,14 +248,14 @@ class OcrEngine:
         boxes = self._detect(work, cancelled)
         if cancelled():
             raise RecognitionCancelled
-        results = self._read(work, boxes, cancelled)
+        results = apply_leading_symbols(work, boxes, self._read(work, boxes, cancelled))
         out = []
-        for (x0, y0, x1, y1), (text, score) in zip(boxes, results):
+        for (x0, y0, x1, y1), (text, score, unsure_prefix) in zip(boxes, results):
             text = text.strip()
             if text:
                 out.append(TextBox(round(x0 / scale), round(y0 / scale),
                                    max(1, round((x1 - x0) / scale)), max(1, round((y1 - y0) / scale)),
-                                   text, score))
+                                   text, score, unsure_prefix))
         return out
 
     def _detect(self, image, cancelled=lambda: False):

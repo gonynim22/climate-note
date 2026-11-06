@@ -515,7 +515,7 @@ class ScreenTextWindow(QWidget):
         self.result_message_label.hide()
         self._blocks = blocks
         self._result_preview, self._pending_preview = self._pending_preview, QPixmap()
-        self._had_unsure = any(cell.unsure for block in blocks for row in rows_of(block) for cell in row)
+        self._had_unsure = any(cell.flagged for block in blocks for row in rows_of(block) for cell in row)
         self._tab = "table" if has_table(blocks) else "text"
         self._fill_table()
         self._fill_text()
@@ -596,7 +596,7 @@ class ScreenTextWindow(QWidget):
                 self._table_rows.append((block, row_index))
                 if isinstance(block, TextLine):
                     item = QTableWidgetItem(" ".join(cell.text for cell in row if cell.text))
-                    if any(cell.unsure for cell in row):
+                    if any(cell.flagged for cell in row):
                         item.setBackground(UNSURE_BACKGROUND)
                     self.table.setItem(position, 0, item)
                     if columns > 1:
@@ -604,7 +604,7 @@ class ScreenTextWindow(QWidget):
                     continue
                 for column, cell in enumerate(row):
                     item = QTableWidgetItem(cell.text)
-                    if cell.unsure:
+                    if cell.flagged:
                         item.setBackground(UNSURE_BACKGROUND)
                     self.table.setItem(position, column, item)
                 for column in range(len(row), columns):  # 더 좁은 표의 비는 칸: 고칠 칸이 없으니 편집할 수 없게 둔다
@@ -628,7 +628,7 @@ class ScreenTextWindow(QWidget):
                 return
             cell = row[item.column()]
             if text != cell.text:
-                cell.text, cell.unsure = text, False
+                cell.text, cell.unsure, cell.unsure_prefix = text, False, 0
         self._filling = True
         item.setData(Qt.BackgroundRole, None)
         self._filling = False
@@ -660,7 +660,7 @@ class ScreenTextWindow(QWidget):
         if self._tab == "text":
             left = self._text_unsure_left
         else:
-            left = sum(cell.unsure for block in self._blocks for row in rows_of(block) for cell in row)
+            left = sum(cell.flagged for block in self._blocks for row in rows_of(block) for cell in row)
         if left:
             self.status_label.setText(f"확인 필요 {left}곳")
         else:

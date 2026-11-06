@@ -900,3 +900,56 @@ def test_model_error_keeps_help_available(qtbot, make):
     assert win.stack.currentWidget() is win.guide_page
     qtbot.mouseClick(win.back_button, Qt.LeftButton)
     assert win.stack.currentWidget() is win.result_page and not win.again_button.isEnabled()
+
+
+# ── 고리 모양 글머리 기호: 기호 한 글자만 확인 필요 ──
+RING_LINES = [TextBox(0, 0, 200, 16, "ㅇ 연간 배출량", 0.99, 1), TextBox(0, 30, 200, 16, "본문 줄", 0.99)]
+RING_TABLE = [
+    TextBox(10, 0, 40, 16, "구분", 0.99), TextBox(200, 0, 40, 16, "값", 0.99),
+    TextBox(10, 24, 90, 16, "ㅇ 가나", 0.99, 1), TextBox(200, 24, 30, 16, "12", 0.99),
+    TextBox(10, 48, 40, 16, "다라", 0.99), TextBox(200, 48, 30, 16, "34", 0.99),
+]
+
+
+def test_ring_symbol_is_the_only_text_marked_and_counted(qtbot, make):
+    win = make(FakeEngine(RING_LINES))
+    recognized(qtbot, win)
+    assert not win.table_tab.isVisible() and win.text_tab.isChecked()
+    assert win.text_edit.toPlainText() == "ㅇ 연간 배출량\n본문 줄"
+    assert win.status_label.text() == "확인 필요 1곳"
+    selections = win.text_edit.extraSelections()
+    assert [s.cursor.selectedText() for s in selections] == ["ㅇ"]          # 줄 전체가 아니라 기호 한 글자
+    assert selections[0].cursor.selectionStart() == 0
+
+
+def test_correcting_the_ring_symbol_completes_the_check(qtbot, make):
+    win = make(FakeEngine(RING_LINES))
+    recognized(qtbot, win)
+    cursor = QTextCursor(win.text_edit.document())
+    cursor.setPosition(0)
+    cursor.setPosition(1, QTextCursor.KeepAnchor)
+    cursor.insertText("◦")                                                  # 사용자가 실제 기호로 고쳤다
+    assert win.text_edit.toPlainText() == "◦ 연간 배출량\n본문 줄"
+    assert win.status_label.text() == "확인 완료"                            # '불확실한 곳 없음'이 아니다
+    assert win.text_edit.extraSelections() == []
+
+
+def test_table_tab_marks_the_cell_with_the_ring_symbol(qtbot, make):
+    win = make(FakeEngine(RING_TABLE))
+    recognized(qtbot, win)
+    assert win.table_tab.isVisible() and win.table_tab.isChecked()
+    assert win.status_label.text() == "확인 필요 1곳"
+    flagged = win.table.item(1, 0)
+    assert flagged.text() == "ㅇ 가나" and flagged.background().color() == QColor("#FFE58A")
+    assert win.table.item(2, 0).background().color() != QColor("#FFE58A")
+
+
+def test_editing_the_marked_table_cell_clears_the_mark_and_refreshes_text(qtbot, make):
+    win = make(FakeEngine(RING_TABLE))
+    recognized(qtbot, win)
+    win.table.item(1, 0).setText("◦ 가나")
+    assert win.status_label.text() == "확인 완료"
+    assert win.table.item(1, 0).background().color() != QColor("#FFE58A")
+    qtbot.mouseClick(win.text_tab, Qt.LeftButton)
+    assert "◦ 가나" in win.text_edit.toPlainText()
+    assert win.text_edit.extraSelections() == [] and win.status_label.text() == "확인 완료"

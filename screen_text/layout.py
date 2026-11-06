@@ -23,12 +23,19 @@ class TextBox:
     h: int
     text: str
     score: float
+    unsure_prefix: int = 0  # 앞 몇 글자가 확인 필요인가(모양으로 알아본 고리 글머리 기호: ㅇ ◦ ○ o 를 구별할 수 없다)
 
 
 @dataclass
 class Cell:
     text: str
     unsure: bool = False
+    unsure_prefix: int = 0  # unsure가 아닐 때 앞 몇 글자만 확인 필요
+
+    @property
+    def flagged(self):
+        """칸 전체 또는 앞글자가 확인 필요."""
+        return self.unsure or self.unsure_prefix > 0
 
 
 @dataclass
@@ -201,8 +208,11 @@ def _table_runs(lines):
 
 
 def _cell(items):
-    text = " ".join(item.text for line in _physical_lines(items) for item in line).strip()
-    return Cell(text, any(item.score < UNSURE_SCORE for item in items))
+    lines = _physical_lines(items)
+    text = " ".join(item.text for line in lines for item in line).strip()
+    first = lines[0][0] if lines else None  # 칸의 맨 앞 상자의 앞글자 표시만 칸의 앞글자다(표의 빈 칸은 상자가 없다)
+    prefix = min(first.unsure_prefix, len(first.text)) if first else 0
+    return Cell(text, any(item.score < UNSURE_SCORE for item in items), prefix)
 
 
 def _column_of(item, bands):
@@ -328,6 +338,9 @@ def plain_with_spans(blocks):
                 token = _clean(cell.text)
                 if cell.unsure and token:
                     spans.append((position, _utf16_len(token), token))
+                elif cell.unsure_prefix and token:
+                    head = token[:cell.unsure_prefix]  # 칸 전체가 아니라 앞글자(기호)만 표시한다
+                    spans.append((position, _utf16_len(head), head))
                 parts.append(token)
                 position += _utf16_len(token) + 1
             line = " ".join(parts)
@@ -365,7 +378,7 @@ def to_html(blocks):
 
 
 def unsure_count(blocks):
-    return sum(cell.unsure for block in blocks for row in rows_of(block) for cell in row)
+    return sum(cell.flagged for block in blocks for row in rows_of(block) for cell in row)
 
 
 def has_table(blocks):
