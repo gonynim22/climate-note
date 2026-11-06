@@ -51,6 +51,93 @@ def test_gap_cuts_ignore_faint_noise_inside_a_gap():
     assert engine.ink_gap_cuts(image) == [35]
 
 
+# ── 줄마다 글자 틈과 단어 틈을 가른다(전문 조판은 단어 사이가 글자 높이의 0.2~0.35배라 고정 기준으로는 공백의 24%만 찾았다) ──
+def word_line(words=(3, 3, 3), letter=2, word=6, chars=None, height=24, top=2, bottom=22):
+    """글자 높이 20. 폭 10의 글자 막대를 단어별로 놓은 한 줄. (이미지, [(글자, 중심 단계)], 단계 수, 폭)."""
+    blobs, x = [], 10
+    for w, count in enumerate(words):
+        for n in range(count):
+            blobs.append((x, x + 10))
+            x += 10 + (letter if n + 1 < count else word)
+    image = np.full((height, x + 10, 3), 255, dtype=np.uint8)
+    for start, end in blobs:                                        # 획이 있는 글자(꽉 찬 막대는 배경 추정을 뒤집는다)
+        image[top:bottom, start:start + 2] = image[top:bottom, end - 2:end] = 0
+        image[top + 9:top + 11, start:end] = 0
+    letters = list(chars or "가" * len(blobs))
+    return image, [(char, (a + b) / 2) for char, (a, b) in zip(letters, blobs)], image.shape[1], image.shape[1]
+
+
+def test_narrow_word_gaps_are_found_when_the_line_has_two_clear_groups():
+    image, pieces, steps, width = word_line()                       # 글자 틈 2, 단어 틈 6(글자 높이의 0.3배)
+    assert engine.ink_gap_cuts(image, pieces, steps, width) == [46, 86]
+
+
+def test_without_glyph_positions_the_fixed_ratio_stays():
+    image, _, _, _ = word_line()
+    assert engine.ink_gap_cuts(image) == []                         # 0.3배는 고정 기준 0.4배에 못 미친다
+
+
+@pytest.mark.parametrize("name, kwargs", [
+    ("틈이 모두 같다: 한 단어의 넓은 자간", dict(letter=6, word=6)),
+    ("두 무리의 차이가 작다", dict(letter=3, word=6)),
+    ("위 무리가 글자 높이의 0.2배에 못 미친다", dict(letter=1, word=3)),
+    ("틈이 너무 적어 무리를 말할 수 없다", dict(words=(1, 1, 1))),
+    ("짧은 줄: 몇 글자의 틈으로는 무리를 믿을 수 없다", dict(words=(3, 2))),
+])
+def test_line_without_two_clear_groups_keeps_the_fixed_ratio(name, kwargs):
+    image, pieces, steps, width = word_line(**kwargs)
+    assert engine.ink_gap_cuts(image, pieces, steps, width) == [], name
+
+
+def test_gap_beside_a_narrow_glyph_keeps_the_fixed_ratio():
+    # 숫자 1과 문장 부호는 옆이 넓게 비어 있다. '10', '1월', '·관'이 갈라지면 안 된다
+    chars = "가나다" + "1라마" + "바사아"
+    image, pieces, steps, width = word_line(chars=chars)
+    assert engine.ink_gap_cuts(image, pieces, steps, width) == [86]  # 다-1 사이는 빠지고 마-바 사이만 찾는다
+
+
+def test_underline_does_not_hide_a_word_gap():
+    image = strip_image([(10, 20), (22, 32), (40, 50)])
+    assert engine.ink_gap_cuts(image) == [35]
+    image[19:21, 8:52] = 0                                          # 글자 아래 밑줄이 모든 열을 잇는다
+    assert engine.ink_gap_cuts(image) == [35]
+
+
+def test_table_line_across_the_box_does_not_hide_a_word_gap():
+    image = strip_image([(10, 20), (22, 32), (40, 50)])
+    image[1, :] = 0
+    assert engine.ink_gap_cuts(image) == [35]
+
+
+def with_model_space(pieces, *positions):
+    spaces = [(" ", float(x)) for x in positions]
+    return sorted(pieces + spaces, key=lambda piece: piece[1])
+
+
+def test_spaces_the_model_gave_set_the_word_gap_of_their_line():
+    # 모델이 공백을 일부만 내도 그 자리의 틈이 이 줄의 단어 틈이다. 나머지 단어 틈을 그 크기로 찾는다
+    image, pieces, steps, width = word_line()
+    assert engine.ink_gap_cuts(image, with_model_space(pieces, 47), steps, width) == [46, 86]
+
+
+def test_letter_gaps_narrower_than_the_model_spaces_are_not_split():
+    # 모델이 낸 단어 틈(9열)보다 좁은 글자 틈(5열)은 넓어 보여도 갈라지면 안 된다('책 임 이', '주시 기')
+    image, pieces, steps, width = word_line(words=(2, 2, 2, 2), letter=5, word=9)
+    spaced = with_model_space(pieces, 40, 74, 108)
+    assert engine.ink_gap_cuts(image, spaced, steps, width) == [39, 73, 107]
+
+
+def test_model_space_too_narrow_to_be_a_word_gap_keeps_the_fixed_ratio():
+    image, pieces, steps, width = word_line(letter=1, word=3)        # 글자 높이의 0.15배
+    assert engine.ink_gap_cuts(image, with_model_space(pieces, 43), steps, width) == []
+
+
+def test_short_horizontal_strokes_of_letters_are_kept():
+    image = strip_image([(10, 20), (22, 32), (40, 50)])
+    image[11:13, 10:32] = 0                                         # 글자 높이의 2배쯤인 가로획은 글자 획이다
+    assert engine.ink_gap_cuts(image) == [35]
+
+
 # ── 글자 위치(CTC)와 공백 넣기 ──
 def test_ctc_decode_detail_matches_ctc_decode_and_reports_run_centers():
     charset = ["가", "나", " "]
@@ -79,9 +166,13 @@ def test_insert_gap_spaces_skips_edges_duplicates_and_existing_spaces():
 
 
 # ── 실제 모델: 문장 ──
-def render_line(text, pixel_size, width=900):
+def render_line(text, pixel_size, width=1000, word_spacing=0.0, letter_spacing=0.0):
     font = QFont("Malgun Gothic")
     font.setPixelSize(pixel_size)
+    if word_spacing or letter_spacing:                              # PDF 뷰어처럼 힌팅 없이 그린 좁은 조판
+        font.setWordSpacing(word_spacing)
+        font.setLetterSpacing(QFont.AbsoluteSpacing, letter_spacing)
+        font.setHintingPreference(QFont.PreferNoHinting)
     image = QImage(width, pixel_size * 2 + 24, QImage.Format_RGB888)
     image.fill(QColor("white"))
     painter = QPainter(image)
@@ -114,6 +205,15 @@ def test_restores_spaces_between_numbered_items(qapp, ocr, pixel_size):
     assert all(part in found for part in ("가. 목적", "나. 대상", "다. 기간")), found
     found = read_line(ocr, "1) 현황 2) 문제점 3) 개선방안", pixel_size)
     assert all(part in found for part in ("1) 현황", "2) 문제점", "3) 개선방안")), found
+
+
+@pytest.mark.parametrize("pixel_size, letter", [(16, -0.04), (16, -0.06), (24, -0.06), (24, -0.08)])
+def test_wide_letter_gaps_are_not_split_when_word_gaps_are_normal(qapp, ocr, pixel_size, letter):
+    # 단어 틈이 고정 기준을 넘는 줄에서 기준을 낮추면 '책 임 이', '주시 기'처럼 단어가 갈라졌다
+    text = "응시자의 책임이 되므로 반드시 내용을 확인하여 주시기 바랍니다"
+    image = render_line(text, pixel_size, word_spacing=-0.14 * pixel_size, letter_spacing=letter * pixel_size)
+    found = " ".join(box.text for box in sorted(ocr.recognize(image), key=lambda box: box.x))
+    assert found.count(" ") <= text.count(" "), found
 
 
 @pytest.mark.parametrize("pixel_size", [13, 14, 16])

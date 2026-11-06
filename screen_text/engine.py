@@ -32,6 +32,13 @@ UPSCALE = 1.0              # 작은 글씨 확대 배율 (Task 4 측정으로 �
 CHARSET_SIZE = 11945
 SPACE_GAP_RATIO = 0.40     # 글자 높이의 이 비율 이상 빈 열이 이어지면 단어 사이 (실제 PDF·합성·글꼴 6종 시험에서 0.38~0.42가 안정)
 SPACE_MIN_GAP = 3          # 아주 작은 글자에서도 이보다 좁은 틈은 단어 사이로 보지 않는다(픽셀)
+SPACE_LOOSE_RATIO = 0.20   # 줄의 틈이 두 무리로 뚜렷이 갈릴 때 단어 틈의 하한(글자 높이 대비). 전문 조판의 단어 틈은 0.2~0.35배다
+SPACE_GROUP_RATIO = 2.5    # 단어 틈 무리의 평균이 글자 틈 무리의 이 배수 이상이어야 갈린 것으로 본다
+SPACE_MIN_PAIRS = 6        # 이보다 틈이 적은 줄은 무리를 말할 수 없다('있습니 다.', '<작성 내 용>'처럼 갈라졌다)
+SPACE_WORD_SHARE = 0.5     # 단어 틈은 드물다. 글자 쌍의 이 비율을 넘으면 힌팅된 글자의 1px·3px 차이일 뿐 단어 경계가 아니다
+LONG_STROKE = 2.5          # 글자 높이의 이 배수 이상 이어지는 가로 획은 밑줄·표 선이다. 빈 열을 이어 공백을 가린다
+# 옆이 넓게 비어 틈이 커 보이는 글자. 둘레의 틈은 고정 기준으로만 본다('10', '1월', '·관'이 갈라지지 않게)
+NARROW_GLYPHS = frozenset("1Iil|.,:;·․‧ㆍ･・'\"`()[]{}/~∼～-_!‘’“”")
 DET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 DET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -187,22 +194,100 @@ def ctc_decode(probs, charset):
     return "".join(char for char, _ in pieces), score
 
 
-def ink_gap_cuts(crop):
-    """한 줄 크롭에서 글자 높이에 견줘 충분히 넓은 빈 열(단어 사이)의 가운데 x 목록.
+def without_long_strokes(ink, height):
+    """글자 높이보다 훨씬 긴 가로 획(밑줄·표 선)을 뺀 글자 픽셀. 남겨 두면 단어 사이의 빈 열이 사라진다."""
+    limit = int(LONG_STROKE * height)
+    out = ink.copy()
+    for row in np.flatnonzero(ink.sum(axis=1) >= limit):
+        edges = np.flatnonzero(np.diff(np.r_[0, ink[row].astype(np.int8), 0]))
+        for start, end in zip(edges[::2], edges[1::2]):
+            if end - start >= limit:
+                out[row, start:end] = False
+    return out
 
-    배경은 중앙값 색으로 보고, 배경과 충분히 다른 픽셀만 글자로 센다(옅은 잡음은 무시). 가장자리 여백과
-    글자 사이의 좁은 틈은 세지 않는다. 화면에 실제로 있는 틈을 잴 뿐 글자를 추정하지 않는다.
+
+def split_word_gap(sizes, height, pairs):
+    """줄의 틈을 두 무리로 가른 단어 틈의 최소 폭, 뚜렷하지 않으면 None.
+
+    넓은 쪽은 글자 틈과 분명히 다르고 소수여야 한다. PDF처럼 힌팅 없는 글자에서 듣고, 힌팅된 화면 글자는 글자 틈이
+    1~4px로 흩어져 두 무리로 갈리지 않으므로 고정 기준으로 남는다.
+    """
+    values = np.sort(np.array([size for size in sizes if size > 0], dtype=np.float64))
+    if values.size < SPACE_MIN_PAIRS:
+        return None
+    best, cut = -1.0, 0
+    for i in np.flatnonzero(np.diff(values)) + 1:  # 분산을 가장 크게 가르는 자리
+        low, high = values[:i], values[i:]
+        score = low.size * high.size * (high.mean() - low.mean()) ** 2
+        if score > best:
+            best, cut = score, int(i)
+    if cut == 0:
+        return None
+    low, high = values[:cut], values[cut:]
+    if (high[0] < SPACE_LOOSE_RATIO * height or high.mean() < SPACE_GROUP_RATIO * max(low.mean(), 1.0)
+            or high.size > SPACE_WORD_SHARE * pairs):
+        return None
+    return max(SPACE_MIN_GAP, int(high[0]))
+
+
+def model_word_gap(sizes, height):
+    """모델이 공백을 낸 자리의 틈(중앙값)으로 잰 이 줄의 단어 틈, 단어 틈으로 볼 만큼 넓지 않으면 None."""
+    if not sizes:
+        return None
+    gap = float(np.median(sizes))
+    return max(SPACE_MIN_GAP, int(round(gap))) if gap >= SPACE_LOOSE_RATIO * height else None
+
+
+def _gap_needs(gaps, pieces, steps, width, height, fixed):
+    """틈마다 필요한 폭. 글자 위치를 알면 줄의 단어 틈을 재고, 잴 수 없거나 좁은 글자 옆이면 고정 기준을 쓴다.
+
+    모델이 공백을 낸 줄은 그 자리의 틈을 자로 쓰고(일부만 내도 나머지를 찾고 글자 틈은 가르지 않는다), 공백이 없는
+    줄은 틈을 두 무리로 가른다.
+    """
+    read = [(char, center * width / steps) for char, center in pieces if char != " "] if width > 0 else []
+    if len(read) < 2:
+        return [fixed] * len(gaps)
+    positions = [x for _, x in read]
+    owners = [bisect_left(positions, x) - 1 for x, _ in gaps]  # 틈 왼쪽 글자
+    def wide(owner):
+        return 0 <= owner < len(read) - 1 and read[owner][0] not in NARROW_GLYPHS and read[owner + 1][0] not in NARROW_GLYPHS
+    largest = {}
+    for owner, (_, size) in zip(owners, gaps):
+        if wide(owner):
+            largest[owner] = max(largest.get(owner, 0), size)
+    spaces = [center * width / steps for char, center in pieces if char == " "]
+    if spaces:
+        word_gap = model_word_gap([largest[k] for k in {bisect_left(positions, x) - 1 for x in spaces} if k in largest], height)
+    else:
+        word_gap = split_word_gap(largest.values(), height, sum(wide(owner) for owner in range(len(read) - 1)))
+    if word_gap is None:
+        return [fixed] * len(gaps)
+    return [min(word_gap, fixed) if wide(owner) else fixed for owner in owners]
+
+
+def ink_gap_cuts(crop, pieces=(), steps=1, width=0):
+    """한 줄 크롭에서 단어 사이로 볼 빈 열의 가운데 x 목록.
+
+    배경은 중앙값 색으로 보고, 배경과 충분히 다른 픽셀만 글자로 센다(옅은 잡음은 무시). 밑줄·표 선은 뺀다. 가장자리
+    여백과 글자 사이의 좁은 틈은 세지 않는다. 글자 높이에 견준 고정 기준이 기본이고, 인식 글자의 위치(pieces)를 주면
+    줄의 틈이 글자 틈과 단어 틈으로 뚜렷이 갈릴 때 좁은 단어 틈도 찾는다. 화면의 틈을 잴 뿐 글자를 추정하지 않는다.
     """
     if crop.size == 0:
         return []
     ink = ink_mask(crop)
+    rows = np.flatnonzero(ink.any(axis=1))
+    if rows.size:
+        ink = without_long_strokes(ink, int(rows[-1] - rows[0] + 1))
     columns = np.flatnonzero(ink.any(axis=0))
     rows = np.flatnonzero(ink.any(axis=1))
     if columns.size < 2 or rows.size == 0:
         return []
-    need = max(SPACE_MIN_GAP, int(round(SPACE_GAP_RATIO * (rows[-1] - rows[0] + 1))))
+    height = int(rows[-1] - rows[0] + 1)
+    fixed = max(SPACE_MIN_GAP, int(round(SPACE_GAP_RATIO * height)))
     empty = np.diff(columns) - 1  # 글자가 있는 열 사이에 낀 빈 열 수
-    return [int(columns[k + 1] - empty[k] // 2 - 1) for k in np.flatnonzero(empty >= need)]
+    gaps = [(int(columns[k + 1] - empty[k] // 2 - 1), int(empty[k])) for k in np.flatnonzero(empty)]
+    needs = _gap_needs(gaps, pieces, steps, width, height, fixed)
+    return [x for (x, size), need in zip(gaps, needs) if size >= need]
 
 
 def insert_gap_spaces(pieces, cuts, steps, width):
@@ -333,7 +418,7 @@ class OcrEngine:
                     pieces = restore_corner_brackets(pieces, crop, steps, x1 - x0)
                     pieces = restore_inline_checkboxes(pieces, crop, steps, x1 - x0)
                     pieces = restore_triangles(pieces, crop, steps, x1 - x0)
-                    text = insert_gap_spaces(pieces, ink_gap_cuts(crop), steps, x1 - x0)
+                    text = insert_gap_spaces(pieces, ink_gap_cuts(crop, pieces, steps, x1 - x0), steps, x1 - x0)
                 results[i] = (text, score)
             del probs, batch
             start = end
