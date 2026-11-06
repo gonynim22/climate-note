@@ -131,6 +131,27 @@ def test_agree_checkboxes_are_both_read(qapp, ocr, pixel_size):
     assert found.count("□") == 2, found
 
 
+@pytest.mark.parametrize("pixel_size", [14, 16, 20])
+def test_decrease_mark_before_a_number_is_kept(qapp, ocr, pixel_size):
+    found, _ = read(ocr, "전년대비 △32% 감소", pixel_size)
+    assert "△32" in found.replace(" ", ""), found                    # 모델이 사전의 ∆로 읽어도 △로 통일한다
+
+
+@pytest.mark.parametrize("pixel_size", [14, 16, 20])
+def test_triangle_list_marks_are_read(qapp, ocr, pixel_size):
+    found, _ = read(ocr, "추진 예시 △ 선박 밀폐공간 통신 △ 독거노인 돌봄", pixel_size)
+    assert found.count("△") == 2, found
+    found, _ = read(ocr, "지원 대상 ▲ 투자 확대 ▲ 맞춤형 제도", pixel_size)
+    assert found.count("▲") == 2, found
+
+
+@pytest.mark.parametrize("pixel_size", [13, 14, 16, 20])
+def test_no_triangle_is_added_to_ordinary_lines(qapp, ocr, pixel_size):
+    for text in ("스마트 시스템 서비스 구축", "소스 코드 스캔 결과 시스템", "AI 글로벌 3대 강국 도약", "기술 자산 수소 사업"):
+        found, _ = read(ocr, text, pixel_size)
+        assert not set(found) & set("△▲"), (text, found)
+
+
 @pytest.mark.parametrize("pixel_size", [13, 14, 16, 20])
 def test_no_checkbox_is_added_to_ordinary_lines(qapp, ocr, pixel_size):
     for text in ("기후변화 대응 연구 추진계획", "다음 각 호의 기준에 따라 대기 환경을 개선한다", "국가 기술 표준 및 인증 절차", "(단위 : 억원) 2026년 예산"):

@@ -23,8 +23,8 @@ MIN_STEM = 0.7           # 세로획이 높이의 이만큼
 MAX_EMPTY_FILL = 0.08    # 꺾임 맞은편 사분면은 비어 있다
 
 
-def _components(ink, x, reach):
-    """x에서 가까운 열부터 만나는 글자 덩어리(8방향 연결)를 (모양, 위 행, 아래 행)으로 낸다."""
+def components(ink, x, reach):
+    """x에서 가까운 열부터 만나는 글자 덩어리(8방향 연결)를 (모양, 위 행, 아래 행, 왼쪽 열)로 낸다."""
     height, width = ink.shape
     seen = np.zeros(ink.shape, dtype=bool)
     for distance in range(reach + 1):
@@ -46,7 +46,7 @@ def _components(ink, x, reach):
                 top, left = min(rows), min(columns)
                 glyph = np.zeros((max(rows) - top + 1, max(columns) - left + 1), dtype=bool)
                 glyph[np.array(rows) - top, np.array(columns) - left] = True
-                yield glyph, top, max(rows)
+                yield glyph, top, max(rows), left
 
 
 def _is_open_corner(glyph):
@@ -64,7 +64,7 @@ def _is_open_corner(glyph):
 
 def _corner_near(ink, x, line_top, line_bottom, char):
     line_height = line_bottom - line_top + 1
-    for glyph, top, bottom in _components(ink, x, max(2, line_height // 2)):
+    for glyph, top, bottom, _ in components(ink, x, max(2, line_height // 2)):
         room = (line_bottom - bottom) if char == "[" else (top - line_top)
         if (glyph.shape[0] <= MAX_LINE_RATIO * line_height and room >= MIN_ROOM_RATIO * line_height
                 and _is_open_corner(glyph if char == "[" else glyph[::-1, ::-1])):
