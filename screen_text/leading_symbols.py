@@ -1,9 +1,9 @@
-"""줄 맨 앞 글머리 기호(■ □ ◇ ㅇ -)를 모양으로 알아본다. Qt를 쓰지 않고 numpy만 쓴다.
+"""줄 맨 앞 글머리 기호(■ □ ◇ ㅇ ○ -)를 모양으로 알아본다. Qt를 쓰지 않고 numpy만 쓴다.
 
 인식 모델은 공문서의 글머리 기호를 거의 읽지 못한다(실제 공문서 PDF에서 ■ 94%·□ 100%·ㅇ 55% 누락). 줄(인식 상자)
 맨 앞의 글자 픽셀 덩어리가 글자보다 작고 뒤 글자와 떨어져 있으면 모양(속이 찬 정사각/속이 빈 정사각/마름모/
-고리)으로 분류한다. 화면에 있는 모양을 읽을 뿐 글자를 추정하지 않는다. 고리는 ㅇ ◦ ○ o 를 모양으로 구별할 수 없어
-'ㅇ'으로 내되 확인 필요로 표시한다. 계약은 docs/SCREEN_TEXT.md를 따른다.
+고리/짧은 막대)으로 분류한다. 화면에 있는 모양을 읽을 뿐 글자를 추정하지 않는다. 고리는 ㅇ ◦ ○ o 를 모양으로 다
+구별할 수 없어 크기에 따라 'ㅇ'이나 '○'로 내되 확인 필요로 표시한다. 계약은 docs/SCREEN_TEXT.md를 따른다.
 """
 import numpy as np
 
@@ -13,8 +13,9 @@ SEARCH_LEFT = 2.5          # 상자 높이의 이 배수만큼 왼쪽(왼쪽 이
 SEARCH_RIGHT = 4.0         # 상자 시작에서 상자 높이의 이 배수까지만 본다(기호와 뒤 글자의 간격을 알기에 충분하다)
 MIN_SYMBOL_PX = 3          # 이보다 작은 덩어리(마침표·쉼표)는 기호가 아니다
 SYMBOL_GAP_RATIO = 0.5     # 기호와 뒤 글자의 간격은 기호 폭의 이 비율(최소 3px) 이상
-SQUARE_HEIGHT_RATIO = 0.72  # 속이 빈 정사각은 줄 글자 높이의 이 비율 이상(고리 ㅇ은 0.12~0.65, 정사각은 0.69~0.95). 애매하면 확인 필요 표시가 붙는 고리 쪽이 안전하다
-SQUARE_CORNERS = 0.5       # 또는 네 모서리가 이만큼 차 있으면 정사각
+TIP_SIZE = 0.1             # 꼭짓점 칸의 크기(덩어리 폭·높이 대비). 네모는 여기까지 차 있고 고리·마름모는 비어 있다
+SQUARE_TIPS = 0.75         # 네 꼭짓점 칸 중 이만큼 차 있으면 속이 빈 정사각(실측 □ 82개 모두 1.0, 고리 약 370개 중 예외 2개)
+BIG_RING_RATIO = 0.72      # 고리가 줄 글자 높이의 이 비율 이상이면 자모 ㅇ(실측 0.65 이하)보다 커서 ○로 낸다
 DIAMOND_CORNERS = 0.06     # 마름모는 네 모서리가 비어 있다
 DASH_MAX_HEIGHT = 0.22     # '-' 막대 굵기는 줄 글자 높이의 이 비율 이하(실측 0.05~0.20)
 DASH_MIN_WIDTH = 0.15      # '-' 막대 길이는 줄 글자 높이의 이 비율 이상(실측 0.22~0.52). 점보다 길고
@@ -26,6 +27,8 @@ FILLED = "■"
 HOLLOW_SQUARE = "□"
 DIAMOND = "◇"
 RING = "ㅇ"
+BIG_RING = "○"
+RINGS = frozenset((RING, BIG_RING))   # 모양으로 ㅇ ◦ ○ o 를 다 가를 수 없어 확인 필요로 표시한다
 DASH = "-"
 # 모델이 기호를 닮은 글자로 읽었을 때 교체해도 되는 첫 글자
 CONFUSABLE = frozenset("0oOㅇCcD.:-·□■▪○●ㅁ")
@@ -68,7 +71,9 @@ def _blobs(ink, reference_height=0, limit=4):
                                  blob[-qh:, :qw].mean(), blob[-qh:, -qw:].mean()]))
         cy0, cx0 = int(blob_h * .3), int(blob_w * .3)
         center = float(blob[cy0:max(cy0 + 1, int(blob_h * .7)), cx0:max(cx0 + 1, int(blob_w * .7))].mean())
-        blobs.append(dict(width=blob_w, height=blob_h, fill=float(blob.mean()), center=center, corners=corners,
+        th, tw = max(1, round(blob_h * TIP_SIZE)), max(1, round(blob_w * TIP_SIZE))
+        tips = float(np.mean([blob[:th, :tw].any(), blob[:th, -tw:].any(), blob[-th:, :tw].any(), blob[-th:, -tw:].any()]))
+        blobs.append(dict(width=blob_w, height=blob_h, fill=float(blob.mean()), center=center, corners=corners, tips=tips,
                           relative_height=blob_h / height, line_height=height, left=int(a), right=int(b),
                           middle=((occupied[0] + occupied[-1]) / 2 - rows[0]) / max(1, rows[-1] - rows[0]),
                           gap=int(runs[k + 1][0] - b - 1) if k + 1 < len(runs) else 10 ** 6))
@@ -100,11 +105,11 @@ def _classify(blob):
     if blob["fill"] >= .85 and blob["center"] >= .9 and .7 <= aspect <= 1.4 and .2 <= relative <= 1.05:
         return FILLED
     if blob["center"] <= .1 and .75 <= aspect <= 1.3 and relative >= .15:
+        if blob["tips"] >= SQUARE_TIPS:
+            return HOLLOW_SQUARE
         if blob["corners"] <= DIAMOND_CORNERS and relative >= .5:
             return DIAMOND
-        if relative >= SQUARE_HEIGHT_RATIO or blob["corners"] >= SQUARE_CORNERS:
-            return HOLLOW_SQUARE
-        return RING
+        return BIG_RING if relative >= BIG_RING_RATIO else RING
     return None
 
 
@@ -166,6 +171,6 @@ def apply_leading_symbols(image, boxes, results):
                 if right >= boxes[index][0] and body[:1] in CONFUSABLE:  # 상자 안에서 닮은 글자로 읽힌 기호
                     body = body[1:].lstrip()
                 text = f"{kind} {body}" if body else kind
-            flagged = int(kind == RING)
+            flagged = int(kind in RINGS)
         out.append((text, score, flagged))
     return out

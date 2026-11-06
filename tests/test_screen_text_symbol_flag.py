@@ -96,6 +96,13 @@ def test_reads_leading_symbols_and_flags_only_the_ring(qapp, ocr, symbol, flagge
     assert sum(b.unsure_prefix for b in boxes) == flagged
 
 
+@pytest.mark.parametrize("pixel_size", [14, 16, 20])
+def test_large_ring_is_not_read_as_a_square_and_stays_flagged(qapp, ocr, pixel_size):
+    found, boxes = read(ocr, "○ 연간 배출량 감소 추진", pixel_size)
+    assert found[:1] in "○ㅇ" and found[1:3] == " 연", found
+    assert sum(b.unsure_prefix for b in boxes) == 1
+
+
 @pytest.mark.parametrize("pixel_size", [13, 14, 16])
 def test_no_symbol_is_added_to_ordinary_lines(qapp, ocr, pixel_size):
     for text in ("연간 배출량 감소 추진", "2026년도 추진계획", "OECD 회원국 비교", "(단위 : 억원)"):

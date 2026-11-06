@@ -23,6 +23,11 @@ def glyph(kind, n):
         mask[:t] = mask[-t:] = True
         mask[:, :t] = mask[:, -t:] = True
         return mask
+    if kind == "thin":                  # 획이 1px인 속이 빈 정사각: 모서리 칸이 얼마 안 찬다
+        mask = np.zeros((n, n), bool)
+        mask[0] = mask[-1] = True
+        mask[:, 0] = mask[:, -1] = True
+        return mask
     if kind == "ring":
         r = np.hypot(yy - c, xx - c)
         return (r <= n / 2) & (r > n / 2 - 2.0)
@@ -66,7 +71,11 @@ def outside_box(image, text_left, end):
     ("hollow", 16, "□"),     # 속이 빈 정사각(글자 높이에 가까움)
     ("diamond", 20, "◇"),    # 속이 빈 마름모: 모서리가 비어 있다
     ("ring", 11, "ㅇ"),      # 고리(글자 높이의 절반 안팎)
-    ("ring", 13, "ㅇ"),      # 100% 배율의 고리는 글자 높이의 0.65배까지 나온다: 속이 빈 정사각(0.8배 이상)과 구별
+    ("ring", 13, "ㅇ"),      # 100% 배율의 고리는 글자 높이의 0.65배까지 나온다
+    ("ring", 18, "○"),       # 글자만큼 큰 고리: 자모 ㅇ보다 크다. 크기로 정사각이라 하면 안 된다(실제 문서에서 □로 나왔다)
+    ("ring", 20, "○"),
+    ("thin", 12, "□"),       # 작아도 네 꼭짓점이 차 있으면 정사각이다
+    ("thin", 20, "□"),       # 획이 얇은 큰 정사각도 마찬가지다
 ])
 def test_symbol_left_of_the_box_is_classified_by_shape(kind, size, expected):
     image, left, end = line_image(kind, size)
@@ -127,7 +136,7 @@ def test_symbol_the_model_skipped_is_prepended():
 
 
 def test_only_ring_shapes_are_flagged_for_confirmation():
-    for kind, size, flag in (("ring", 11, 1), ("filled", 8, 0), ("hollow", 16, 0), ("diamond", 20, 0)):
+    for kind, size, flag in (("ring", 11, 1), ("ring", 18, 1), ("filled", 8, 0), ("hollow", 16, 0), ("diamond", 20, 0)):
         image, left, end = line_image(kind, size)
         (_, _, got), = symbols.apply_leading_symbols(image, outside_box(image, left, end), [("본문", 0.9)])
         assert got == flag, kind
