@@ -1,7 +1,7 @@
 <img src="readme/app.png" alt="기후노트 — 늘 보이는 곳에, 오늘 할 일. 일정·메모·D-Day·집중 모드를 함께 펼치는 크게 모드 화면과 바로가기 사이드바가 있는 기본 크기 화면">
 
 <div align="center">
-  <img src="readme/badge-version.svg" alt="버전 v4.7">
+  <img src="readme/badge-version.svg" alt="버전 v4.8">
   <img src="readme/badge-windows.svg" alt="Windows 10 · 11">
   <img src="readme/badge-offline.svg" alt="네트워크 오프라인 전용">
   <img src="readme/badge-license.svg" alt="라이선스 GPL-3.0">
@@ -62,12 +62,13 @@
 </details>
 
 <details>
-<summary><b>버전별 주의사항 (v4.3 · v4.5 · v4.6 · v4.7)</b></summary>
+<summary><b>버전별 주의사항 (v4.3 · v4.5 · v4.6 · v4.7 · v4.8)</b></summary>
 
 - v4.3부터 새 내보내기는 12자 이상 암호를 사용하고 기존 4자리 PIN 파일도 읽습니다. 잠금 PIN의 검증값 저장으로 바뀐 뒤에는 v4.3 이상을 사용하세요. 소스·EXE 구분과 호환 안내는 [상세 안내](README_detail.md)를 참고하세요.
 - v4.5로 처음 실행하면 DB가 v19로 바뀝니다. v4.4b 이하 EXE는 새 데이터를 변경하지 않고 실행을 중단하므로 v4.5로 여세요. 새 내보내기는 v4 형식이며 기존 v1~v3 파일도 가져올 수 있습니다. 되돌리기 보호본과 주의사항은 [상세 안내](README_detail.md)에 있습니다.
 - v4.6은 데이터 형식이 v4.5와 같아 EXE만 바꾸면 됩니다. 공휴일 테마는 설정 → 화면 표시 → `공휴일 테마`에서 끌 수 있습니다.
 - v4.7은 데이터 형식이 v4.6과 같아 EXE만 바꾸면 됩니다. 새 버전 알림은 설정 → 시스템 → `인터넷 접속`을 켠 PC만 쓰며 기본은 꺼짐입니다. 업무망 PC는 꺼 두세요.
+- v4.8은 데이터 형식이 v4.7과 같아 EXE만 바꾸면 됩니다. 화면 글자 따기가 숫자의 소수점·쉼표, 단위, 로마 숫자, 엑셀 표를 더 정확히 읽습니다.
 
 </details>
 

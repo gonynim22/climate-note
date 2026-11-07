@@ -1,7 +1,7 @@
 """새 버전 알림 개발 미리보기: 최신 버전을 가짜로 넣어 알림·점·안내창 강조를 합성 데이터에서 본다.
 
-    .\\.venv\\Scripts\\python.exe tools/dev_update_check_preview.py --latest v4.8
-    .\\.venv\\Scripts\\python.exe tools/dev_update_check_preview.py --latest v4.8 --scale medium --date 2026-12-25
+    .\\.venv\\Scripts\\python.exe tools/dev_update_check_preview.py --latest v4.9
+    .\\.venv\\Scripts\\python.exe tools/dev_update_check_preview.py --latest v4.9 --scale medium --date 2026-12-25
 
 - 데이터 폴더는 `output/harness/<run-id>/appdata`(합성)다. 실제 AppData·DB·salt·잠금 파일,
   자동 실행 레지스트리를 건드리지 않는다. 같은 합성 데이터로 다시 보려면 `--reuse <run-id>`.
