@@ -28,12 +28,59 @@ else:
 # 앱의 ui_main.UPGRADE_NOTICE_TITLE과 같아야 한다(tests/test_upgrade_notice.py가 대조한다).
 UPGRADE_NOTICE_TITLE = "기후노트 업데이트 안내"
 NOTICE_SETTLE_SECONDS = 2.0  # 안내창 지연(0.8초)보다 넉넉히 더 지켜보는 시간
-SCENARIOS = ("fresh", "existing", "blocked", "upgrade", "upgrade_v18", "update_check")
+SCENARIOS = ("fresh", "existing", "blocked", "upgrade", "upgrade_v18", "update_check", "screen_text")
 # 새 버전 확인: 실패가 화면에 보이지 않는 기능이라 EXE에서 안 돌아도 로그로만 알 수 있다.
 CLOSED_PROXY = "http://127.0.0.1:9"  # 닫힌 포트. 인터넷 없이 연결 실패가 보장된다
 UPDATE_CHECK_FAILED = "새 버전 확인 실패"
 UPDATE_CHECK_WAIT_SECONDS = 90  # 첫 확인이 창이 뜬 뒤 60초
 UPDATE_CHECK_LIVE_SECONDS = 75  # 첫 확인 60초 + 시간 제한 10초가 끝난 뒤까지 지켜본다
+# 글자 따기: EXE가 모델을 불러 실제로 읽는지 본다. 빠진 모듈·모델은 빌드를 통과하고 고른 영역을 읽을 때만 드러난다.
+SCREEN_TEXT_SAMPLE = "2026년 기후변화 대응 추진계획 안내\n사업비 1,234,567천원 집행률 87.3%\n미세먼지 25㎍/㎥ 이하, 기온 3.5℃ 상승\nⅡ. 추진 현황"
+SCREEN_TEXT_MUST = ("기후변화", "1,234,567", "87.3%", "㎥", "℃", "Ⅱ.")
+SCREEN_TEXT_READ_SECONDS = 40   # 처음 읽을 때는 모델을 불러온다
+SCREEN_TEXT_SIZE = (640, 200)
+SCREEN_TEXT_AT = (120, 120)     # 주 화면 왼쪽 위 근처. 시험 창을 여기 띄우고 고른다
+SCREEN_TEXT_UIA = r"""
+param([string]$Action, [string]$Name, [int]$ProcessId)
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+$A = [System.Windows.Automation.AutomationElement]
+$tops = $A::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,
+    (New-Object System.Windows.Automation.PropertyCondition($A::ProcessIdProperty, $ProcessId)))
+foreach ($top in $tops) {
+  $all = $top.FindAll([System.Windows.Automation.TreeScope]::Subtree, [System.Windows.Automation.Condition]::TrueCondition)
+  foreach ($e in $all) {
+    $p = $null
+    if ($Action -eq 'invoke' -and $e.Current.Name -eq $Name) {
+      if ($e.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$p)) { $p.Invoke(); Write-Output 'invoked'; exit 0 }
+    }
+    if ($Action -eq 'text' -and $e.Current.ControlType.ProgrammaticName -eq 'ControlType.Edit') {
+      if ($e.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$p)) { Write-Output ('VALUE:' + $p.Current.Value); exit 0 }
+    }
+  }
+}
+Write-Output 'notfound'
+"""
+SCREEN_TEXT_WINDOW = r"""
+import sys
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QApplication, QLabel, QWidget
+app = QApplication(sys.argv)
+window = QWidget(None, Qt.Tool | Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+window.setStyleSheet("background:#ffffff;color:#000000")
+window.setGeometry(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]))
+label = QLabel(sys.argv[5], window)
+font = QFont("Malgun Gothic")
+font.setPixelSize(16)
+label.setFont(font)
+label.setGeometry(12, 8, int(sys.argv[3]) - 20, int(sys.argv[4]) - 16)
+label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+window.show()
+print(int(window.winId()), flush=True)
+app.exec()
+"""
 
 
 class _BasicLimits(ctypes.Structure):
@@ -529,9 +576,121 @@ def update_check_scenario(exe, run_dir, *, live=False):
     return {"status": "passed", "live": live, "log_line": found}
 
 
+def _uia(script, action, name, pid):
+    """앱 창의 접근성 트리로 버튼을 누르거나 글자를 읽는다. 마우스를 움직이지 않는다."""
+    done = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), action, name, str(pid)],
+                          capture_output=True, timeout=60, check=False)
+    return done.stdout.decode("utf-8", "replace").strip()
+
+
+def _wait_for(find, seconds, every=0.3):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        found = find()
+        if found:
+            return found
+        time.sleep(every)
+    return None
+
+
+def _drag(hwnd, origin, start, end):
+    """고르기 화면에 마우스 메시지를 직접 보낸다. 실제 커서는 움직이지 않는다."""
+    user = ctypes.WinDLL("user32", use_last_error=True)
+    user.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
+    user.PostMessageW.restype = W.BOOL
+
+    def point(x, y):
+        return ((y - origin[1]) << 16) | ((x - origin[0]) & 0xFFFF)
+    user.PostMessageW(hwnd, 0x0200, 0, point(*start))        # WM_MOUSEMOVE
+    user.PostMessageW(hwnd, 0x0201, 1, point(*start))        # WM_LBUTTONDOWN
+    for step in range(1, 6):
+        user.PostMessageW(hwnd, 0x0200, 1, point(start[0] + (end[0] - start[0]) * step // 5, start[1] + (end[1] - start[1]) * step // 5))
+        time.sleep(0.05)
+    user.PostMessageW(hwnd, 0x0202, 0, point(*end))          # WM_LBUTTONUP
+
+
+def _rect(hwnd):
+    user = ctypes.WinDLL("user32", use_last_error=True)
+    user.GetWindowRect.argtypes = [W.HWND, ctypes.POINTER(W.RECT)]
+    rect = W.RECT()
+    if not user.GetWindowRect(hwnd, ctypes.byref(rect)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
+def check_screen_text(read):
+    """EXE가 읽은 글자에 숫자·단위·번호가 맞게 들어 있는가."""
+    if not read.startswith("VALUE:"):
+        raise TimeoutError(f"screen_text: 결과 글자를 읽지 못했습니다: {read[:80]!r}")
+    missing = [word for word in SCREEN_TEXT_MUST if word not in read]
+    if missing:
+        raise RuntimeError(f"screen_text: {missing} 없음: {read[:200]!r}")
+    return read[len("VALUE:"):]
+
+
+def screen_text_scenario(exe, run_dir):
+    """EXE에서 글자 따기를 끝까지 돌린다. 주머니를 열고 시험 창의 글자를 고른 영역으로 읽는다. 선택형 미니앱을 걷어낸 빌드는 건너뛴다."""
+    if not (ROOT / "screen_text").is_dir():
+        return {"status": "skipped", "reason": "선택형 미니앱을 걷어낸 빌드"}
+    ctypes.WinDLL("user32").SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))    # 창 좌표를 실제 픽셀로 받는다
+    folder = run_dir / "smoke" / "screen_text"
+    folder.mkdir(parents=True)
+    data_root = folder / "appdata"
+    data_root.mkdir()
+    uia = folder / "uia.ps1"
+    uia.write_text("\ufeff" + SCREEN_TEXT_UIA, encoding="utf-8")
+    sample = folder / "sample_window.py"
+    sample.write_text(SCREEN_TEXT_WINDOW, encoding="utf-8")
+    command = [sys.executable, str(Path(__file__).resolve()), "_launch", str(exe)]
+    shown = None
+    with managed_launch(command, data_env(data_root), folder / "exe.log") as (job, process):
+        try:
+            setup = _wait_for(lambda: next((w for w in windows_in_job(job) if w["title"] == "기후노트 — 처음 설정" and w["responding"]), None), 60)
+            if setup is None or process.poll() is not None:
+                raise TimeoutError("screen_text: 처음 설정 창이 뜨지 않았습니다.")
+            accept_first_run_setup(job, setup)
+            main_window = _wait_for(lambda: next((w for w in windows_in_job(job) if w["title"] == "기후노트" and w["width"] >= 350 and w["height"] >= 450 and w["responding"]), None), 60)
+            if main_window is None or process.poll() is not None:
+                raise TimeoutError("screen_text: 메인 창이 뜨지 않았습니다.")
+            time.sleep(2)
+            pid = main_window["pid"]
+            if _uia(uia, "invoke", "미니앱 주머니", pid) != "invoked":
+                raise RuntimeError("screen_text: 미니앱 주머니를 찾지 못했습니다.")
+            time.sleep(1)
+            if _uia(uia, "invoke", "화면 글자 따기 실행", pid) != "invoked":
+                raise RuntimeError("screen_text: 화면 글자 따기 타일을 찾지 못했습니다.")
+            time.sleep(1.5)
+            shown = subprocess.Popen([sys.executable, str(sample), *map(str, SCREEN_TEXT_AT + SCREEN_TEXT_SIZE), SCREEN_TEXT_SAMPLE], stdout=subprocess.PIPE)
+            left, top, right, bottom = _rect(int(shown.stdout.readline().strip()))
+            time.sleep(0.6)
+            if _uia(uia, "invoke", "영역 고르기", pid) != "invoked":
+                raise RuntimeError("screen_text: 영역 고르기 버튼을 찾지 못했습니다.")
+
+            def overlay():
+                for window in windows_in_job(job):
+                    box = _rect(window["hwnd"])
+                    if window["width"] >= 600 and box[0] <= left and right <= box[2] and box[1] <= top and bottom <= box[3]:
+                        return window["hwnd"], box
+                return None
+            found = _wait_for(overlay, 6, 0.1)
+            if found is None:
+                raise TimeoutError("screen_text: 고르기 화면이 뜨지 않았습니다(잠긴 화면이면 캡처할 수 없다).")
+            time.sleep(0.5)
+            _drag(found[0], found[1][:2], (left + 4, top + 2), (right - 4, bottom - 2))
+            read = _wait_for(lambda: (lambda text: text if len(text) > 12 and text.startswith("VALUE:") else None)(_uia(uia, "text", "", pid)), SCREEN_TEXT_READ_SECONDS, 1)
+        finally:
+            if shown is not None:
+                shown.kill()
+                shown.wait(timeout=10)
+                shown.stdout.close()
+    return {"status": "passed", "read": check_screen_text(read or "")}
+
+
 def scenario(exe, run_dir, name):
     if name == "update_check":
         return update_check_scenario(exe, run_dir)
+    if name == "screen_text":
+        return screen_text_scenario(exe, run_dir)
     folder = run_dir / "smoke" / name
     folder.mkdir(parents=True)  # 기존 시나리오 폴더는 재사용하지 않는다.
     data_root = folder / "appdata"

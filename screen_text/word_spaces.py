@@ -19,6 +19,13 @@ NO_MODEL_SPACE = -1.51     # 줄에 모델이 낸 공백이 없으면 틈의 자
 INSIDE_NUMBER = -1.82      # 1,234 와 2.5 의 안쪽
 NUMBER_GAP = 0.5           # 이만큼 벌어지면 수가 아니라 '1. 2026년'이다(글자 높이 대비). 실측 붙음 0.3 이하, 떨어짐 0.5 이상
 AFTER_STOP = 3.19          # 낱말 뒤 마침표·쉼표 다음(모델 확률이 낮아도 '가. 목적'은 공백이다)
+# 숫자는 틈보다 가운데 거리가 정확하다. '1'은 칸 가운데에 좁게 놓여 틈이 넓어 보여도 가운데 거리는 다른 숫자와 같다
+# 실측(글꼴 24종·배율 4가지·2만여 쌍, 숫자 높이 대비): 같은 수 0.94 이하, 다른 수 0.93 이상. 자간을 벌린 문서가 있어 붙이는 쪽으로만 쓴다
+DIGITS_TOGETHER = 0.85     # 이웃한 숫자의 가운데 거리가 이 미만이면 같은 수다
+DIGIT_JITTER = 1.22        # 같은 상자의 숫자 간격보다 이 배수 안이면 같은 수다. 한글은 배율에 따라 글자 자리가 1px씩 흔들린다(공백이 끼면 1.3배 이상)
+DIGIT_CELL = 0.95          # 숫자 간격이 숫자 높이의 이 배수를 넘으면 그 상자의 숫자는 모두 띄어 쓴 것이라 자로 쓰지 않는다
+MARK_TOGETHER = 0.75       # 숫자 사이 '.' ','에서 뒤 숫자까지의 가운데 거리. 같은 수 0.78 이하, 다른 수 0.74 이상
+MARK_WIDTH = 0.5           # 구두점만 든 묶음의 폭 상한(숫자 높이 대비). 넓으면 앞 숫자와 붙은 묶음이라 가운데를 잴 수 없다
 # 글자 종류별 치우침. 여는 괄호 뒤·닫는 문장 부호 앞은 공백이 드물고, 숫자·기호 뒤는 잦다
 AFTER = {"h": 0.39, "n": -0.14, "d": 1.79, "a": 0.74, "c": 0.53, "o": -1.0, "m": 2.72, "q": -1.41, "s": 1.58, "p": -1.89}
 BEFORE = {"h": 0.78, "n": 0.58, "d": 1.3, "a": 0.86, "c": -0.16, "o": 0.34, "m": 0.72, "q": 0.65, "s": 0.81, "p": -1.31}
@@ -31,13 +38,55 @@ QUOTES = frozenset("'\"`´")
 NARROW = frozenset("1Iil")
 
 
+def _ink_runs(column):
+    """글자 있는 열의 묶음 [(시작, 끝)]."""
+    edges = np.flatnonzero(np.diff(np.r_[0, column.astype(np.int8), 0]))
+    return list(zip(edges[::2].tolist(), edges[1::2].tolist()))
+
+
+def _run_at(runs, x):
+    """x에 가장 가까운 묶음의 번호."""
+    return min(range(len(runs)), key=lambda k: max(runs[k][0] - x, x - runs[k][1] + 1, 0))
+
+
+def _height(ink, run):
+    rows = np.flatnonzero(ink[:, run[0]:run[1]].any(axis=1))
+    return int(rows[-1] - rows[0] + 1) if rows.size else 0
+
+
+def _spread(ink, runs, left_x, right_x, mark=False):
+    """이웃한 두 글자의 가운데 거리(뒤 숫자 높이 대비). 글자가 붙어 묶음 하나가 되었거나 사이에 다른 묶음이 있으면 0이다."""
+    if not runs:    # 긴 획을 빼면 아무것도 남지 않는 줄
+        return 0.0
+    right = _run_at(runs, right_x)
+    left = right - 1 if mark else _run_at(runs, left_x)    # 작은 구두점은 읽은 자리가 숫자 쪽으로 밀린다
+    if left < 0 or right != left + 1:
+        return 0.0
+    height = max(_height(ink, runs[right]), 1)
+    left_width, right_width = runs[left][1] - runs[left][0], runs[right][1] - runs[right][0]
+    if max(left_width, right_width) > height or (mark and left_width > MARK_WIDTH * height):    # 붙은 숫자 둘은 가운데가 칸의 경계다
+        return 0.0
+    return (sum(runs[right]) - sum(runs[left])) / 2 / height
+
+
+def _digit_advance(read, runs, ink, per_step):
+    """같은 상자에서 이웃한 숫자의 가운데 거리 중앙값(숫자 높이 대비). 숫자 쌍이 둘 미만이면 0."""
+    spreads = []
+    for (left, a), (right, b) in zip(read, read[1:]):
+        if left.isdigit() and right.isdigit():
+            spread = _spread(ink, runs, a * per_step, b * per_step)
+            if spread:
+                spreads.append(spread)
+    return float(np.median(spreads)) if len(spreads) >= 2 else 0.0
+
+
 def glyph_kind(char):
     """h 한글, n 좁은 글자, d 숫자, a 영문, c 닫는 부호, o 여는 부호, p 가운뎃점, m 잇는 부호, q 따옴표, s 그 밖의 기호."""
     if "가" <= char <= "힣":
         return "h"
     if char in NARROW:
         return "n"
-    if char.isdigit():
+    if char.isdigit() or "Ⅰ" <= char <= "Ⅹ":   # 로마 숫자도 번호라 '-' '.' 와 붙는다
         return "d"
     if char.isascii() and char.isalpha():
         return "a"
@@ -100,8 +149,13 @@ def join_words(pieces, space_probabilities, crop, steps, width):
     if rows.size == 0:
         return as_read
     height = int(rows[-1] - rows[0] + 1)
-    column = without_long_strokes(ink, height).any(axis=0)
+    clear = without_long_strokes(ink, height)
+    column = clear.any(axis=0)
+    runs = _ink_runs(column)
     per_step = width / steps
+    advance = _digit_advance(read, runs, clear, per_step)
+    if advance > DIGIT_CELL:
+        advance = 0.0
     spaced = [center for char, center in pieces if char == " "]
     gaps, gave_space = [], []
     for (_, a), (_, b) in zip(read, read[1:]):
@@ -120,7 +174,15 @@ def join_words(pieces, space_probabilities, crop, steps, width):
         score += WEIGHT_RELATIVE * (min(gap / reference, RELATIVE_CAP) - 1) if reference > 0 else NO_MODEL_SPACE
         before = read[index - 1][0] if index else ""
         after = read[index + 2][0] if index + 2 < len(read) else ""
-        if _thousands(read, index) or (right == "," and _thousands(read, index + 1)):  # 굴림·돋움의 쉼표는 칸 가운데라 틈이 넓다
+        mark = left in ",." and before.isdigit() and right.isdigit()
+        spread = _spread(clear, runs, read[index][1] * per_step, read[index + 1][1] * per_step, mark) if mark or (left.isdigit() and right.isdigit()) else 0.0
+        if spread and (spread < max(DIGITS_TOGETHER, DIGIT_JITTER * advance) if left.isdigit() else spread < MARK_TOGETHER):
+            score = -1.0
+        elif "Ⅰ" <= left <= "Ⅹ" and right in ".-)":
+            score = -1.0
+        elif left.isdigit() and right in ",." and after.isdigit():   # 굴림·돋움의 마침표는 칸 가운데라 앞 숫자와도 벌어진다
+            score = -1.0
+        elif _thousands(read, index) or (right == "," and _thousands(read, index + 1)):  # 굴림·돋움의 쉼표는 칸 가운데라 틈이 넓다
             score = -1.0
         elif _inside_number(left, right, before, after):  # '1.5'는 붙고 '1. 2026년'은 떨어진다
             score = 1.0 if gap >= NUMBER_GAP * height else score + INSIDE_NUMBER

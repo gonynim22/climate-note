@@ -325,3 +325,126 @@ def test_merged_cell_beside_split_rows_spans_them():
     assert len(table.rows) == 4 and table.rows[0][0].row_span == 4
     assert all(row[0].covered for row in table.rows[1:])
     assert [row[1].text for row in table.rows] == ["24", "1", "3", "5"]
+
+
+def excel_sheet(rows=4, columns=3, row_height=18, column_width=70, text_gap=2):
+    """연한 눈금선 표의 칸마다 숫자를 그린다. 숫자 바닥은 눈금선 text_gap 위에 한 줄로 늘어선다(엑셀 기본 행 높이)."""
+    height, width = rows * row_height + 41, columns * column_width + 41
+    image = np.full((height, width, 3), 255, np.uint8)
+    for r in range(rows + 1):
+        image[20 + r * row_height, 20:width - 20] = 224
+    for c in range(columns + 1):
+        image[20:height - 20, 20 + c * column_width] = 224
+    boxes = []
+    for r in range(rows):
+        bottom = 20 + (r + 1) * row_height - text_gap - 1
+        for c in range(columns):
+            left = 20 + c * column_width + 4
+            for k in range(8):       # 숫자 여덟 개의 몸통과 바닥 획
+                x = left + k * 7
+                image[bottom - 9:bottom, x:x + 1] = image[bottom - 9:bottom, x + 4:x + 5] = 40
+                image[bottom - 9, x:x + 5] = 40
+                image[bottom, x:x + 5] = 40
+            boxes.append((left - 2, bottom - 11, left + 58, bottom + 2))
+    return image, boxes
+
+
+def test_text_bottom_row_next_to_a_gridline_is_not_part_of_the_line():
+    """숫자 바닥 행이 길게 늘어서면 능선으로 보인다. 눈금선과 묶으면 칸 아래 끝이 글자 안쪽으로 올라가 소수점이 잘렸다(5.2 가 52 로)."""
+    image, boxes = excel_sheet()
+    grids = find_grids(image, boxes)
+    assert len(grids) == 1
+    grid = grids[0]
+    assert (grid.rows, grid.columns) == (4, 3)
+    first = next(cell for cell in grid.cells if cell.row == 0 and cell.column == 0)
+    assert first.bottom >= 20 + 18 - 1      # 눈금선 바로 위까지다. 글자 바닥(35행)을 자르지 않는다
+    assert first.top <= 21
+
+
+def test_darker_text_row_does_not_hide_a_faint_gridline():
+    """글자 바닥 행이 눈금선보다 훨씬 진해도 칸의 변은 눈금선이다. 눈금선과 글자 사이가 1픽셀인 작은 글씨에서 잘렸다."""
+    image, boxes = excel_sheet(text_gap=1, rows=5, column_width=64)
+    grids = find_grids(image, boxes)
+    assert len(grids) == 1
+    first = next(cell for cell in grids[0].cells if cell.row == 0 and cell.column == 0)
+    assert first.bottom >= 20 + 18 - 1
+
+
+def test_faint_gridline_inside_merged_boxes_is_a_column():
+    """눈금선이 옅으면 위치 찾기가 옆 칸까지 한 상자로 묶는다. 상자 안을 지나도 여러 줄을 가로지르는 세로선은 글자 획이 아니다."""
+    image, boxes = excel_sheet()
+    merged = []
+    for row in range(4):
+        row_boxes = [box for box in boxes if 20 + row * 18 <= box[1] < 20 + (row + 1) * 18]
+        merged.append((row_boxes[0][0], row_boxes[0][1], row_boxes[-1][2], row_boxes[0][3]))
+    grids = find_grids(image, merged)
+    assert len(grids) == 1 and (grids[0].rows, grids[0].columns) == (4, 3)
+
+
+def test_stroke_of_one_line_is_still_a_stroke():
+    """한 줄 높이의 세로획은 표 선이 아니다."""
+    from screen_text.table_lines import _is_stroke
+    assert _is_stroke((50, 50, 12, 24), [(10, 10, 120, 26)], True)
+    assert _is_stroke((50, 50, 12, 60), [(10, 10, 120, 26), (10, 28, 120, 44), (10, 46, 120, 62)], False)  # 고르지 않으면 이어진 글자 획이다
+    assert not _is_stroke((50, 50, 12, 60), [(10, 10, 120, 26), (10, 28, 120, 44), (10, 46, 120, 62)], True)
+
+
+def test_columns_rise_above_the_top_line():
+    """엑셀 열 머리글 띠는 위에 가로선이 없어 세로선 위끝이 뜬다. 가로선을 여럿 가로지르면 표 선이다."""
+    image = canvas(300, 200)
+    ys = [50, 80, 110, 140]
+    for y in ys:
+        hline(image, y, 20, 280, (200, 200, 200))
+    for x in (20, 100, 190, 280):
+        vline(image, x, 30, 140, (200, 200, 200))
+    grids = find_grids(image, [(30, 58, 90, 72), (110, 58, 180, 72), (200, 58, 270, 72), (30, 88, 90, 102), (110, 88, 180, 102), (200, 88, 270, 102)])
+    assert len(grids) == 1 and grids[0].columns == 3
+
+
+def test_first_column_reaches_the_selection_edge():
+    """엑셀 행 머리글 구분선은 왼쪽으로 갈수록 옅어져 선이 중간부터 잡힌다. 행 번호가 표 밖으로 밀렸다."""
+    image = canvas(300, 170)
+    for y in (40, 70, 100, 130):
+        hline(image, y, 24, 280, (190, 190, 190))
+    for x in (40, 160, 280):
+        vline(image, x, 40, 130, (190, 190, 190))
+    boxes = [(50, 48, 150, 62), (170, 48, 270, 62), (50, 78, 150, 92), (170, 78, 270, 92), (50, 108, 150, 122), (170, 108, 270, 122)]
+    grids = find_grids(image, boxes, margin=8)
+    assert len(grids) == 1 and grids[0].left == 8
+    assert min(cell.left for cell in grids[0].cells) == 8
+
+
+def test_left_border_stays_outside_the_first_column():
+    """표 왼쪽에 세로선이 있으면 첫 칸을 영역 끝까지 넓히지 않는다. 표 선이 크롭에 들어가 '|'로 읽혔다."""
+    xs, ys = [24, 120, 220], [40, 70, 100]
+    image = grid_image(xs, ys)
+    grids = find_grids(image, boxes_in(xs, ys), margin=8)
+    assert len(grids) == 1 and min(cell.left for cell in grids[0].cells) == 25
+
+
+def test_row_numbers_outside_the_left_border_become_a_column():
+    """행 번호가 표 왼쪽 선 바깥에 있으면 표 뒤로 밀렸다."""
+    xs, ys = [40, 140, 240], [20, 50, 80, 110]
+    image = grid_image(xs, ys)
+    inner = boxes_in(xs, ys)
+    labels = [(20, y0 + 8, 30, y1 - 8) for y0, y1 in zip(ys, ys[1:])]
+    grids = find_grids(image, inner + labels, margin=8)
+    assert len(grids) == 1 and (grids[0].rows, grids[0].columns) == (3, 3)
+    first = [cell for cell in grids[0].cells if cell.column == 0]
+    assert len(first) == 3 and all(cell.right == 40 for cell in first)
+
+
+def test_text_beside_only_some_rows_stays_outside():
+    xs, ys = [40, 140, 240], [20, 50, 80, 110, 140]
+    image = grid_image(xs, ys)
+    grids = find_grids(image, boxes_in(xs, ys) + [(20, 28, 30, 42)], margin=8)
+    assert len(grids) == 1 and grids[0].columns == 2
+
+
+def test_left_column_of_a_two_column_page_stays_outside():
+    """2단 문서에서 표 왼쪽 단의 긴 글자 줄이 표의 첫 열로 끌려 들어왔다."""
+    xs, ys = [160, 240, 320], [20, 50, 80, 110]
+    image = grid_image(xs, ys)
+    lines = [(20, y0 + 8, 140, y1 - 8) for y0, y1 in zip(ys, ys[1:])]
+    grids = find_grids(image, boxes_in(xs, ys) + lines, margin=8)
+    assert len(grids) == 1 and grids[0].columns == 2

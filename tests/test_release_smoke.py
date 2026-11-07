@@ -178,7 +178,7 @@ def test_smoke_failure_and_interruption_are_recorded(tmp_path, monkeypatch):
 
 
 def test_update_check_scenario_runs_in_release():
-    assert smoke.SCENARIOS == ("fresh", "existing", "blocked", "upgrade", "upgrade_v18", "update_check")
+    assert smoke.SCENARIOS == ("fresh", "existing", "blocked", "upgrade", "upgrade_v18", "update_check", "screen_text")
 
 
 def test_enable_internet_access_writes_only_that_key():
@@ -349,3 +349,18 @@ def test_original_columns_snapshot_refuses_paths_outside_harness():
         smoke._original_columns_snapshot(outside)
     with pytest.raises(ValueError, match="허용된 하위 경로가 아닙니다"):
         smoke._original_columns_snapshot(verify.ROOT / "output" / "harness")
+
+
+def test_screen_text_result_needs_digits_units_and_numbers():
+    """글자 따기 시나리오는 EXE가 수·단위·번호까지 읽었는지 본다. 빠진 모듈은 고른 영역을 읽을 때만 드러난다."""
+    good = "VALUE:" + smoke.SCREEN_TEXT_SAMPLE
+    assert smoke.check_screen_text(good) == smoke.SCREEN_TEXT_SAMPLE
+    with pytest.raises(RuntimeError, match="㎥"):
+        smoke.check_screen_text(good.replace("㎥", "m"))
+    with pytest.raises(TimeoutError):
+        smoke.check_screen_text("")
+
+
+def test_screen_text_scenario_is_skipped_without_the_optional_app(monkeypatch, tmp_path):
+    monkeypatch.setattr(smoke, "ROOT", tmp_path)
+    assert smoke.screen_text_scenario("x.exe", tmp_path)["status"] == "skipped"

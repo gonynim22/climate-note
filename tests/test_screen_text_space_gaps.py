@@ -71,7 +71,7 @@ def test_number_is_not_split_around_comma_and_point():
 
 def test_thousands_comma_with_wide_gap_stays_in_the_number():
     """굴림·돋움의 쉼표는 칸 가운데라 틈이 넓어 엑셀 표에서 '1, 639'로 나왔다."""
-    crop, pieces, steps, width, spaces = line("1,639", [3, 12, 3, 3], glyph=8)
+    crop, pieces, steps, width, spaces = digits("1,639")
     assert join_words(pieces, spaces, crop, steps, width) == "1,639"
 
 
@@ -196,3 +196,94 @@ def test_change_mark_stays_on_its_number():
     crop, pieces, steps, width, spaces = line("▲1.2", [9, 2, 2], glyph=10)
     spaces[:] = .5
     assert join_words(pieces, spaces, crop, steps, width) == "▲1.2"
+
+
+DIGIT_ADVANCE, DIGIT_HEIGHT = 7, 10
+
+
+def digits(text, space_cells=None):
+    """고정폭 숫자 줄. '1'은 칸 가운데의 좁은 세로획이고 ' '는 숫자 칸의 space_cells배다. 굴림 12px은 공백이 숫자 칸과 같다."""
+    space = round((space_cells or 1) * DIGIT_ADVANCE)
+    width = sum(space if char == " " else DIGIT_ADVANCE for char in text) + 8
+    crop = np.full((DIGIT_HEIGHT + 4, width, 3), 255, np.uint8)
+    pieces, x = [], 4
+    for char in text:
+        if char == " ":
+            x += space
+            continue
+        if char == "1":
+            crop[2:2 + DIGIT_HEIGHT, x + 2:x + 4] = 0
+        elif char in ",.":
+            crop[DIGIT_HEIGHT:2 + DIGIT_HEIGHT, x + 2:x + 4] = 0
+        else:
+            crop[2:2 + DIGIT_HEIGHT, x:x + 6] = 0
+            crop[3:1 + DIGIT_HEIGHT, x + 1:x + 5] = 255
+        pieces.append((char, x + 3.0))
+        x += DIGIT_ADVANCE
+    return crop, pieces, width, width, np.full(width, 1e-6, np.float32)
+
+
+def test_narrow_one_does_not_split_a_number():
+    """굴림 '1'은 칸 가운데에 좁게 놓여 틈이 넓다. 228,145 가 228,1 45 로 쪼개졌다. 가운데 거리는 다른 숫자와 같다."""
+    crop, pieces, steps, width, spaces = digits("5,228,145")
+    spaces[:] = .6      # 모델이 공백을 내도 수 안이다
+    assert join_words(pieces, spaces, crop, steps, width) == "5,228,145"
+
+
+def test_one_at_the_end_of_a_number_stays():
+    crop, pieces, steps, width, spaces = digits("13791")
+    spaces[:] = .6
+    assert join_words(pieces, spaces, crop, steps, width) == "13791"
+
+
+def test_digits_set_wide_apart_are_not_forced_together():
+    """자간을 벌린 문서의 숫자는 가운데 거리로 붙이지 않는다. 모델이 낸 공백을 따른다."""
+    crop, pieces, steps, width, spaces = digits("300 1,500")
+    spaced = sorted(pieces + [(" ", (pieces[2][1] + pieces[3][1]) / 2)], key=lambda piece: piece[1])
+    spaces[int((pieces[2][1] + pieces[3][1]) / 2)] = .98
+    assert join_words(spaced, spaces, crop, steps, width) == "300 1,500"
+
+
+def test_point_inside_a_number_is_not_followed_by_a_space():
+    """굴림·돋움은 마침표 칸이 넓어 90. 7 로 벌어졌다."""
+    crop, pieces, steps, width, spaces = digits("90.7")
+    spaces[:] = .6
+    assert join_words(pieces, spaces, crop, steps, width) == "90.7"
+
+
+def test_list_number_keeps_its_space():
+    crop, pieces, steps, width, spaces = digits("1. 2026")
+    assert join_words(pieces, spaces, crop, steps, width) == "1. 2026"
+
+
+def test_line_that_is_all_long_strokes_does_not_stop_recognition():
+    """긴 획을 빼면 글자 열이 하나도 안 남는 줄이 있다. 표 선만 든 상자에서 인식 전체가 멈췄다."""
+    crop = np.full((14, 80, 3), 255, np.uint8)
+    crop[6:8, :] = 0
+    pieces = [("1", 20.0), ("2", 40.0), ("3", 60.0)]
+    assert join_words(pieces, np.full(80, 1e-6, np.float32), crop, 80, 80).replace(" ", "") == "123"
+
+
+def test_jittered_digit_gap_stays_in_the_number():
+    """한글은 배율에 따라 글자 자리가 1px씩 흔들려 48,300 이 4 8,300 으로 쪼개졌다. 같은 상자의 숫자 간격에 견준다."""
+    crop = np.full((14, 60, 3), 255, np.uint8)
+    xs, pieces = [4, 11, 19, 26, 33, 41], []       # 간격 7·8이 섞인다
+    for char, x in zip("482300", xs):
+        crop[2:12, x:x + 5] = 0
+        crop[3:11, x + 1:x + 4] = 255
+        pieces.append((char, x + 2.5))
+    spaces = np.full(60, .6, np.float32)
+    assert join_words(pieces, spaces, crop, 60, 60) == "482300"
+
+
+def test_digits_that_are_all_set_apart_keep_their_spaces():
+    """1 2 3 4 처럼 모두 띄어 쓴 숫자는 숫자 간격이 넓다. 그 간격을 자로 쓰면 다 붙는다."""
+    crop, pieces, steps, width, spaces = digits("7 2 3 4")
+    spaces[:] = .9
+    assert join_words(pieces, spaces, crop, steps, width) == "7 2 3 4"
+
+
+def test_roman_numeral_keeps_its_period():
+    crop, pieces, steps, width, spaces = line("Ⅱ.추진", [12, 12, 2], glyph=10)
+    spaces[:] = .6
+    assert join_words(pieces, spaces, crop, steps, width).startswith("Ⅱ.")

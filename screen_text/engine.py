@@ -17,8 +17,11 @@ from screen_text.deskew import skew_angle, straighten
 from screen_text.layout import Grid, GridCell, RecognizedBoxes, TextBox
 from screen_text.leading_symbols import apply_leading_symbols, ink_mask, restore_inline_checkboxes
 from screen_text.marks import rescue_marks, restore_circled_digits, restore_stars, restore_thin_capitals
+from screen_text.number_marks import restore_number_marks
+from screen_text.roman import restore_roman
 from screen_text.table_lines import RIDGE_CONTRAST, find_grids, fit_boxes
 from screen_text.triangles import restore_triangles
+from screen_text.units import restore_units
 from screen_text.word_spaces import join_words
 
 DET_LIMIT = 960            # 위치 모델 입력의 긴 변 상한
@@ -481,9 +484,10 @@ class OcrEngine:
                 boxes.append(box)
         return boxes
 
-    def _note_unsure(self, index, text, pieces, runs):
-        """확신도가 낮은 글자의 text 안 위치를 적어 둔다. 화면 모양으로 고친 글자는 표시하지 않는다."""
+    def _note_unsure(self, index, text, pieces, runs, doubtful=()):
+        """확신도가 낮은 글자와 화면 모양이 판독과 어긋난 글자(doubtful, CTC 위치)의 text 안 위치를 적어 둔다. 화면 모양으로 고친 글자는 표시하지 않는다."""
         low = {(char, center) for char, center, _, best in runs if best < CHAR_UNSURE and char != " "}
+        low.update(piece for piece in pieces if piece[1] in doubtful)
         if not low:
             return
         flags = iter([piece in low for piece in pieces if piece[0] != " "])
@@ -544,10 +548,14 @@ class OcrEngine:
                     pieces = restore_stars(pieces, crop, steps, x1 - x0)
                     pieces = restore_circled_digits(pieces, crop, steps, x1 - x0)
                     pieces = restore_thin_capitals(pieces, crop, steps, x1 - x0)
+                    pieces = restore_roman(pieces, crop, steps, x1 - x0)
+                    pieces, doubtful_units = restore_units(pieces, crop, steps, x1 - x0)
+                    pieces, doubtful = restore_number_marks(pieces, sharp, (x0, y0, x1, y1), steps)
+                    doubtful += doubtful_units
                     has_space = self._charset[-1:] == [" "]  # 공백은 사전의 마지막이다
                     spaces = probs[slot, :steps, len(self._charset)] if has_space else np.zeros(steps, np.float32)
                     text = join_words(pieces, spaces, crop, steps, x1 - x0)
-                    self._note_unsure(i, text, pieces, runs)
+                    self._note_unsure(i, text, pieces, runs, doubtful)
                 results[i] = (text, score)
             del probs, batch
             start = end

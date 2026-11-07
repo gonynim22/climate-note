@@ -109,7 +109,8 @@ def _blobs(ink, reference_height=0, limit=4, thin=None):
         closed = bool(row[:blob_w // 2].any() and row[blob_w // 2 + 1:].any() and column[:blob_h // 2].any() and column[blob_h // 2 + 1:].any())
         th, tw = max(1, round(blob_h * TIP_SIZE)), max(1, round(blob_w * TIP_SIZE))
         tips = float(np.mean([blob[:th, :tw].any(), blob[:th, -tw:].any(), blob[-th:, :tw].any(), blob[-th:, -tw:].any()]))
-        blobs.append(dict(width=blob_w, height=blob_h, fill=float(blob.mean()), center=center, corners=corners, tips=tips, closed=closed, mirror=float((blob == blob[:, ::-1]).mean()),
+        one_sided = bool(blob[:th, :tw].any() and blob[-th:, :tw].any() and not blob[:th, -tw:].any() and not blob[-th:, -tw:].any())
+        blobs.append(dict(width=blob_w, height=blob_h, fill=float(blob.mean()), center=center, corners=corners, tips=tips, one_sided=one_sided, closed=closed, mirror=float((blob == blob[:, ::-1]).mean()),
                           relative_height=blob_h / height, line_height=height, left=int(a), right=int(b), top_span=float(blob[0].mean()),
                           top=int(occupied[0]), bottom=int(occupied[-1]),
                           middle=((occupied[0] + occupied[-1]) / 2 - rows[0]) / max(1, rows[-1] - rows[0]),
@@ -158,6 +159,8 @@ def _classify(blob):
     if blob["closed"] and blob["center"] <= .1 and .75 <= aspect <= 1.3 and relative >= .15:  # 'C n u'는 가운데가 비어도 한쪽이 트였다
         if blob["tips"] >= SQUARE_TIPS:
             return HOLLOW_SQUARE
+        if blob["one_sided"]:   # 왼쪽 두 모서리만 찬 'D'. 엑셀 열 머리글 D 가 ○ 로 나왔다
+            return None
         if blob["corners"] <= DIAMOND_CORNERS and relative >= .5 and blob["top_span"] <= DIAMOND_TOP:
             return DIAMOND
         return BIG_RING if relative >= BIG_RING_RATIO else RING

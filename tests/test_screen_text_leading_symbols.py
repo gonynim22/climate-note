@@ -425,3 +425,14 @@ def test_box_overlapping_its_left_neighbor_does_not_read_the_neighbor():
     for x in (70, 84):
         draw_text_block(image, x)
     assert symbols.leading_symbol(image, 1, [(4, 0, 60, HEIGHT), (36, 0, 118, HEIGHT)]) is None
+
+
+def test_letter_d_is_not_a_ring():
+    """왼쪽 모서리 둘만 찬 D 는 고리가 아니다."""
+    from screen_text.leading_symbols import _blobs, _classify
+    ink = np.zeros((14, 24), bool)
+    ink[2:12, 2] = True
+    ink[2, 2:7] = ink[11, 2:7] = True
+    ink[3, 7] = ink[10, 7] = True
+    ink[4:10, 8] = True
+    assert _classify(_blobs(ink)[0]) is None
