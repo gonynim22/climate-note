@@ -10,6 +10,14 @@ from tools.screen_text_lab.disagreement import alignment, disagreement_marks, ev
 from tools.screen_text_lab.disagreement_report import highlighted, validate_pair
 
 
+@pytest.fixture(autouse=True)
+def fixed_boxes(monkeypatch):
+    """가짜 위치 찾기가 돌려주는 상자를 그대로 쓴다(여백·2배 확대 없이)."""
+    from screen_text import engine
+    monkeypatch.setattr(engine, "DET_MARGIN", 0)
+    monkeypatch.setattr(engine, "SMALL_TEXT_PX", 0)
+
+
 def run_metadata():
     return {'source_before': {'files': {key: 'same' for key in (
         'screen_text/engine.py', 'screen_text/layout.py', 'tools/screen_text_lab/recognizers.py')}},

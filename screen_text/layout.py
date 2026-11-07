@@ -10,7 +10,14 @@ from statistics import median
 
 UNSURE_SCORE = 0.80          # 이 값 미만의 인식 점수는 확인 필요 (Task 4 측정으로 확정)
 LINE_OVERLAP = 0.5           # 세로 겹침이 작은 쪽 높이의 이 비율 이상이면 같은 줄
+STACKED_NUMBERS = 3          # 격자의 한 칸에 숫자만 있는 줄이 이만큼 쌓이면 표 선이 없는 실제 행들이다
 LOOKALIKE = frozenset("lIOoSB")
+COLUMN_MIN_BOXES = 8         # 2단을 말하려면 글자 상자가 이만큼은 있어야 한다
+COLUMN_MIN_SIDE = 4          # 단마다 이만큼
+COLUMN_MAX_WIDE = 0.15       # 두 단을 가로지른 제목·머리글 상자는 이 비율까지만 있다
+COLUMN_GAP = 0.8             # 두 단 사이 빈 띠의 폭 하한(글자 상자 높이 대비)
+COLUMN_MIDDLE = (0.3, 0.7)   # 빈 띠의 자리(영역 폭 대비)
+COLUMN_FILL = 0.55           # 상자 폭 중앙값이 단 폭의 이 비율 이상이어야 문장이 단을 채운다(표의 칸은 짧다)
 _NUMERIC = re.compile(r"[0-9.,%△▲▽+\-()]+")
 
 
@@ -24,6 +31,40 @@ class TextBox:
     text: str
     score: float
     unsure_prefix: int = 0  # 앞 몇 글자가 확인 필요인가(모양으로 알아본 고리 글머리 기호: ㅇ ◦ ○ o 를 구별할 수 없다)
+    unsure_chars: tuple = ()  # 모델 확신도가 낮은 글자의 위치(text 안의 번호)
+
+
+@dataclass(frozen=True)
+class GridCell:
+    """표 선으로 찾은 칸 하나(원본 이미지 좌표). 병합 칸은 span이 1보다 크다."""
+    row: int
+    column: int
+    row_span: int
+    column_span: int
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+
+@dataclass(frozen=True)
+class Grid:
+    """표 선으로 찾은 표 하나."""
+    rows: int
+    columns: int
+    cells: tuple
+    left: float
+    top: float
+    right: float
+    bottom: float
+
+
+class RecognizedBoxes(list):
+    """TextBox 목록과 화면에서 찾은 표 격자. 격자가 없으면 그냥 목록처럼 쓴다."""
+
+    def __init__(self, boxes=(), grids=()):
+        super().__init__(boxes)
+        self.grids = tuple(grids)
 
 
 @dataclass
@@ -31,11 +72,15 @@ class Cell:
     text: str
     unsure: bool = False
     unsure_prefix: int = 0  # unsure가 아닐 때 앞 몇 글자만 확인 필요
+    unsure_chars: tuple = ()  # 확신도가 낮은 글자의 위치(text 안의 번호)
+    row_span: int = 1
+    column_span: int = 1
+    covered: bool = False   # 왼쪽이나 위의 병합 칸에 덮인 자리
 
     @property
     def flagged(self):
-        """칸 전체 또는 앞글자가 확인 필요."""
-        return self.unsure or self.unsure_prefix > 0
+        """칸 전체나 그 안의 글자가 확인 필요."""
+        return self.unsure or self.unsure_prefix > 0 or bool(self.unsure_chars)
 
 
 @dataclass
@@ -207,12 +252,23 @@ def _table_runs(lines):
     return runs
 
 
+def _is_vertical(lines):
+    """글자를 한 자씩 세로로 쓴 칸인가. 좁은 칸의 머리글에 흔하고, 띄어 내면 '구 분'이 된다."""
+    return len(lines) >= 2 and all(len(line) == 1 and len(line[0].text) == 1 and "가" <= line[0].text <= "힣" for line in lines)
+
+
 def _cell(items):
     lines = _physical_lines(items)
-    text = " ".join(item.text for line in lines for item in line).strip()
+    ordered = [item for line in lines for item in line]
+    joint = "" if _is_vertical(lines) else " "
+    text = joint.join(item.text for item in ordered).strip()
     first = lines[0][0] if lines else None  # 칸의 맨 앞 상자의 앞글자 표시만 칸의 앞글자다(표의 빈 칸은 상자가 없다)
     prefix = min(first.unsure_prefix, len(first.text)) if first else 0
-    return Cell(text, any(item.score < UNSURE_SCORE for item in items), prefix)
+    marks, offset = [], 0
+    for item in ordered:
+        marks.extend(offset + position for position in item.unsure_chars)
+        offset += len(item.text) + len(joint)
+    return Cell(text, any(item.score < UNSURE_SCORE for item in items), prefix, tuple(marks))
 
 
 def _column_of(item, bands):
@@ -281,8 +337,133 @@ def _mark_lookalikes(table):
                 cell.unsure = True
 
 
-def build_blocks(boxes):
-    """글자 상자를 위에서 아래로 TextLine·Table 블록 목록으로 만든다."""
+def _inside(item, area):
+    center_x, center_y = item.x + item.w / 2, item.y + item.h / 2
+    return area.left <= center_x <= area.right and area.top <= center_y <= area.bottom
+
+
+def _is_number_line(items):
+    text = " ".join(item.text for item in items).strip()
+    return _NUMERIC.fullmatch(text) is not None and any(char.isdigit() for char in text)
+
+
+def _row_lines(items):
+    """칸을 가리지 않은 글자 줄. '-'처럼 낮은 상자도 제 줄에 들도록 행 전체의 글자 높이로 묶는다."""
+    height = median(item.h for item in items)
+    lines = []
+    for item in sorted(items, key=lambda b: (b.y + b.h / 2, b.x)):
+        center = item.y + item.h / 2
+        if lines and abs(center - median(b.y + b.h / 2 for b in lines[-1])) <= LINE_OVERLAP * height:
+            lines[-1].append(item)
+        else:
+            lines.append([item])
+    return lines
+
+
+def _stacked_rows(cells):
+    """표 선 없이 한 칸에 쌓인 실제 행들을 글자 줄 목록으로 돌려준다. 정말 한 행이면 None이다.
+
+    세로선과 머리글 선만 있는 표는 본문 전체가 격자의 한 행이다. 글자만 있는 여러 줄 칸은 감긴 문장일 수 있어 나누지 않고,
+    숫자만 있는 줄이 쌓였을 때만 행으로 본다. 두 줄뿐이면 값과 비율을 한 칸에 쓴 표일 수 있어 여러 칸이 쌓이고 남는 줄이 없어야 한다.
+    """
+    filled = [items for items in cells if items]
+    if len(filled) < 2:
+        return None
+    owner = {id(item): index for index, items in enumerate(filled) for item in items}
+    lines = _row_lines([item for items in filled for item in items])
+    line_counts, number_counts = [0] * len(filled), [0] * len(filled)
+    shared = 0
+    for line in lines:
+        indexes = {owner[id(item)] for item in line}
+        shared += len(indexes) >= 2
+        for index in indexes:
+            line_counts[index] += 1
+            number_counts[index] += _is_number_line([item for item in line if owner[id(item)] == index])
+    if shared < 2:
+        return None
+    if max(number_counts) >= STACKED_NUMBERS:
+        return lines
+    return lines if sum(count >= 2 for count in number_counts) >= 2 and len(lines) <= max(line_counts) else None
+
+
+def _grid_table(grid, items):
+    """표 선으로 찾은 격자에 글자를 넣는다. 칸 안의 글자는 물리 줄 순서로 잇고, 칸에 쌓인 실제 행은 표의 행으로 나눈다."""
+    slots = {(cell.row, cell.column): [] for cell in grid.cells}
+    for item in items:
+        cell = next((c for c in grid.cells if _inside(item, c)), None)
+        if cell is None:
+            center_x, center_y = item.x + item.w / 2, item.y + item.h / 2
+            cell = min(grid.cells, key=lambda c: abs((c.left + c.right) / 2 - center_x) + abs((c.top + c.bottom) / 2 - center_y))
+        slots[cell.row, cell.column].append(item)
+    stacked = [_stacked_rows([slots[c.row, c.column] for c in grid.cells if c.row == row and c.row_span == 1]) for row in range(grid.rows)]
+    first = [0]
+    for lines in stacked:
+        first.append(first[-1] + (len(lines) if lines else 1))
+    rows = [[Cell("", covered=True) for _ in range(grid.columns)] for _ in range(first[-1])]
+    for cell in grid.cells:
+        lines = stacked[cell.row] if cell.row_span == 1 else None
+        if lines is None:
+            made = _cell(slots[cell.row, cell.column])
+            made.row_span, made.column_span = first[cell.row + cell.row_span] - first[cell.row], cell.column_span
+            rows[first[cell.row]][cell.column] = made
+            continue
+        mine = {id(item) for item in slots[cell.row, cell.column]}
+        for offset, line in enumerate(lines):
+            made = _cell([item for item in line if id(item) in mine])
+            made.column_span = cell.column_span
+            rows[first[cell.row] + offset][cell.column] = made
+    return Table(rows)
+
+
+def _gutter(boxes):
+    """2단 조판이면 두 단 사이 빈 띠의 가운데 x, 아니면 None.
+
+    영역 가운데쯤에 상자가 거의 지나가지 않는 띠가 있고 양쪽 줄이 단을 채울 때만 2단으로 본다. 표처럼 칸이 짧으면 행을
+    유지해야 하므로 해당하지 않는다.
+    """
+    if len(boxes) < COLUMN_MIN_BOXES:
+        return None
+    left, right = min(b.x for b in boxes), max(b.x + b.w for b in boxes)
+    width = right - left
+    height = median(b.h for b in boxes)
+    best = None
+    for start in sorted({b.x + b.w for b in boxes}):
+        end = start + COLUMN_GAP * height
+        if not left + COLUMN_MIDDLE[0] * width <= (start + end) / 2 <= left + COLUMN_MIDDLE[1] * width:
+            continue
+        crossing = sum(b.x < end and b.x + b.w > start for b in boxes)
+        if crossing <= COLUMN_MAX_WIDE * len(boxes) and (best is None or crossing < best[0]):
+            best = crossing, (start + end) / 2
+    if best is None:
+        return None
+    middle = best[1]
+    sides = ([b for b in boxes if b.x + b.w <= middle], [b for b in boxes if b.x >= middle])
+    for side, room in zip(sides, (middle - left, right - middle)):
+        if len(side) < COLUMN_MIN_SIDE or median(b.w for b in side) < COLUMN_FILL * room:
+            return None
+    return middle
+
+
+def _text_blocks(boxes):
+    """2단 조판은 왼쪽 단을 끝까지 읽고 오른쪽 단으로 넘어간다. 두 단을 가로지른 제목은 그 자리에서 읽는다."""
+    middle = _gutter(boxes)
+    if middle is None:
+        return _blocks_of_lines(boxes)
+    wide = sorted((b for b in boxes if b.x < middle < b.x + b.w), key=lambda b: b.y)
+    rest = [b for b in boxes if not b.x < middle < b.x + b.w]
+    blocks = []
+    for top, bottom in zip([None] + wide, wide + [None]):
+        low = top.y + top.h / 2 if top else float("-inf")
+        high = bottom.y + bottom.h / 2 if bottom else float("inf")
+        part = [b for b in rest if low <= b.y + b.h / 2 < high]
+        blocks.extend(_blocks_of_lines([b for b in part if b.x + b.w / 2 < middle]))
+        blocks.extend(_blocks_of_lines([b for b in part if b.x + b.w / 2 >= middle]))
+        if bottom:
+            blocks.extend(_blocks_of_lines([bottom]))
+    return blocks
+
+
+def _blocks_of_lines(boxes):
     lines = group_lines(boxes)
     runs, previous_end = {}, 0
     for start, end, bands in _table_runs(lines):
@@ -308,6 +489,32 @@ def build_blocks(boxes):
     return blocks
 
 
+def build_blocks(boxes, grids=None):
+    """글자 상자를 위에서 아래로 TextLine·Table 블록 목록으로 만든다. 표 선을 찾은 곳은 그 격자가 표를 정한다."""
+    grids = getattr(boxes, "grids", ()) if grids is None else grids
+    members = [[] for _ in grids]
+    free = []
+    for item in boxes:
+        index = next((i for i, grid in enumerate(grids) if _inside(item, grid)), None)
+        (free if index is None else members[index]).append(item)
+    tables = []
+    for grid, items in zip(grids, members):
+        if len(items) >= 2:
+            tables.append((grid, items))
+        else:
+            free.extend(items)
+    blocks = []
+    for grid, items in sorted(tables, key=lambda pair: pair[0].top):
+        above = [item for item in free if item.y + item.h / 2 < grid.top]
+        free = [item for item in free if item.y + item.h / 2 >= grid.top]
+        blocks.extend(_text_blocks(above))
+        table = _grid_table(grid, items)
+        _mark_lookalikes(table)
+        blocks.append(table)
+    blocks.extend(_text_blocks(free))
+    return blocks
+
+
 def _clean(text):
     """탭·줄바꿈이 칸 경계를 깨지 않도록 공백 하나로 바꾼다."""
     return " ".join(text.split())
@@ -320,6 +527,19 @@ def _line_text(cells):
 def _utf16_len(text):
     """QTextCursor 위치는 UTF-16 코드 단위다. 이모지 같은 BMP 밖 글자는 2로 센다."""
     return len(text.encode("utf-16-le")) // 2
+
+
+def _runs_of(positions, start, length):
+    """글자 번호들을 이어진 (시작, 끝) 구간으로. start 앞과 length 뒤는 뺀다."""
+    runs = []
+    for position in sorted(positions):
+        if position < start or position >= length:
+            continue
+        if runs and runs[-1][1] == position:
+            runs[-1][1] = position + 1
+        else:
+            runs.append([position, position + 1])
+    return runs
 
 
 def plain_with_spans(blocks):
@@ -338,9 +558,13 @@ def plain_with_spans(blocks):
                 token = _clean(cell.text)
                 if cell.unsure and token:
                     spans.append((position, _utf16_len(token), token))
-                elif cell.unsure_prefix and token:
-                    head = token[:cell.unsure_prefix]  # 칸 전체가 아니라 앞글자(기호)만 표시한다
-                    spans.append((position, _utf16_len(head), head))
+                elif token:
+                    if cell.unsure_prefix:
+                        head = token[:cell.unsure_prefix]  # 칸 전체가 아니라 앞글자(기호)만 표시한다
+                        spans.append((position, _utf16_len(head), head))
+                    if cell.unsure_chars and token == cell.text:
+                        for start, end in _runs_of(cell.unsure_chars, cell.unsure_prefix, len(token)):
+                            spans.append((position + _utf16_len(token[:start]), _utf16_len(token[start:end]), token[start:end]))
                 parts.append(token)
                 position += _utf16_len(token) + 1
             line = " ".join(parts)
@@ -363,12 +587,18 @@ def to_tsv(blocks):
     return "\n".join(lines)
 
 
+def _span_attributes(cell):
+    rows = f' rowspan="{cell.row_span}"' if cell.row_span > 1 else ""
+    columns = f' colspan="{cell.column_span}"' if cell.column_span > 1 else ""
+    return rows + columns
+
+
 def to_html(blocks):
     parts = []
     for block in blocks:
         if isinstance(block, Table):
             rows = "".join(
-                "<tr>" + "".join(f"<td>{html.escape(_clean(cell.text))}</td>" for cell in row) + "</tr>"
+                "<tr>" + "".join(f"<td{_span_attributes(cell)}>{html.escape(_clean(cell.text))}</td>" for cell in row if not cell.covered) + "</tr>"
                 for row in block.rows
             )
             parts.append(f'<table border="1" cellspacing="0" cellpadding="2">{rows}</table>')

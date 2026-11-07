@@ -20,7 +20,7 @@ import optional_mini_apps
 import ui_main
 from screen_text import APP
 from screen_text.engine import ModelIntegrityError, RecognitionCancelled
-from screen_text.layout import TextBox
+from screen_text.layout import Grid, GridCell, RecognizedBoxes, TextBox
 from screen_text.window import CONTENT_HEIGHT, CONTENT_WIDTH, SHADOW_MARGIN, ScreenTextWindow
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -952,4 +952,73 @@ def test_editing_the_marked_table_cell_clears_the_mark_and_refreshes_text(qtbot,
     assert win.table.item(1, 0).background().color() != QColor("#FFE58A")
     qtbot.mouseClick(win.text_tab, Qt.LeftButton)
     assert "◦ 가나" in win.text_edit.toPlainText()
+    assert win.text_edit.extraSelections() == [] and win.status_label.text() == "확인 완료"
+
+
+class GridEngine(FakeEngine):
+    """실제 엔진처럼 표 격자가 붙은 결과를 돌려준다."""
+
+    def __init__(self, boxes, grids):
+        super().__init__(boxes)
+        self.grids = grids
+
+    def recognize(self, rgb, cancelled):
+        return RecognizedBoxes(super().recognize(rgb, cancelled), self.grids)
+
+
+MERGED_GRID = Grid(3, 3, (GridCell(0, 0, 2, 1, 0, 0, 100, 60), GridCell(0, 1, 1, 2, 100, 0, 300, 30), GridCell(1, 1, 1, 1, 100, 30, 200, 60),
+                          GridCell(1, 2, 1, 1, 200, 30, 300, 60), GridCell(2, 0, 1, 1, 0, 60, 100, 90), GridCell(2, 1, 1, 1, 100, 60, 200, 90),
+                          GridCell(2, 2, 1, 1, 200, 60, 300, 90)), 0, 0, 300, 90)
+MERGED_BOXES = [TextBox(10, 20, 60, 16, "구분", 0.99), TextBox(120, 5, 100, 16, "실적", 0.99), TextBox(110, 35, 60, 16, "2024", 0.99),
+                TextBox(210, 35, 60, 16, "2025", 0.99), TextBox(10, 65, 60, 16, "대전", 0.99), TextBox(110, 65, 60, 16, "42", 0.99), TextBox(210, 65, 60, 16, "51", 0.99)]
+
+
+def test_merged_cells_from_table_lines_span_in_the_table_tab(qtbot, make):
+    win = make(GridEngine(MERGED_BOXES, [MERGED_GRID]))
+    recognized(qtbot, win)
+    assert win.table_tab.isVisible() and win.table_tab.isChecked()
+    assert (win.table.rowCount(), win.table.columnCount()) == (3, 3)
+    assert (win.table.rowSpan(0, 0), win.table.columnSpan(0, 1)) == (2, 2)
+    assert win.table.item(0, 0).text() == "구분" and win.table.item(0, 1).text() == "실적"
+    assert win.table.rowSpan(2, 0) == 1                                     # 뒤에 넣은 행이 병합 칸을 늘리지 않는다
+    assert not win.table.item(1, 0).flags() & Qt.ItemIsEditable             # 병합 칸에 덮인 자리
+
+
+def test_copy_keeps_merged_cells_for_pasting_into_a_document(qtbot, make):
+    win = make(GridEngine(MERGED_BOXES, [MERGED_GRID]))
+    recognized(qtbot, win)
+    qtbot.mouseClick(win.copy_button, Qt.LeftButton)
+    html = QGuiApplication.clipboard().mimeData().html()
+    assert 'rowspan="2"' in html and 'colspan="2"' in html
+
+
+def test_repeat_recognition_clears_old_merged_cells(qtbot, make):
+    engines = [GridEngine(MERGED_BOXES, [MERGED_GRID]), FakeEngine(TABLE)]
+    win = make(engine_factory=lambda: engines[0])
+    recognized(qtbot, win)
+    assert win.table.rowSpan(0, 0) == 2
+    win._engine = engines[1]
+    recognized(qtbot, win)
+    assert win.table.rowSpan(0, 0) == 1
+
+
+CHAR_MARKED = [TextBox(0, 0, 200, 16, "환경 점겁 결과", 0.95, 0, (4,)), TextBox(0, 30, 200, 16, "다음 줄", 0.99)]
+
+
+def test_low_confidence_character_alone_is_marked(qtbot, make):
+    win = make(FakeEngine(CHAR_MARKED))
+    recognized(qtbot, win)
+    assert win.text_edit.toPlainText() == "환경 점겁 결과\n다음 줄"
+    selections = win.text_edit.extraSelections()
+    assert [item.cursor.selectedText() for item in selections] == ["겁"]
+    assert win.status_label.text() == "확인 필요 1곳"
+
+
+def test_fixing_the_marked_character_completes_the_check(qtbot, make):
+    win = make(FakeEngine(CHAR_MARKED))
+    recognized(qtbot, win)
+    cursor = QTextCursor(win.text_edit.document())
+    cursor.setPosition(4)
+    cursor.setPosition(5, QTextCursor.KeepAnchor)
+    cursor.insertText("검")
     assert win.text_edit.extraSelections() == [] and win.status_label.text() == "확인 완료"

@@ -1,6 +1,6 @@
 """제품 경로를 그대로 호출한다. 실제 엔진 import는 worker 생성 때만 한다."""
 from dataclasses import asdict
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from time import perf_counter
 
 
@@ -17,6 +17,17 @@ def pack_prediction(boxes):
             "blocks": [{"kind": "table" if isinstance(block, Table) else "line",
                         "rows": [[asdict(cell) for cell in row] for row in rows_of(block)]} for block in blocks],
             "unsure_count": unsure_count(blocks), "spans_utf16": spans}
+
+
+@contextmanager
+def plain_detection(module):
+    """진단은 원본 좌표의 상자가 필요하다. 여백과 2배 확대를 끄고 위치 찾기를 한 번만 돌린다."""
+    saved = module.DET_MARGIN, module.SMALL_TEXT_PX
+    module.DET_MARGIN, module.SMALL_TEXT_PX = 0, 0
+    try:
+        yield
+    finally:
+        module.DET_MARGIN, module.SMALL_TEXT_PX = saved
 
 
 class ProductEngine:
@@ -58,9 +69,11 @@ class ProductEngine:
         comparing = getattr(self,'model_info',None) is not None
         if comparing and (region_case is not None or ctc_case is not None):
             raise ValueError('모델/입력 비교는 다른 진단 옵션과 별도로 실행합니다')
-        with observe_engine(engine_module, self.engine, self.candidate, capture_boxes=region_case is not None or comparing) as trace:
-            with capture_ctc(engine_module, self.engine, ctc_case) if ctc_case is not None else nullcontext() as evidence:
-                boxes = self.engine.recognize(rgb)
+        diagnosing = comparing or region_case is not None or ctc_case is not None
+        with plain_detection(engine_module) if diagnosing else nullcontext():
+            with observe_engine(engine_module, self.engine, self.candidate, capture_boxes=region_case is not None or comparing) as trace:
+                with capture_ctc(engine_module, self.engine, ctc_case) if ctc_case is not None else nullcontext() as evidence:
+                    boxes = self.engine.recognize(rgb)
         recognized = perf_counter()
         result = pack_prediction(boxes)
         result.update(trace=trace, image_load_ms=(loaded - started) * 1000,

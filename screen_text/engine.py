@@ -6,18 +6,40 @@ SHA-256을 확인한 번들 모델만 불러온다. 계약은 docs/SCREEN_TEXT.m
 import hashlib
 import json
 import os
-from bisect import bisect_left
 from pathlib import Path
 
 import numpy as np
 
 from app_paths import resource_root
+from screen_text.cell_marks import empty_cell_boxes, gap_mark_boxes, read_marks
 from screen_text.corner_brackets import restore_corner_brackets
-from screen_text.layout import TextBox
+from screen_text.deskew import skew_angle, straighten
+from screen_text.layout import Grid, GridCell, RecognizedBoxes, TextBox
 from screen_text.leading_symbols import apply_leading_symbols, ink_mask, restore_inline_checkboxes
+from screen_text.marks import rescue_marks, restore_circled_digits, restore_stars, restore_thin_capitals
+from screen_text.table_lines import RIDGE_CONTRAST, find_grids, fit_boxes
 from screen_text.triangles import restore_triangles
+from screen_text.word_spaces import join_words
 
 DET_LIMIT = 960            # 위치 모델 입력의 긴 변 상한
+DET_LIMIT_SMALL = 1920     # 작은 글씨를 2배로 다시 찾을 때의 긴 변 상한
+DET_MARGIN = 32            # 위치 찾기 전에 이미지 둘레에 두르는 배경 여백(픽셀). 영역을 바짝 골라도 가장자리 글자를 놓치지 않는다
+RULE_PAST_TEXT = 2         # 표 세로선은 글자보다 이만큼(픽셀) 더 뻗는다. 바짝 고른 글자의 세로획은 글자와 함께 끝난다
+SMALL_TEXT_PX = 22         # 상자 높이 중앙값이 이보다 작으면 2배로 키워 다시 찾고 읽는다
+CHAR_UNSURE = 0.65         # 글자 확신도가 이보다 낮으면 그 글자만 확인 필요로 표시한다
+CUT_LINE_HEIGHT = 0.8      # 영역 끝에 잘린 이웃 줄의 높이 상한(다른 줄 높이 대비). 그보다 높으면 읽을 만한 줄이다
+CUT_LINE_SCORE = 0.8       # 잘린 줄로 볼 인식 점수 상한
+CUT_LINE_SHORT = 0.6       # 이보다 낮은 조각은 모델이 꽤 확신해도 없는 글자다('거기' 0.92)
+CUT_LINE_SHORT_SCORE = 0.95  # 그래도 이만큼 확신하면 바짝 고른 영역의 작은 글자다
+FRAGMENT_SCORE = 0.7       # 조각으로 볼 인식 점수 상한
+FRAGMENT_CHARS = 2         # 조각은 한두 글자로 읽힌다
+FRAGMENT_HEIGHT = 1.5      # 옆 상자가 이 배수 이상 높고
+FRAGMENT_OVERLAP = 0.6     # 조각 높이의 이만큼 겹치며
+FRAGMENT_REACH = 0.15      # 옆 상자 높이의 이 비율 안에 붙어 있으면 그 글자에서 떨어져 나온 조각이다
+FRAGMENT_NEIGHBOR = 0.9    # 옆 상자는 모델이 확신하는 글자여야 한다
+FRAGMENT_KEEP = frozenset("ㅇ○•■□◇-.,·'*%")  # 작아도 진짜인 기호(글머리는 모양으로 읽었다)
+BOX_FIT_REACH = 0.4        # 상자를 넓혀 볼 거리(상자 높이 대비)
+BOX_FIT_INK = 0.01         # 행의 이 비율 이상이 글자 픽셀이면 글자가 이어진다
 DET_THRESHOLD = 0.3        # 글자 확률 이진화 기준
 BOX_THRESHOLD = 0.6        # 상자 평균 확률 하한
 UNCLIP_RATIO = 1.5         # DB 방식 상자 확장 비율
@@ -30,15 +52,7 @@ MAX_REC_BATCH_WIDTH = 8192 # 한 배치의 패딩 폭 합계 상한
 MAX_SIDE = 4000            # 입력 이미지 긴 변 상한 (넘으면 줄인다)
 UPSCALE = 1.0              # 작은 글씨 확대 배율 (Task 4 측정으로 확정)
 CHARSET_SIZE = 11945
-SPACE_GAP_RATIO = 0.40     # 글자 높이의 이 비율 이상 빈 열이 이어지면 단어 사이 (실제 PDF·합성·글꼴 6종 시험에서 0.38~0.42가 안정)
-SPACE_MIN_GAP = 3          # 아주 작은 글자에서도 이보다 좁은 틈은 단어 사이로 보지 않는다(픽셀)
-SPACE_LOOSE_RATIO = 0.20   # 줄의 틈이 두 무리로 뚜렷이 갈릴 때 단어 틈의 하한(글자 높이 대비). 전문 조판의 단어 틈은 0.2~0.35배다
-SPACE_GROUP_RATIO = 2.5    # 단어 틈 무리의 평균이 글자 틈 무리의 이 배수 이상이어야 갈린 것으로 본다
-SPACE_MIN_PAIRS = 6        # 이보다 틈이 적은 줄은 무리를 말할 수 없다('있습니 다.', '<작성 내 용>'처럼 갈라졌다)
-SPACE_WORD_SHARE = 0.5     # 단어 틈은 드물다. 글자 쌍의 이 비율을 넘으면 힌팅된 글자의 1px·3px 차이일 뿐 단어 경계가 아니다
-LONG_STROKE = 2.5          # 글자 높이의 이 배수 이상 이어지는 가로 획은 밑줄·표 선이다. 빈 열을 이어 공백을 가린다
-# 옆이 넓게 비어 틈이 커 보이는 글자. 둘레의 틈은 고정 기준으로만 본다('10', '1월', '·관'이 갈라지지 않게)
-NARROW_GLYPHS = frozenset("1Iil|.,:;·․‧ㆍ･・'\"`()[]{}/~∼～-_!‘’“”")
+OUT_OF_MEMORY = ("MemoryError", "RuntimeException")  # 큰 입력을 포기하고 첫 결과로 계속할 오류
 DET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 DET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
@@ -122,6 +136,54 @@ def resize_bilinear(image, width, height):
     return top * (1 - wy) + bottom * wy
 
 
+def double_size(image):
+    """uint8 이미지를 2배로(이중선형과 같은 3:1 가중). 큰 쪽 이미지를 실수 배열로 만들지 않아 메모리를 아낀다."""
+    def twice(array, axis):
+        length = array.shape[axis]
+        previous = array.take(np.r_[0, 0:length - 1], axis=axis)
+        following = array.take(np.r_[1:length, length - 1], axis=axis)
+        shape = list(array.shape)
+        shape[axis] = 2 * length
+        out = np.empty(shape, dtype=np.uint16)
+        slot = [slice(None)] * array.ndim
+        slot[axis] = slice(0, None, 2)
+        out[tuple(slot)] = (3 * array + previous + 2) >> 2
+        slot[axis] = slice(1, None, 2)
+        out[tuple(slot)] = (3 * array + following + 2) >> 2
+        return out
+
+    return twice(twice(image.astype(np.uint16), 0), 1).astype(np.uint8)
+
+
+def _cut_rules(image, color):
+    """고른 영역의 위아래 끝까지 이어진 표 세로선의 열 번호."""
+    ink = np.abs(image.astype(np.int16) - color).max(axis=2) > RIDGE_CONTRAST
+    through = ink.all(axis=0)
+    rest = np.flatnonzero(ink[:, ~through].any(axis=1))
+    if rest.size and image.shape[0] - (rest[-1] - rest[0] + 1) < RULE_PAST_TEXT:
+        return np.empty(0, dtype=np.intp)
+    return np.flatnonzero(through)
+
+
+def add_margin(image, margin):
+    """둘레 색(중앙값)으로 이미지 둘레에 여백을 두른다. 드래그로 바짝 고른 글자도 위치 찾기가 온전히 보게 한다.
+
+    표의 행만 고르면 세로선이 여백에서 끊겨 떠 있는 막대가 되고 모델이 '|'로 읽으므로, 그 선은 여백까지 잇는다.
+    """
+    if margin <= 0:
+        return image
+    edge = np.concatenate((image[0], image[-1], image[:, 0], image[:, -1]))
+    color = np.median(edge, axis=0).astype(np.uint8)
+    height, width = image.shape[:2]
+    out = np.empty((height + 2 * margin, width + 2 * margin, 3), dtype=np.uint8)
+    out[:] = color
+    out[margin:margin + height, margin:margin + width] = image
+    columns = _cut_rules(image, color)
+    out[:margin, margin + columns] = image[0, columns]
+    out[margin + height:, margin + columns] = image[-1, columns]
+    return out
+
+
 def label_components(mask, cancelled=lambda: False):
     """행 단위 run을 8연결로 묶는다. 반환: [(x0, y0, x1, y1, [(y, xs, xe), ...])] (포함 좌표)."""
     parent, runs, previous = [], [], []
@@ -175,17 +237,24 @@ def ctc_decode_detail(probs, charset):
 
     글자 목록은 [(글자, 중심 단계)]이며, 중심은 그 글자가 이어진 단계들의 평균 위치다.
     """
+    runs = _ctc_runs(probs, charset)
+    scores = [first for _, _, first, _ in runs]
+    return [(char, center) for char, center, _, _ in runs], (float(np.mean(scores)) if scores else 0.0)
+
+
+def _ctc_runs(probs, charset):
+    """반복·blank를 지운 [(글자, 중심 단계, 첫 단계 확신도, 가장 높은 확신도)]."""
     indices = probs.argmax(axis=1)
     confidence = probs.max(axis=1)
-    pieces, scores, previous = [], [], 0
+    runs, previous = [], 0
     for step, index in enumerate(indices.tolist()):
         if index != 0 and index != previous:
-            pieces.append([charset[index - 1], [step]])
-            scores.append(float(confidence[step]))
-        elif index != 0 and pieces:
-            pieces[-1][1].append(step)
+            runs.append([charset[index - 1], [step], float(confidence[step]), float(confidence[step])])
+        elif index != 0 and runs:
+            runs[-1][1].append(step)
+            runs[-1][3] = max(runs[-1][3], float(confidence[step]))
         previous = index
-    return [(char, sum(run) / len(run)) for char, run in pieces], (float(np.mean(scores)) if scores else 0.0)
+    return [(char, sum(steps) / len(steps), first, best) for char, steps, first, best in runs]
 
 
 def ctc_decode(probs, charset):
@@ -194,118 +263,96 @@ def ctc_decode(probs, charset):
     return "".join(char for char, _ in pieces), score
 
 
-def without_long_strokes(ink, height):
-    """글자 높이보다 훨씬 긴 가로 획(밑줄·표 선)을 뺀 글자 픽셀. 남겨 두면 단어 사이의 빈 열이 사라진다."""
-    limit = int(LONG_STROKE * height)
-    out = ink.copy()
-    for row in np.flatnonzero(ink.sum(axis=1) >= limit):
-        edges = np.flatnonzero(np.diff(np.r_[0, ink[row].astype(np.int8), 0]))
-        for start, end in zip(edges[::2], edges[1::2]):
-            if end - start >= limit:
-                out[row, start:end] = False
-    return out
+def fit_to_ink(image, box):
+    """상자 위아래를 글자 픽셀이 끝나는 곳까지 넓힌다. 빈 행이 없으면 윗줄·아랫줄에 닿은 것이므로 그쪽은 그대로 둔다."""
+    x0, y0, x1, y1 = box
+    reach = max(2, round(BOX_FIT_REACH * (y1 - y0)))
+    top, bottom = max(0, y0 - reach), min(image.shape[0], y1 + reach)
+    rows = ink_mask(image[top:bottom, x0:x1]).mean(axis=1) >= BOX_FIT_INK
+    y = y0 - top
+    up = y0
+    while y > 0 and rows[y - 1]:
+        y -= 1
+    if y > 0 or top == 0:
+        up = top + y
+    y = y1 - top
+    down = y1
+    while y < rows.size and rows[y]:
+        y += 1
+    if y < rows.size or bottom == image.shape[0]:
+        down = top + y
+    return x0, up, x1, down
 
 
-def split_word_gap(sizes, height, pairs):
-    """줄의 틈을 두 무리로 가른 단어 틈의 최소 폭, 뚜렷하지 않으면 None.
+def _cut_line_boxes(image, boxes, results, margin):
+    """영역 위아래 끝에서 잘린 이웃 줄 조각의 상자 번호.
 
-    넓은 쪽은 글자 틈과 분명히 다르고 소수여야 한다. PDF처럼 힌팅 없는 글자에서 듣고, 힌팅된 화면 글자는 글자 틈이
-    1~4px로 흩어져 두 무리로 갈리지 않으므로 고정 기준으로 남는다.
+    드래그가 이웃 줄을 걸치면 여백 덕분에 위치 찾기가 잘린 글자까지 찾고 모델은 없는 글자로 읽는다. 글자 픽셀이 영역 끝 행에
+    닿고, 다른 줄보다 낮고, 모델도 확신하지 못하는 상자만 고른다. image는 여백을 두른 이미지이고 boxes는 그 좌표다.
     """
-    values = np.sort(np.array([size for size in sizes if size > 0], dtype=np.float64))
-    if values.size < SPACE_MIN_PAIRS:
-        return None
-    best, cut = -1.0, 0
-    for i in np.flatnonzero(np.diff(values)) + 1:  # 분산을 가장 크게 가르는 자리
-        low, high = values[:i], values[i:]
-        score = low.size * high.size * (high.mean() - low.mean()) ** 2
-        if score > best:
-            best, cut = score, int(i)
-    if cut == 0:
-        return None
-    low, high = values[:cut], values[cut:]
-    if (high[0] < SPACE_LOOSE_RATIO * height or high.mean() < SPACE_GROUP_RATIO * max(low.mean(), 1.0)
-            or high.size > SPACE_WORD_SHARE * pairs):
-        return None
-    return max(SPACE_MIN_GAP, int(high[0]))
+    read = [index for index, result in enumerate(results) if result[0].strip()]
+    height = image.shape[0] - 2 * margin
+
+    def seen(box):  # 상자는 여백으로 번지므로 영역 안의 높이만 잰다
+        return min(box[3] - margin, height) - max(box[1] - margin, 0)
+
+    def is_cut(index, line, row):
+        box, score = boxes[index], results[index][1]
+        share = seen(box) / line
+        return (share < CUT_LINE_HEIGHT and (score < CUT_LINE_SCORE or (share < CUT_LINE_SHORT and score < CUT_LINE_SHORT_SCORE))
+                and ink_mask(image[margin:margin + height, box[0]:box[2]])[row].any())
+
+    cut = set()
+    for row, touches in ((0, lambda box: box[1] - margin <= 1), (height - 1, lambda box: box[3] - margin >= height - 1)):
+        others = [seen(boxes[index]) for index in read if not touches(boxes[index])]
+        if others:
+            line = float(np.median(others))
+            cut.update(index for index in read if touches(boxes[index]) and is_cut(index, line, row))
+    return cut
 
 
-def model_word_gap(sizes, height):
-    """모델이 공백을 낸 자리의 틈(중앙값)으로 잰 이 줄의 단어 틈, 단어 틈으로 볼 만큼 넓지 않으면 None."""
-    if not sizes:
-        return None
-    gap = float(np.median(sizes))
-    return max(SPACE_MIN_GAP, int(round(gap))) if gap >= SPACE_LOOSE_RATIO * height else None
+def _fragment_boxes(boxes, results):
+    """큰 글자 옆에 붙은 낮은 점수의 짧은 조각. 획이나 글자 틈이 따로 찾힌 것이라 '−', '(', 'c' 같은 없는 글자가 된다."""
+    fragments = set()
+    for index, (box, (text, score, _)) in enumerate(zip(boxes, results)):
+        text, height = text.strip(), box[3] - box[1]
+        if not text or score >= FRAGMENT_SCORE or len(text) > FRAGMENT_CHARS or text[0] in FRAGMENT_KEEP:
+            continue
+        for other, (other_text, other_score, _) in zip(boxes, results):
+            tall = other[3] - other[1]
+            if (tall >= FRAGMENT_HEIGHT * height and other_score >= FRAGMENT_NEIGHBOR and other_text.strip()
+                    and min(box[3], other[3]) - max(box[1], other[1]) >= FRAGMENT_OVERLAP * height
+                    and max(box[0], other[0]) - min(box[2], other[2]) <= FRAGMENT_REACH * tall):
+                fragments.add(index)
+                break
+    return fragments
 
 
-def _gap_needs(gaps, pieces, steps, width, height, fixed):
-    """틈마다 필요한 폭. 글자 위치를 알면 줄의 단어 틈을 재고, 잴 수 없거나 좁은 글자 옆이면 고정 기준을 쓴다.
-
-    모델이 공백을 낸 줄은 그 자리의 틈을 자로 쓰고(일부만 내도 나머지를 찾고 글자 틈은 가르지 않는다), 공백이 없는
-    줄은 틈을 두 무리로 가른다.
-    """
-    read = [(char, center * width / steps) for char, center in pieces if char != " "] if width > 0 else []
-    if len(read) < 2:
-        return [fixed] * len(gaps)
-    positions = [x for _, x in read]
-    owners = [bisect_left(positions, x) - 1 for x, _ in gaps]  # 틈 왼쪽 글자
-    def wide(owner):
-        return 0 <= owner < len(read) - 1 and read[owner][0] not in NARROW_GLYPHS and read[owner + 1][0] not in NARROW_GLYPHS
-    largest = {}
-    for owner, (_, size) in zip(owners, gaps):
-        if wide(owner):
-            largest[owner] = max(largest.get(owner, 0), size)
-    spaces = [center * width / steps for char, center in pieces if char == " "]
-    if spaces:
-        word_gap = model_word_gap([largest[k] for k in {bisect_left(positions, x) - 1 for x in spaces} if k in largest], height)
-    else:
-        word_gap = split_word_gap(largest.values(), height, sum(wide(owner) for owner in range(len(read) - 1)))
-    if word_gap is None:
-        return [fixed] * len(gaps)
-    return [min(word_gap, fixed) if wide(owner) else fixed for owner in owners]
+def _shrunk_boxes(boxes, factor):
+    """확대한 이미지의 상자를 확대 전 좌표로."""
+    if factor == 1:
+        return boxes
+    return [(x0 // factor, y0 // factor, max(x0 // factor + 2, -(-x1 // factor)), max(y0 // factor + 2, -(-y1 // factor))) for x0, y0, x1, y1 in boxes]
 
 
-def ink_gap_cuts(crop, pieces=(), steps=1, width=0):
-    """한 줄 크롭에서 단어 사이로 볼 빈 열의 가운데 x 목록.
-
-    배경은 중앙값 색으로 보고, 배경과 충분히 다른 픽셀만 글자로 센다(옅은 잡음은 무시). 밑줄·표 선은 뺀다. 가장자리
-    여백과 글자 사이의 좁은 틈은 세지 않는다. 글자 높이에 견준 고정 기준이 기본이고, 인식 글자의 위치(pieces)를 주면
-    줄의 틈이 글자 틈과 단어 틈으로 뚜렷이 갈릴 때 좁은 단어 틈도 찾는다. 화면의 틈을 잴 뿐 글자를 추정하지 않는다.
-    """
-    if crop.size == 0:
-        return []
-    ink = ink_mask(crop)
-    rows = np.flatnonzero(ink.any(axis=1))
-    if rows.size:
-        ink = without_long_strokes(ink, int(rows[-1] - rows[0] + 1))
-    columns = np.flatnonzero(ink.any(axis=0))
-    rows = np.flatnonzero(ink.any(axis=1))
-    if columns.size < 2 or rows.size == 0:
-        return []
-    height = int(rows[-1] - rows[0] + 1)
-    fixed = max(SPACE_MIN_GAP, int(round(SPACE_GAP_RATIO * height)))
-    empty = np.diff(columns) - 1  # 글자가 있는 열 사이에 낀 빈 열 수
-    gaps = [(int(columns[k + 1] - empty[k] // 2 - 1), int(empty[k])) for k in np.flatnonzero(empty)]
-    needs = _gap_needs(gaps, pieces, steps, width, height, fixed)
-    return [x for (x, size), need in zip(gaps, needs) if size >= need]
+def _grown_boxes(boxes, factor):
+    return [tuple(value * factor for value in box) for box in boxes]
 
 
-def insert_gap_spaces(pieces, cuts, steps, width):
-    """빈 틈(크롭 x)을 글자 위치(CTC 단계)에 대응시켜, 틈 왼쪽 글자 뒤에 공백만 넣은 문자열.
+def _scaled_grid(grid, factor, shift):
+    """격자 좌표를 factor배 한 뒤 shift를 뺀다."""
+    def x(value):
+        return value * factor - shift
 
-    모델이 이미 공백을 낸 자리, 첫 글자 앞·마지막 글자 뒤의 틈, 같은 자리의 중복 틈에는 넣지 않는다.
-    """
-    centers = [center for _, center in pieces]
-    after = [False] * len(pieces)
-    for cut in cuts if width > 0 else ():
-        left = bisect_left(centers, cut * steps / width) - 1  # 중심이 틈보다 왼쪽인 마지막 글자
-        if 0 <= left < len(pieces) - 1 and pieces[left][0] != " " and pieces[left + 1][0] != " ":
-            after[left] = True
-    return "".join(char + (" " if gap else "") for (char, _), gap in zip(pieces, after))
+    cells = tuple(GridCell(c.row, c.column, c.row_span, c.column_span, x(c.left), x(c.top), x(c.right), x(c.bottom)) for c in grid.cells)
+    return Grid(grid.rows, grid.columns, cells, x(grid.left), x(grid.top), x(grid.right), x(grid.bottom))
 
 
 class OcrEngine:
     """번들 모델 세션을 들고 RGB 배열의 글자 상자를 읽는다. 세션 생성은 무겁다."""
+
+    _sharp = None  # 이번 인식에서 글자 모양을 잴 확대 전 이미지와 배율. 상자를 직접 읽을 때는 없다
+    _char_marks = {}  # 이번 인식의 상자 번호별 확신도가 낮은 글자 위치
 
     def __init__(self, directory=None, threads=None):
         import onnxruntime as ort  # 처음 인식할 때만 불러온다
@@ -323,7 +370,7 @@ class OcrEngine:
             raise ModelIntegrityError("인식 모델과 사전이 맞지 않습니다")
 
     def recognize(self, image, cancelled=lambda: False):
-        """RGB 배열(H, W, 3)의 글자 상자를 원본 좌표로 돌려준다. 취소되면 RecognitionCancelled."""
+        """RGB 배열(H, W, 3)의 글자 상자를 원본 좌표로 돌려준다(기운 스캔본은 바로 세운 뒤의 좌표). 취소되면 RecognitionCancelled."""
         if cancelled():
             raise RecognitionCancelled
         height, width = image.shape[:2]
@@ -332,34 +379,96 @@ class OcrEngine:
         if scale != 1.0:
             size = (max(1, round(width * scale)), max(1, round(height * scale)))
             work = np.clip(resize_bilinear(image, *size), 0, 255).astype(np.uint8)
+        margin = DET_MARGIN
+        plain = work
+        work = sharp = add_margin(plain, margin)   # 기호·틈은 확대 전의 또렷한 픽셀로 잰다
+        factor = 1
+        self._components = None
         boxes = self._detect(work, cancelled)
         if cancelled():
             raise RecognitionCancelled
-        results = apply_leading_symbols(work, boxes, self._read(work, boxes, cancelled))
+        skew = skew_angle(self._components, plain) if self._components else 0.0
+        self._components = None
+        if skew:    # 기운 스캔본은 바로 세워 다시 찾는다. 돌린 뒤의 좌표로 돌려주지만 상자는 서로의 위치만 쓰인다
+            work = sharp = add_margin(straighten(plain, skew), margin)
+            boxes = self._detect(work, cancelled)
+            if cancelled():
+                raise RecognitionCancelled
+        text_height = float(np.median([y1 - y0 for _, y0, _, y1 in boxes])) if boxes else 0.0
+        side = max(work.shape[:2])
+        if boxes and text_height < SMALL_TEXT_PX and 2 * side <= MAX_SIDE:
+            again = self._detect_again(work, 2, cancelled)
+            if again is not None:
+                work, boxes = again
+                factor = 2
+                scale *= 2
+                margin *= 2
+        elif side > DET_LIMIT and text_height * DET_LIMIT / side < SMALL_TEXT_PX:  # 줄여서 찾았더니 글자가 작았다(글자를 못 찾은 경우 포함)
+            again = self._detect_again(work, 1, cancelled)
+            if again is not None:
+                boxes = again[1]
+        if cancelled():
+            raise RecognitionCancelled
+        boxes = [fit_to_ink(work, box) for box in boxes]
+        grids = find_grids(sharp, _shrunk_boxes(boxes, factor), DET_MARGIN)
+        if grids:
+            boxes = fit_boxes(work, boxes, [_scaled_grid(grid, factor, 0) for grid in grids], factor)
+            if cancelled():
+                raise RecognitionCancelled
+        shrunk = _shrunk_boxes(boxes, factor)
+        added = len(boxes)
+        boxes = boxes + _grown_boxes(empty_cell_boxes(sharp, grids, shrunk) + gap_mark_boxes(sharp, shrunk), factor)
+        self._sharp, self._char_marks = (sharp, factor), {}
+        try:
+            read = self._read(work, boxes, cancelled)
+            marks = self._char_marks
+        finally:
+            self._sharp = self._components = None
+        results = read_marks(sharp, grids, _shrunk_boxes(boxes, factor), apply_leading_symbols(sharp, _shrunk_boxes(boxes, factor), read), added)
+        cut = _cut_line_boxes(sharp, _shrunk_boxes(boxes, factor), results, DET_MARGIN) | _fragment_boxes(boxes, results)
         out = []
-        for (x0, y0, x1, y1), (text, score, unsure_prefix) in zip(boxes, results):
+        for index, ((x0, y0, x1, y1), (text, score, unsure_prefix)) in enumerate(zip(boxes, results)):
             text = text.strip()
-            if text:
-                out.append(TextBox(round(x0 / scale), round(y0 / scale),
+            if text and index not in cut:
+                shift = len(text) - len(read[index][0].strip())  # 기호는 앞에만 붙으므로 뒤에서 잰 위치는 그대로다
+                chars = tuple(position + shift for position in marks.get(index, ()) if position + shift >= 0)
+                out.append(TextBox(max(0, round((x0 - margin) / scale)), max(0, round((y0 - margin) / scale)),
                                    max(1, round((x1 - x0) / scale)), max(1, round((y1 - y0) / scale)),
-                                   text, score, unsure_prefix))
-        return out
+                                   text, score, unsure_prefix, chars))
+        return RecognizedBoxes(out, [_scaled_grid(grid, factor / scale, DET_MARGIN * factor / scale) for grid in grids])
 
-    def _detect(self, image, cancelled=lambda: False):
+    def _detect_again(self, image, factor, cancelled):
+        """더 큰 입력으로 다시 찾는다. 메모리가 모자라면 None을 돌려 첫 결과로 계속한다."""
+        try:
+            work = double_size(image) if factor == 2 else image
+            return work, self._detect(work, cancelled, DET_LIMIT_SMALL)
+        except RecognitionCancelled:
+            raise
+        except Exception as error:  # onnxruntime의 할당 실패는 RuntimeError가 아닌 자체 예외다
+            if type(error).__name__ not in OUT_OF_MEMORY:
+                raise
+            return None
+
+    def _detect(self, image, cancelled=lambda: False, limit=None):
         if cancelled():
             raise RecognitionCancelled
         height, width = image.shape[:2]
-        ratio = min(1.0, DET_LIMIT / max(height, width))
-        new_h = max(32, int(round(height * ratio / 32)) * 32)
-        new_w = max(32, int(round(width * ratio / 32)) * 32)
-        tensor = resize_bilinear(image, new_w, new_h)[:, :, ::-1] / 255.0  # 모델은 BGR 순서로 학습됐다
+        ratio = min(1.0, (limit or DET_LIMIT) / max(height, width))
+        new_h, new_w = max(1, int(round(height * ratio))), max(1, int(round(width * ratio)))
+        small = resize_bilinear(image, new_w, new_h)
+        color = np.median(np.concatenate((small[0], small[-1], small[:, 0], small[:, -1])), axis=0)
+        canvas = np.empty((-(-new_h // 32) * 32, -(-new_w // 32) * 32, 3), dtype=np.float32)  # 32 배수로 늘이지 않고 채운다(글자가 찌그러지지 않는다)
+        canvas[:] = color
+        canvas[:new_h, :new_w] = small
+        tensor = canvas[:, :, ::-1] / 255.0  # 모델은 BGR 순서로 학습됐다
         tensor = ((tensor - DET_MEAN) / DET_STD).transpose(2, 0, 1)[None].astype(np.float32)
         if cancelled():
             raise RecognitionCancelled
-        prob = self._det.run(None, {"x": tensor})[0][0, 0]
+        prob = self._det.run(None, {"x": tensor})[0][0, 0][:new_h, :new_w]
         scale_x, scale_y = width / new_w, height / new_h
         boxes = []
-        for x0, y0, x1, y1, runs in label_components(prob > DET_THRESHOLD, cancelled):
+        self._components = label_components(prob > DET_THRESHOLD, cancelled)
+        for x0, y0, x1, y1, runs in self._components:
             if (x1 - x0 + 1) * (y1 - y0 + 1) < MIN_BOX_AREA:
                 continue
             score = float(np.mean(np.concatenate([prob[y, a:b + 1] for y, a, b in runs])))
@@ -372,9 +481,21 @@ class OcrEngine:
                 boxes.append(box)
         return boxes
 
+    def _note_unsure(self, index, text, pieces, runs):
+        """확신도가 낮은 글자의 text 안 위치를 적어 둔다. 화면 모양으로 고친 글자는 표시하지 않는다."""
+        low = {(char, center) for char, center, _, best in runs if best < CHAR_UNSURE and char != " "}
+        if not low:
+            return
+        flags = iter([piece in low for piece in pieces if piece[0] != " "])
+        marks = tuple(position for position, char in enumerate(text) if char != " " and next(flags, False))
+        if marks:
+            self._char_marks[index] = marks
+
     def _read(self, image, boxes, cancelled):
+        """상자를 읽는다. 글자 모양·틈은 이번 인식의 확대 전 이미지(self._sharp)에서 잰다."""
         if cancelled():
             raise RecognitionCancelled
+        sharp, factor = self._sharp or (image, 1)
         if len(boxes) > MAX_REC_BOXES:
             raise RecognitionLimitError
         widths = []
@@ -411,14 +532,22 @@ class OcrEngine:
                     raise RecognitionCancelled
                 steps = max(1, int(np.ceil(probs.shape[1] * widths[i] / widest)))
                 text, score = ctc_decode(probs[slot, :steps], self._charset)  # 진단 도구가 가로채는 지점: 상자마다 한 번
-                pieces, _ = ctc_decode_detail(probs[slot, :steps], self._charset)
+                runs = _ctc_runs(probs[slot, :steps], self._charset)
+                pieces = [(char, center) for char, center, _, _ in runs]
                 if "".join(char for char, _ in pieces) == text:  # 글자와 위치가 맞을 때만 공백 위치를 쓴다
-                    x0, y0, x1, y1 = boxes[i]
-                    crop = image[y0:y1, x0:x1]
+                    x0, y0, x1, y1 = _shrunk_boxes([boxes[i]], factor)[0]
+                    crop = sharp[y0:y1, x0:x1]
+                    pieces = rescue_marks(pieces, probs[slot, :steps], self._charset)
                     pieces = restore_corner_brackets(pieces, crop, steps, x1 - x0)
                     pieces = restore_inline_checkboxes(pieces, crop, steps, x1 - x0)
                     pieces = restore_triangles(pieces, crop, steps, x1 - x0)
-                    text = insert_gap_spaces(pieces, ink_gap_cuts(crop, pieces, steps, x1 - x0), steps, x1 - x0)
+                    pieces = restore_stars(pieces, crop, steps, x1 - x0)
+                    pieces = restore_circled_digits(pieces, crop, steps, x1 - x0)
+                    pieces = restore_thin_capitals(pieces, crop, steps, x1 - x0)
+                    has_space = self._charset[-1:] == [" "]  # 공백은 사전의 마지막이다
+                    spaces = probs[slot, :steps, len(self._charset)] if has_space else np.zeros(steps, np.float32)
+                    text = join_words(pieces, spaces, crop, steps, x1 - x0)
+                    self._note_unsure(i, text, pieces, runs)
                 results[i] = (text, score)
             del probs, batch
             start = end

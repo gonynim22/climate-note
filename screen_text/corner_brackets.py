@@ -6,7 +6,7 @@
 """
 import numpy as np
 
-from screen_text.leading_symbols import ink_mask
+from screen_text.leading_symbols import THIN_INK_FRACTION, ink_mask
 
 CORNERS = {"[": "「", "]": "」"}
 MIN_HEIGHT_PX = 4        # 이보다 작으면 모양을 말할 수 없다
@@ -32,6 +32,8 @@ def components(ink, x, reach):
             if not 0 <= column < width:
                 continue
             for row in np.flatnonzero(ink[:, column] & ~seen[:, column]):
+                if seen[row, column]:  # 앞선 덩어리가 이미 지나간 칸
+                    continue
                 seen[row, column] = True
                 stack, points = [(int(row), column)], []
                 while stack:
@@ -76,7 +78,7 @@ def restore_corner_brackets(pieces, crop, steps, width):
     """[(글자, CTC 위치)]에서 화면 모양이 낫표인 '[' ']'만 바꾼다. 없으면 받은 목록을 그대로 돌려준다."""
     if width <= 0 or not any(char in CORNERS for char, _ in pieces):
         return pieces
-    ink = ink_mask(crop)
+    ink = ink_mask(crop, THIN_INK_FRACTION)
     rows = np.flatnonzero(ink.any(axis=1))
     if rows.size == 0:
         return pieces

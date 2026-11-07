@@ -112,6 +112,8 @@
 
 ## 모델 출력·CTC 디코딩 진단
 
+영역·CTC·모델 비교 진단과 불일치 벤치마크는 원본 좌표의 상자가 필요하므로 제품의 여백·2배 재검출을 끄고(`engine_adapter.plain_detection`) 한 번만 찾는다. 일반 `run`은 제품 경로 그대로다. 2026-11-06 2차 개선의 측정 도구는 `output/screen_text_lab/analysis-20261106/README.txt`에 있다.
+
 `--diagnose-ctc`는 baseline의 실제 인식 모델 출력과 제품 디코더 입력을 관측한다. **명시적인 수동 옵션**이며 `--diagnose-regions`와 동시에 사용할 수 없다. `--case-id`를 반복 지정하면 선택한 suite/split 안의 특정 사례만 실행한다. 중복·없는 ID는 실행 전에 거부한다.
 
 ```powershell

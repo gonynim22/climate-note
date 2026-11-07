@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from screen_text.layout import (
-    Cell, Table, TextBox, TextLine, build_blocks, group_lines, has_table, plain_with_spans, rows_of,
+    Cell, Grid, GridCell, RecognizedBoxes, Table, TextBox, TextLine, build_blocks, group_lines, has_table, plain_with_spans, rows_of,
     to_html, to_plain, to_tsv, unsure_count,
 )
 
@@ -269,3 +269,59 @@ def test_touching_paragraph_fragments_do_not_create_a_new_table():
     boxes += [box(75, y, "오른쪽 단어", w=80) for y in (0, 30)]
     assert not has_table(build_blocks(boxes))
     assert to_plain(build_blocks(boxes)) == "왼쪽 단어 오른쪽 단어\n왼쪽 단어 오른쪽 단어"
+
+
+def _column_boxes(lines=6, line_width=280, right_x=320, height=16, step=24):
+    left = [TextBox(10, 40 + k * step, line_width, height, f"왼쪽 단 {k}번 줄", .99) for k in range(lines)]
+    right = [TextBox(right_x, 40 + k * step, line_width, height, f"오른쪽 단 {k}번 줄", .99) for k in range(lines)]
+    return left, right
+
+
+def test_two_columns_read_left_column_first():
+    left, right = _column_boxes()
+    text = to_plain(build_blocks(left + right)).split("\n")
+    assert text == [box.text for box in left] + [box.text for box in right]
+
+
+def test_title_across_both_columns_stays_in_place():
+    left, right = _column_boxes()
+    title = TextBox(10, 5, 590, 18, "두 단에 걸친 제목", .99)
+    below = TextBox(10, 200, 590, 18, "아래쪽 넓은 문장", .99)
+    text = to_plain(build_blocks([title, below] + left + right)).split("\n")
+    assert text[0] == title.text and text[-1] == below.text
+    assert text[1:-1] == [box.text for box in left] + [box.text for box in right]
+
+
+def test_short_cells_in_two_bands_stay_as_rows():
+    """칸이 짧은 표는 2단이 아니다. 행을 유지해야 한다."""
+    left, right = _column_boxes(line_width=60)
+    blocks = build_blocks(left + right)
+    assert isinstance(blocks[0], Table) and len(blocks[0].rows) == 6
+
+
+def test_single_column_is_untouched():
+    lines = [TextBox(10, 10 + k * 24, 500, 16, f"줄 {k}", .99) for k in range(10)]
+    assert to_plain(build_blocks(lines)).split("\n") == [box.text for box in lines]
+
+
+def grid_of_one_tall_cell():
+    return Grid(1, 2, (GridCell(0, 0, 1, 1, 0, 0, 30, 110), GridCell(0, 1, 1, 1, 30, 0, 200, 110)), 0, 0, 200, 110)
+
+
+def test_cell_written_downward_is_one_word():
+    """좁은 칸에 한 자씩 세로로 쓴 머리글이 '구 분'으로 나왔다."""
+    boxes = [box(5, 5, "구", w=20, h=20), box(5, 30, "분", w=20, h=20), box(60, 30, "기록", w=40, h=20)]
+    table = build_blocks(RecognizedBoxes(boxes, [grid_of_one_tall_cell()]))[0]
+    assert table.rows[0][0].text == "구분"
+
+
+def test_cell_of_short_lines_keeps_its_spaces():
+    boxes = [box(5, 5, "수질", w=24, h=20), box(5, 30, "기준", w=24, h=20), box(60, 30, "기록", w=40, h=20)]
+    table = build_blocks(RecognizedBoxes(boxes, [grid_of_one_tall_cell()]))[0]
+    assert table.rows[0][0].text == "수질 기준"
+
+
+def test_unsure_mark_stays_on_its_character_in_a_downward_cell():
+    boxes = [box(5, 5, "구", w=20, h=20), replace(box(5, 30, "분", w=20, h=20), unsure_chars=(0,)), box(60, 30, "기록", w=40, h=20)]
+    table = build_blocks(RecognizedBoxes(boxes, [grid_of_one_tall_cell()]))[0]
+    assert table.rows[0][0].unsure_chars == (1,)

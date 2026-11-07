@@ -188,3 +188,25 @@ def test_empty_cases_return_the_input():
     assert restore_triangles(pieces, image[:, :0], 1, 0) is pieces
     assert restore_triangles(pieces, image, 50, 200) is pieces          # 글자 픽셀이 없다
     assert restore_triangles([], image, 50, 200) == []
+
+
+def test_filled_triangle_read_as_a_before_a_number_is_restored():
+    image = blank()
+    stamp(image, triangle(14, 12, "filled"), 10, 6)
+    digit(image, 30)
+    assert chars(run([("A", 17), ("1", 34)], image, 60)) == ["▲", "1"]
+
+
+def test_bold_a_before_a_number_stays():
+    image = blank()
+    glyph = triangle(14, 12, "filled")
+    glyph[8:10, 4:10] = False                  # 'A'의 구멍
+    stamp(image, glyph, 10, 6)
+    digit(image, 30)
+    assert chars(run([("A", 17), ("4", 34)], image, 60)) == ["A", "4"]
+
+
+def test_model_triangle_is_always_the_standard_mark():
+    image = blank()
+    digit(image, 30)
+    assert chars(run([("∆", 17), ("1", 34)], image, 60)) == ["△", "1"]

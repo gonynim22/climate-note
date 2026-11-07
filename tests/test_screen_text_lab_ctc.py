@@ -16,6 +16,14 @@ from tools.screen_text_lab.metrics import score_case
 from tools.screen_text_lab.runner import base_record
 
 
+@pytest.fixture(autouse=True)
+def fixed_boxes(monkeypatch):
+    """가짜 위치 찾기가 돌려주는 상자를 그대로 쓴다(여백·2배 확대 없이)."""
+    from screen_text import engine
+    monkeypatch.setattr(engine, "DET_MARGIN", 0)
+    monkeypatch.setattr(engine, "SMALL_TEXT_PX", 0)
+
+
 def exhaustive(probs, spaces=()):
     result = defaultdict(float)
     for path in product(range(probs.shape[1]), repeat=len(probs)):

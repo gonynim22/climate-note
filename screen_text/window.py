@@ -587,8 +587,10 @@ class ScreenTextWindow(QWidget):
         self._table_rows = []
         columns = max([len(block.rows[0]) for block in self._blocks if isinstance(block, Table)] + [1])
         self.table.clear()
+        self.table.clearSpans()
         self.table.setRowCount(0)
         self.table.setColumnCount(columns)
+        merged = []  # 행을 다 넣은 뒤에 병합한다. 먼저 병합하면 뒤에 넣는 행이 병합 칸을 늘린다
         for block in self._blocks:
             for row_index, row in enumerate(rows_of(block)):
                 position = self.table.rowCount()
@@ -604,13 +606,19 @@ class ScreenTextWindow(QWidget):
                     continue
                 for column, cell in enumerate(row):
                     item = QTableWidgetItem(cell.text)
+                    if cell.covered:  # 병합 칸에 덮인 자리: 고칠 글자가 없다
+                        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     if cell.flagged:
                         item.setBackground(UNSURE_BACKGROUND)
                     self.table.setItem(position, column, item)
+                    if cell.row_span > 1 or cell.column_span > 1:
+                        merged.append((position, column, cell.row_span, cell.column_span))
                 for column in range(len(row), columns):  # 더 좁은 표의 비는 칸: 고칠 칸이 없으니 편집할 수 없게 둔다
                     padding = QTableWidgetItem("")
                     padding.setFlags(padding.flags() & ~Qt.ItemIsEditable)
                     self.table.setItem(position, column, padding)
+        for span in merged:
+            self.table.setSpan(*span)
         self.table.resizeColumnsToContents()
         self._filling = False
 
@@ -628,7 +636,7 @@ class ScreenTextWindow(QWidget):
                 return
             cell = row[item.column()]
             if text != cell.text:
-                cell.text, cell.unsure, cell.unsure_prefix = text, False, 0
+                cell.text, cell.unsure, cell.unsure_prefix, cell.unsure_chars = text, False, 0, ()
         self._filling = True
         item.setData(Qt.BackgroundRole, None)
         self._filling = False

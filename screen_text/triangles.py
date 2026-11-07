@@ -1,19 +1,22 @@
-"""모델이 건너뛰거나 닮은 글자로 읽은 △ ▲를 화면 모양으로 되살린다. Qt를 쓰지 않고 numpy만 쓴다.
+"""모델이 건너뛰거나 닮은 글자로 읽은 △ ▲ ▽ ▼ ▷ ▶를 화면 모양으로 되살린다. Qt를 쓰지 않고 numpy만 쓴다.
 
 모델 사전에 없는 글자라 그대로 두면 '△32%'가 '32%'로 읽혀 감소가 증가로 바뀐다. 줄 안에서 CTC 글자가 비는 자리나
-모델이 닮은 글자로 읽은 자리의 글자 덩어리가 위로 뾰족한 삼각형일 때만 넣거나 바꾼다. 화면 모양을 읽을 뿐 글자를
+모델이 닮은 글자로 읽은 자리의 글자 덩어리가 삼각형일 때만 넣거나 바꾼다. 화면 모양을 읽을 뿐 글자를
 추정하지 않으며, 그 자리에 모델이 낸 다른 글자가 있으면 건드리지 않는다. 계약은 docs/SCREEN_TEXT.md를 따른다.
 """
 import numpy as np
 
 from screen_text.corner_brackets import components
-from screen_text.leading_symbols import ink_mask
+from screen_text.leading_symbols import THIN_INK_FRACTION, ink_mask
 
 HOLLOW = "△"
 FILLED = "▲"
-# 모델이 삼각형을 이렇게 읽은 실측. '∆'(U+2206)는 공문서 문자집합에 없어 찾기에 안 걸리고 같은 표에서 △와 섞이므로 통일한다.
-# 'A'는 굵은 제목 글씨가 꽉 찬 삼각형처럼 보여 넣으면 안 된다
-LOOK_ALIKES = frozenset("스ㅅ!∆")
+TURNED = {HOLLOW: "▽", FILLED: "▼"}     # 위아래로 뒤집힌 삼각형
+POINTING = {HOLLOW: "▷", FILLED: "▶"}   # 오른쪽을 가리키는 삼각형
+# 모델이 삼각형을 이렇게 읽은 실측. 'A'는 굵은 제목 글씨가 꽉 찬 삼각형처럼 보여 넣으면 안 된다.
+# '∆'(U+2206)는 공문서 문자집합에 없어 찾기에 안 걸리고 같은 표에서 △와 섞이므로 언제나 △로 통일한다
+LOOK_ALIKES = frozenset("스ㅅ!")
+MODEL_TRIANGLE = "∆"
 MIN_PIECE_GAP = 1.2        # 이웃한 CTC 글자가 줄 글자 높이의 이만큼 떨어져야 그 사이를 건너뛴 자리로 본다
 NEXT_GLYPH = 0.35          # 건너뛴 자리 양 끝에서 이웃 글자 몫으로 빼는 폭(줄 글자 높이 대비)
 PREVIOUS_GLYPH = 0.55
@@ -29,11 +32,12 @@ SLOPE_TOLERANCE = 0.3      # 행 폭이 곧은 빗변의 폭에서 벗어나도 
 BODY = (0.3, 0.8)          # 속이 찼는지 보는 행 구간(높이 대비)
 SOLID = 0.9                # 모든 행의 채움이 이 이상이면 ▲. 굵은 'A'는 구멍과 다리 사이 때문에 못 미친다
 OPEN = 0.75                # 모든 행의 채움이 이 이하면 △. 가로획이 있는 글자는 그 행이 찬다
+BASE_FILL = 0.7            # 뒤집히거나 옆을 보는 빈 삼각형의 밑변이 폭을 덮는 비율
 MAX_FOREIGN_INK = 0.1      # 덩어리가 차지한 열에 든 다른 글자 픽셀의 상한(덩어리 대비). '스'의 'ㅡ'는 훨씬 많다
 
 
 def _shape(glyph):
-    """딱 맞게 잘린 글자 픽셀이 위로 뾰족한 삼각형이면 그 기호."""
+    """딱 맞게 잘린 글자 픽셀이 위로 뾰족한 삼각형이면 그 기호(△ ▲)."""
     height, width = glyph.shape
     if height < MIN_PX or width < MIN_PX or not MIN_ASPECT <= width / height <= MAX_ASPECT:
         return None
@@ -75,9 +79,28 @@ def _cut_from_next(glyph, left, next_x, line_height):
     return None
 
 
+def _closed(glyph, kind):
+    """속이 빈 삼각형은 밑변이 있어야 한다. 'v'와 '>'는 다리만 있다."""
+    return kind == FILLED or (kind == HOLLOW and glyph[-1].mean() >= BASE_FILL)
+
+
+def _any_direction(glyph):
+    """위로 뾰족한 모양을 먼저 보고, 뒤집힌 ▼와 오른쪽을 가리키는 ▶도 같은 검사로 본다."""
+    kind = _shape(glyph)
+    if kind:
+        return kind
+    turned = glyph[::-1]
+    kind = _shape(turned)
+    if _closed(turned, kind):
+        return TURNED[kind]
+    rotated = np.rot90(glyph)
+    kind = _shape(rotated)
+    return POINTING[kind] if _closed(rotated, kind) else None
+
+
 def _triangle(ink, glyph, left, used, line_height):
     """덩어리가 삼각형이고 그 열을 혼자 차지하며 다른 CTC 글자가 없으면 (기호, 가운데 x)."""
-    kind = _shape(glyph) if glyph.shape[0] >= MIN_LINE_RATIO * line_height else None
+    kind = _any_direction(glyph) if glyph.shape[0] >= MIN_LINE_RATIO * line_height else None
     right = left + glyph.shape[1] - 1
     if (kind is None or any(left - 1 <= x <= right + 1 for x in used)
             or ink[:, left:right + 1].sum() - glyph.sum() > MAX_FOREIGN_INK * glyph.sum()):
@@ -112,11 +135,16 @@ def _skipped(ink, xs, line_height):
     return found
 
 
+def _before_number(pieces, index):
+    """다음 글자가 숫자인가. 표의 ▲1.2 는 'A1.2'로 읽힌다(모양은 ▲만 통과한다)."""
+    return next((char for char, _ in pieces[index + 1:] if char != " "), "").isdigit()
+
+
 def restore_triangles(pieces, crop, steps, width):
     """[(글자, CTC 위치)]에 건너뛴 △ ▲를 끼워 넣고 닮은 글자로 읽힌 것을 바꾼다. 없으면 받은 목록을 그대로 돌려준다."""
     if not pieces or width <= 0:
         return pieces
-    ink = ink_mask(crop)
+    ink = ink_mask(crop, THIN_INK_FRACTION)
     rows = np.flatnonzero(ink.any(axis=1))
     if rows.size == 0:
         return pieces
@@ -126,7 +154,10 @@ def restore_triangles(pieces, crop, steps, width):
     changed = False
     out = list(pieces)
     for index, (char, center) in enumerate(pieces):
-        if char in LOOK_ALIKES:
+        if char == MODEL_TRIANGLE:  # 모델이 이미 삼각형이라고 읽었다. 모양이 작아 재지 못해도 같은 표의 △와 맞춘다
+            out[index] = (HOLLOW, center)
+            changed = True
+        elif char in LOOK_ALIKES or (char == "A" and _before_number(pieces, index)):
             x = int(center * per_step)
             others = [other for other in xs if other != center * per_step]
             for glyph, _, _, left in components(ink, x, 0):

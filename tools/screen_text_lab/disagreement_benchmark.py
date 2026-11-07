@@ -12,7 +12,7 @@ def recognize_pair(engine, rgb, cancelled=lambda: False):
     """한 번 검출하고 원래 인식 결과를 반환한다. 추가 판독 실패/취소 시 인스턴스 복원."""
     from screen_text import engine as module
     from screen_text.layout import TextBox
-    from .engine_adapter import pack_prediction
+    from .engine_adapter import pack_prediction, plain_detection
     from .recognizers import read_regions
     original = engine._read
     missing = object()
@@ -31,7 +31,8 @@ def recognize_pair(engine, rgb, cancelled=lambda: False):
 
     engine._read = dual
     try:
-        native = pack_prediction(engine.recognize(rgb, cancelled))
+        with plain_detection(module):
+            native = pack_prediction(engine.recognize(rgb, cancelled))
         if cancelled():
             raise module.RecognitionCancelled
         scale = min(module.UPSCALE, module.MAX_SIDE / max(rgb.shape[:2]))

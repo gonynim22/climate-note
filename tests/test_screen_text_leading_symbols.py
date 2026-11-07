@@ -107,10 +107,11 @@ def test_tall_hollow_shape_is_not_a_symbol():
 
 
 def test_small_round_bullet_is_not_taken_for_a_filled_square():
-    # 3~4px의 둥근 글머리 •는 픽셀로는 네모라 모양으로 가를 수 없고 크기로 가른다(• 0.20 안팎, ▪ 0.22 이상)
+    # 3~4px의 둥근 글머리 •는 픽셀로는 네모라 모양으로 가를 수 없고 크기로 가른다(• 0.14~0.21, ▪ 0.22 이상)
     image, left, end = line_image("filled", 4)
-    assert symbols.leading_symbol(image, 0, [(left, 0, end, HEIGHT)]) is None
-    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("· 선정평가", 0.9)]) == [("· 선정평가", 0.9, 0)]
+    assert symbols.leading_symbol(image, 0, [(left, 0, end, HEIGHT)])[0] == "•"
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("· 선정평가", 0.9)]) == [("• 선정평가", 0.9, 0)]
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("• 선정평가", 0.9)]) == [("• 선정평가", 0.9, 0)]
 
 
 def test_colored_badge_with_letters_is_not_taken_for_a_filled_square():
@@ -379,3 +380,48 @@ def test_lone_dash_box_without_a_neighbor_is_left_alone():
     image = np.full((HEIGHT, 40, 3), 255, np.uint8)
     image[11:13, 10:19] = 0
     assert symbols.apply_leading_symbols(image, [(8, 6, 22, 18)], [("-", 0.9)]) == [("-", 0.9, 0)]
+
+
+def open_glyph(side):
+    """한쪽이 트인 글자('C', 'u', 'n'). 가운데가 비어 고리·네모처럼 보인다."""
+    mask = glyph("hollow", 14)
+    if side == "right":
+        mask[5:9, 12:] = False
+    elif side == "top":
+        mask[:2, 4:10] = False
+    else:
+        mask[-2:, 4:10] = False
+    return mask
+
+
+@pytest.mark.parametrize("side", ["right", "top", "bottom"])
+def test_open_letter_is_not_a_ring_or_a_box(side):
+    """엑셀 열 머리글 'C'가 ○로, 칸의 'in'이 □로 나왔다. 고리와 네모는 사방이 닫혀 있다."""
+    image = np.full((HEIGHT, 60, 3), 255, np.uint8)
+    image[4:18, 4:18][open_glyph(side)] = 0
+    assert symbols.leading_symbol(image, 0, [(2, 0, 58, HEIGHT)]) is None
+
+
+def test_closed_ring_is_still_a_ring():
+    image = np.full((HEIGHT, 60, 3), 255, np.uint8)
+    image[4:18, 4:18][glyph("ring", 14)] = 0
+    assert symbols.leading_symbol(image, 0, [(2, 0, 58, HEIGHT)])[0] in symbols.RINGS
+
+
+def test_table_rule_keeps_the_neighbor_cell_out():
+    """표 선 왼쪽은 다른 칸이다. 옆 칸 글자의 'ㅇ'을 이 칸의 글머리로 붙였다."""
+    image = np.full((HEIGHT, 120, 3), 255, np.uint8)
+    image[4:18, 4:18][glyph("ring", 14)] = 0
+    image[:, 26:27] = 0
+    for x in (40, 54, 68):
+        draw_text_block(image, x)
+    assert symbols.leading_symbol(image, 0, [(40, 0, 118, HEIGHT)]) is None
+
+
+def test_box_overlapping_its_left_neighbor_does_not_read_the_neighbor():
+    """큰 글자에서 상자가 겹치면 앞 글자의 획이 이 상자의 기호로 보였다('표'가 □로)."""
+    image = np.full((HEIGHT, 120, 3), 255, np.uint8)
+    image[4:18, 40:54][glyph("hollow", 14)] = 0
+    for x in (70, 84):
+        draw_text_block(image, x)
+    assert symbols.leading_symbol(image, 1, [(4, 0, 60, HEIGHT), (36, 0, 118, HEIGHT)]) is None
