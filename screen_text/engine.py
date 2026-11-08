@@ -24,11 +24,15 @@ from screen_text.triangles import restore_triangles
 from screen_text.units import restore_units
 from screen_text.word_spaces import join_words
 
-DET_LIMIT = 960            # 위치 모델 입력의 긴 변 상한
-DET_LIMIT_SMALL = 1920     # 작은 글씨를 2배로 다시 찾을 때의 긴 변 상한
+DET_LIMIT = 960            # 첫 위치 찾기(글자 크기·기울기를 재는 단계) 입력의 긴 변 상한
+DET_LIMIT_SMALL = 1920     # 다시 찾을 때 한 번에 넣는 입력의 긴 변 상한. 넘으면 가로 띠로 나눠 찾는다
+DET_SMALL_MIN_SCALE = 1.6  # 작은 글씨를 2배로 다시 찾을 때 줄여도 이 배율 아래로는 줄이지 않는다(A4 한 쪽 100%가 1,920/1,185≈1.62배)
+DET_TILE_AREA = 1920 * 1408  # 띠 하나의 넓이 상한(모델 입력 화소, A4 한 쪽을 2배로 찾던 입력과 같은 메모리)
+DET_TILE_OVERLAP = 256     # 이웃 띠가 겹치는 높이(모델 입력 화소). 이보다 낮은 글자 줄은 한 띠 안에 온전히 든다
 DET_MARGIN = 32            # 위치 찾기 전에 이미지 둘레에 두르는 배경 여백(픽셀). 영역을 바짝 골라도 가장자리 글자를 놓치지 않는다
 RULE_PAST_TEXT = 2         # 표 세로선은 글자보다 이만큼(픽셀) 더 뻗는다. 바짝 고른 글자의 세로획은 글자와 함께 끝난다
 SMALL_TEXT_PX = 22         # 상자 높이 중앙값이 이보다 작으면 2배로 키워 다시 찾고 읽는다
+SMALL_TEXT_RECHECK_PX = 20  # 줄여 찾은 첫 결과로는 크게 보여 원래 크기로 다시 찾았을 때, 그 상자 높이가 이보다 작으면 2배로 읽는다
 RETRY_LOST = 0.3           # 2배로 찾은 상자가 1배 상자 폭을 이만큼 잃으면 위치 찾기 입력을 조금 줄여 한 번 더 찾는다
 RETRY_SCALE = 0.97         # 그때 2배 이미지를 줄이는 비율. 정확히 2배인 입력에서만 위치 모델이 표의 한 열을 통째로 놓쳤다
 RETRY_RECOVERED = 0.1      # 다시 찾은 결과는 잃은 폭이 이보다 작을 때만 쓴다. 아니면 2배 결과를 그대로 둔다
@@ -122,17 +126,21 @@ def rgb_from_buffer(width, height, bytes_per_line, data):
     return raw.reshape(height, bytes_per_line)[:, : width * 3].reshape(height, width, 3).copy()
 
 
-def resize_bilinear(image, width, height):
+def resize_bilinear(image, width, height, rows=None):
     """numpy 이중선형 크기 변경. 크게 줄일 때는 정수 배 평균으로 먼저 줄인다.
 
     줄 묶음마다 계산해 이미지 전체 크기의 실수 임시 배열을 만들지 않는다(2배로 키운 A4 한 쪽에서 366MB였다, 2026-11-08).
     uint8은 실수로 바꿔도 값이 그대로라 묶음마다 바꾸고, 계산 순서는 전과 같아 결과가 비트 단위로 같다.
+    rows=(위, 아래)면 결과의 그 줄만 계산한다(띠로 나눠 찾을 때). 전체를 계산해 자른 것과 비트 단위로 같다.
     """
     src_h, src_w = image.shape[:2]
+    first, last = rows or (0, height)
     if (width, height) == (src_w, src_h):
-        return image.astype(np.float32)
+        return image[first:last].astype(np.float32)
     factor = int(min(src_w / width, src_h / height))
     source = image if image.dtype == np.uint8 else image.astype(np.float32)
+    if factor >= 2 and rows:   # 정수 배 평균은 이미지 전체를 바꾼다. 띠는 줄이지 않거나 조금만 줄여 이 경로를 타지 않는다
+        return resize_bilinear(image, width, height)[first:last]
     if factor >= 2:
         cut_h, cut_w = src_h // factor * factor, src_w // factor * factor
         source = image[:cut_h, :cut_w].astype(np.float32).reshape(cut_h // factor, factor, cut_w // factor, factor, -1).mean(axis=(1, 3))
@@ -142,13 +150,13 @@ def resize_bilinear(image, width, height):
     y0, x0 = np.floor(ys).astype(np.int32), np.floor(xs).astype(np.int32)
     y1, x1 = np.minimum(y0 + 1, src_h - 1), np.minimum(x0 + 1, src_w - 1)
     wy, wx = (ys - y0)[:, None, None], (xs - x0)[None, :, None]
-    out = np.empty((height, width) + source.shape[2:], dtype=np.result_type(source.dtype, wx.dtype))
-    for start in range(0, height, RESIZE_ROWS):
-        rows = slice(start, start + RESIZE_ROWS)
-        upper, lower = source[y0[rows]], source[y1[rows]]
+    out = np.empty((last - first, width) + source.shape[2:], dtype=np.result_type(source.dtype, wx.dtype))
+    for start in range(first, last, RESIZE_ROWS):
+        band = slice(start, min(start + RESIZE_ROWS, last))
+        upper, lower = source[y0[band]], source[y1[band]]
         top = upper[:, x0] * (1 - wx) + upper[:, x1] * wx
         bottom = lower[:, x0] * (1 - wx) + lower[:, x1] * wx
-        out[rows] = top * (1 - wy[rows]) + bottom * wy[rows]
+        out[start - first:band.stop - first] = top * (1 - wy[band]) + bottom * wy[band]
     return out
 
 
@@ -344,6 +352,11 @@ def _fragment_boxes(boxes, results):
     return fragments
 
 
+def _median_height(boxes):
+    """상자 높이의 중앙값. 상자가 없으면 0."""
+    return float(np.median([y1 - y0 for _, y0, _, y1 in boxes])) if boxes else 0.0
+
+
 def _shrunk_boxes(boxes, factor):
     """확대한 이미지의 상자를 확대 전 좌표로."""
     if factor == 1:
@@ -423,6 +436,9 @@ class OcrEngine:
             options.inter_op_num_threads = 1
             if not arena:
                 options.enable_cpu_mem_arena = False
+                # 같은 모양 입력을 두 번째 돌릴 때 미리 짜 둔 메모리 묶음이 첫 실행보다 약 100MB 컸다(A4 한 쪽을 다시 읽으면
+                # 최대 633→527MB, 판독·시간 같음, 2026-11-08). 띠로 나눠 찾으면 한 번 읽는 동안에도 같은 모양이 거듭된다
+                options.enable_mem_pattern = False
             release = ort.RunOptions()
             if options.enable_cpu_mem_arena:   # 아레나가 없는 세션에 이 옵션을 주면 실행이 거부된다(InvalidArgument)
                 release.add_run_config_entry("memory.enable_memory_arena_shrinkage", "cpu:0")
@@ -461,19 +477,25 @@ class OcrEngine:
             boxes = self._detect(work, cancelled)
             if cancelled():
                 raise RecognitionCancelled
-        text_height = float(np.median([y1 - y0 for _, y0, _, y1 in boxes])) if boxes else 0.0
+        text_height = _median_height(boxes)
         side = max(work.shape[:2])
-        if boxes and text_height < SMALL_TEXT_PX and 2 * side <= MAX_SIDE:
+        double = bool(boxes) and text_height < SMALL_TEXT_PX and 2 * side <= MAX_SIDE
+        if not double and side > DET_LIMIT and (text_height * DET_LIMIT / side < SMALL_TEXT_PX or side > 2 * DET_LIMIT):
+            # 줄여서 찾았더니 글자가 작았다(글자를 못 찾은 경우 포함). 반 넘게 줄인 첫 결과는 여러 줄이 한 덩어리가 되어 큰
+            # 글자처럼 보이므로(4K 폭으로 고른 문단 다섯 줄이 높이 180px 상자 하나) 늘 원래 크기로 다시 찾는다. 줄인 상자는
+            # 높이도 부풀어(17px 글자가 22px) 넓게 고른 작은 글씨를 2배로 읽지 않았으므로 다시 찾은 상자로 한 번 더 판단한다.
+            # 20~21px는 2배로 읽어도 득실이 반반이고 ②③을 2·3으로 읽는 일이 잦았다(평가 자료 15,889장, 2026-11-08)
+            again = self._detect_again(work, 1, cancelled)
+            if again is not None:
+                boxes = again[1]
+                double = bool(boxes) and _median_height(boxes) < SMALL_TEXT_RECHECK_PX and 2 * side <= MAX_SIDE
+        if double:
             again = self._detect_again(work, 2, cancelled, boxes)
             if again is not None:
                 work, boxes = again
                 factor = 2
                 scale *= 2
                 margin *= 2
-        elif side > DET_LIMIT and text_height * DET_LIMIT / side < SMALL_TEXT_PX:  # 줄여서 찾았더니 글자가 작았다(글자를 못 찾은 경우 포함)
-            again = self._detect_again(work, 1, cancelled)
-            if again is not None:
-                boxes = again[1]
         if cancelled():
             raise RecognitionCancelled
         boxes = [fit_to_ink(work, box) for box in boxes]
@@ -510,10 +532,16 @@ class OcrEngine:
         정확히 2배로 키운 입력에서 위치 모델이 글자를 통째로 놓칠 때가 있다(엑셀 표의 제목 열. 1.98배·2.02배에서는 찾는다).
         2배 결과가 첫 결과 first(image 좌표)의 상자 폭을 많이 잃었으면 입력을 조금 줄여 한 번 더 찾고, first를 거의 다 덮을
         때만 그 결과를 쓴다. 잃은 것이 적으면 다시 찾지 않는다.
+
+        1배는 줄이지 않는다. 2배는 전처럼 긴 변 DET_LIMIT_SMALL까지 줄이되 원래 영역의 DET_SMALL_MIN_SCALE배 아래로는 줄이지
+        않는다. 넓은 영역을 1,920px로 줄이면 위치 모델이 보는 글자가 작아져 같은 글자도 틀렸다(같은 쪽을 3,840px 폭으로 고르면
+        글자 오류 7.7→36.6%, 2026-11-08). 넘치는 입력은 _detect가 띠로 나눠 찾는다.
         """
         try:
             work = double_size(image) if factor == 2 else image
-            boxes = self._detect(work, cancelled, DET_LIMIT_SMALL)
+            side = max(work.shape[:2])
+            limit = max(DET_LIMIT_SMALL, round(side * DET_SMALL_MIN_SCALE / 2)) if factor == 2 else side
+            boxes = self._detect(work, cancelled, limit)
         except RecognitionCancelled:
             raise
         except Exception as error:
@@ -535,16 +563,44 @@ class OcrEngine:
         return work, boxes
 
     def _detect(self, image, cancelled=lambda: False, limit=None):
+        """글자 상자를 image 좌표로 찾는다. 긴 변을 limit(없으면 DET_LIMIT) 안으로 줄여 모델에 넣는다.
+
+        줄인 입력의 긴 변이 DET_LIMIT_SMALL을 넘으면 가로 띠로 나눠 찾는다(띠 하나는 DET_TILE_AREA 이하, 4K 화면 한 장을
+        한 번에 넣으면 870만 화소다). 띠는 글자 줄을 자르지 않게 폭 전체를 쓰고 이웃 띠와 DET_TILE_OVERLAP 이상 겹친다.
+        상자는 가운데가 그 띠의 몫(겹친 구간의 가운데에서 나눈다)에 든 것만 쓴다.
+        """
         if cancelled():
             raise RecognitionCancelled
         height, width = image.shape[:2]
         ratio = min(1.0, (limit or DET_LIMIT) / max(height, width))
         new_h, new_w = max(1, int(round(height * ratio))), max(1, int(round(width * ratio)))
-        small = resize_bilinear(image, new_w, new_h)
-        color = np.median(np.concatenate((small[0], small[-1], small[:, 0], small[:, -1])), axis=0)
-        canvas = np.empty((-(-new_h // 32) * 32, -(-new_w // 32) * 32, 3), dtype=np.float32)  # 32 배수로 늘이지 않고 채운다(글자가 찌그러지지 않는다)
+        strip = max(DET_TILE_OVERLAP + 64, DET_TILE_AREA // (-(-new_w // 32) * 32) // 32 * 32)
+        if max(new_h, new_w) <= DET_LIMIT_SMALL or strip >= new_h:
+            return self._detect_rows(image, new_w, new_h, 0, new_h, cancelled)
+        count = -(-(new_h - DET_TILE_OVERLAP) // (strip - DET_TILE_OVERLAP))
+        tops = [round(k * (new_h - strip) / (count - 1)) for k in range(count)]
+        edges = [0] + [(tops[k + 1] + tops[k] + strip) / 2 for k in range(count - 1)] + [new_h]
+        boxes = []
+        for k, top in enumerate(tops):
+            for box in self._detect_rows(image, new_w, new_h, top, top + strip, cancelled):
+                if edges[k] <= (box[1] + box[3]) / 2 * new_h / height < edges[k + 1]:
+                    boxes.append(box)
+        self._components = None   # 기울기는 줄여 찾은 첫 결과로만 잰다
+        return boxes
+
+    def _detect_rows(self, image, new_w, new_h, top, bottom, cancelled):
+        """image를 new_w×new_h로 바꾼 그림의 top~bottom 줄에서 글자 상자를 찾아 image 좌표로 돌려준다."""
+        height, width = image.shape[:2]
+        whole = (top, bottom) == (0, new_h)
+        small = resize_bilinear(image, new_w, new_h, None if whole else (top, bottom))
+        rows = bottom - top
+        if whole:
+            color = np.median(np.concatenate((small[0], small[-1], small[:, 0], small[:, -1])), axis=0)
+        else:   # 띠의 위아래 끝은 글자 사이를 지난다. 채울 바탕색은 그림 전체의 둘레에서 잰다
+            color = np.median(np.concatenate((image[0], image[-1], image[:, 0], image[:, -1])), axis=0)
+        canvas = np.empty((-(-rows // 32) * 32, -(-new_w // 32) * 32, 3), dtype=np.float32)  # 32 배수로 늘이지 않고 채운다(글자가 찌그러지지 않는다)
         canvas[:] = color
-        canvas[:new_h, :new_w] = small
+        canvas[:rows, :new_w] = small
         del small   # 모델이 도는 동안이 인식의 최대 메모리 구간이라 그때는 모델 입력만 쥔다
         bgr = canvas[:, :, ::-1] / 255.0  # 모델은 BGR 순서로 학습됐다
         del canvas
@@ -554,7 +610,7 @@ class OcrEngine:
         del bgr
         if cancelled():
             raise RecognitionCancelled
-        prob = self._det.run(None, {"x": tensor})[0][0, 0][:new_h, :new_w]
+        prob = self._det.run(None, {"x": tensor})[0][0, 0][:rows, :new_w]
         scale_x, scale_y = width / new_w, height / new_h
         boxes = []
         self._components = label_components(prob > DET_THRESHOLD, cancelled)
@@ -565,8 +621,8 @@ class OcrEngine:
             if score < BOX_THRESHOLD:
                 continue
             fx0, fy0, fx1, fy1 = expand_box(x0, y0, x1, y1)
-            box = (max(0, int(fx0 * scale_x)), max(0, int(fy0 * scale_y)),
-                   min(width, int(round(fx1 * scale_x))), min(height, int(round(fy1 * scale_y))))
+            box = (max(0, int(fx0 * scale_x)), max(0, int((fy0 + top) * scale_y)),
+                   min(width, int(round(fx1 * scale_x))), min(height, int(round((fy1 + top) * scale_y))))
             if box[2] - box[0] >= 2 and box[3] - box[1] >= 2:
                 boxes.append(box)
         return boxes

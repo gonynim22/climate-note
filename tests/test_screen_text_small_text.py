@@ -280,6 +280,98 @@ def test_detection_input_is_padded_not_stretched():
     assert height >= 50 + 2 * engine.DET_MARGIN and width >= 100 + 2 * engine.DET_MARGIN
 
 
+# ── 넓은 영역(2026-11-08): 같은 글자도 영역을 넓게 고르면 틀렸다(같은 쪽 7.7%가 4K 폭으로 고르면 36.6%) ──
+class SeeingDetector(InkDetector):
+    """모델 입력에서 글자 줄이 min_px 화소 이상일 때만 찾는 위치 모델 대역. 실제 모델처럼 많이 줄인 입력의 작은 글자를 놓친다."""
+
+    def __init__(self, min_px):
+        super().__init__()
+        self.min_px, self.shapes = min_px, []
+
+    def run(self, name, feed):
+        self.shapes.append(feed["x"].shape)
+        probability = super().run(name, feed)[0]
+        rows = np.flatnonzero(probability[0, 0].any(axis=1))
+        for band in np.split(rows, np.flatnonzero(np.diff(rows) > 1) + 1) if rows.size else []:
+            if band.size < self.min_px:
+                probability[0, 0, band] = 0
+        return [probability]
+
+
+def text_lines(height, width, tops, thickness=10):
+    """흰 바탕에 tops마다 글자 줄 하나(획을 띄엄띄엄 그린다)."""
+    image = np.full((height, width, 3), 255, np.uint8)
+    for top in tops:
+        image[top:top + thickness, 40:width - 40:3] = 0
+    return image
+
+
+def test_wide_selection_finds_small_text_without_shrinking_it():
+    """문단을 3,840px 폭으로 고르면 위치 찾기 입력을 1,920px로 줄여 글자가 반 크기가 되고 하나도 못 찾았다."""
+    det = SeeingDetector(min_px=8)
+    boxes = fake_engine(det).recognize(text_lines(156, 3840, (20, 50, 80, 110)))
+    assert len(boxes) == 4
+
+
+def test_screen_wide_selection_is_found_in_strips_no_larger_than_a_double_size_a4_page():
+    """4K 화면 한 장을 줄이지 않고 한 번에 넣으면 위치 모델 입력이 870만 화소다(A4 한 쪽 2배 입력의 세 배 넘는 메모리).
+    가로 띠로 나눠 찾되 띠가 겹친 곳의 줄도 한 번씩만 나와야 한다."""
+    tops = range(60, 2100, 70)
+    det = SeeingDetector(min_px=8)
+    boxes = fake_engine(det).recognize(text_lines(2160, 3840, tops))
+    assert len(boxes) == len(tops)
+    assert sorted(round((box.y + box.h / 2 - 5) / 70) for box in boxes) == [round(top / 70) for top in tops]
+    assert max(height * width for _, _, height, width in det.shapes) <= 1920 * 1408
+
+
+def stub_detector(results):
+    """_detect 대역. 호출마다 (이미지 크기, limit)를 적고 results에서 차례로 상자를 낸다."""
+    calls = []
+
+    def detect(image, cancelled=lambda: False, limit=None):
+        calls.append((image.shape[:2], limit))
+        return list(results[min(len(calls), len(results)) - 1])
+
+    return calls, detect
+
+
+def test_heavily_shrunk_first_pass_is_found_again_at_full_size():
+    """4K 폭으로 고른 문단 다섯 줄은 4분의 1로 줄인 첫 위치 찾기에서 높이 180px 상자 하나가 되어 큰 글씨로 보였다.
+    그 상자를 통째로 읽어 아무것도 남지 않았다. 반 넘게 줄인 첫 결과는 큰 글씨로 보여도 원래 크기로 다시 찾는다."""
+    five_lines = [(40, 30 + 30 * line, 700, 52 + 30 * line) for line in range(5)]
+    calls, detect = stub_detector([[(40, 30, 700, 210)], five_lines])
+    instance = fake_engine(None)
+    instance._detect = detect
+    boxes = instance.recognize(np.full((156, 3840, 3), 255, np.uint8))
+    assert len(calls) == 2
+    (height, width), limit = calls[1]
+    assert limit >= width                            # 줄이지 않는다
+    assert len(boxes) == 5
+
+
+@pytest.mark.parametrize("height, doubled", [(17, True), (19, True), (20, False), (21, False)])
+def test_full_size_height_decides_double_size_after_a_shrunk_first_pass(height, doubled):
+    """줄여 찾은 첫 상자는 높이가 부풀어(17px 글자가 22px) 넓게 고른 작은 글씨를 2배로 읽지 않았다. 원래 크기로 다시 찾은
+    상자로 한 번 더 판단한다. 20~21px는 2배로 읽어도 득실이 반반이고 ②③을 2·3으로 읽는 일이 잦아 그대로 둔다
+    (평가 자료 15,889장, 2026-11-08)."""
+    calls, detect = stub_detector([[(40, 40, 700, 70)], [(40, 40, 700, 40 + height)], [(80, 80, 1400, 80 + 2 * height)]])
+    instance = fake_engine(None)
+    instance._detect = detect
+    instance.recognize(np.full((300, 1400, 3), 255, np.uint8))
+    assert (len(calls) == 3) == doubled
+    if doubled:
+        assert calls[2][0] == (2 * calls[1][0][0], 2 * calls[1][0][1])
+
+
+def test_wide_small_text_is_doubled_at_least_one_point_six_times():
+    """2배로 다시 찾는 입력을 긴 변 1,920px로 줄이면 1,500px 폭 영역은 원래의 1.23배밖에 안 된다. A4 한 쪽 100%를 고를 때
+    (1,920/1,185≈1.62배)보다 작게 줄이지 않는다."""
+    det = Recorder([12, 24])
+    fake_engine(det).recognize(np.full((200, 1500, 3), 255, np.uint8))
+    assert len(det.shapes) == 2
+    assert det.shapes[1][3] >= 1.6 * (1500 + 2 * engine.DET_MARGIN)
+
+
 def test_ctc_runs_report_best_confidence_of_each_character():
     charset = ["가", "나", " "]
     probs = np.zeros((5, 4), np.float32)
@@ -373,6 +465,31 @@ def test_real_model_ignores_next_line_cut_by_the_selection(qapp, ocr):
     image[line.shape[0] + 2:, :next_line.shape[1]] = next_line[2:10]
     found = "".join(box.text for box in sorted(ocr.recognize(image), key=lambda box: box.y)).replace(" ", "")
     assert found == text.replace(" ", ""), found
+
+
+def paragraph(texts, family, pixel_size, pitch, width):
+    """흰 바탕 왼쪽에 pitch 간격으로 쓴 문단. 화면 폭(width)만큼 고른 영역이다."""
+    font = QFont(family)
+    font.setPixelSize(pixel_size)
+    image = QImage(width, 32 + pitch * len(texts), QImage.Format_RGB888)
+    image.fill(QColor("white"))
+    painter = QPainter(image)
+    painter.setFont(font)
+    painter.setPen(QColor("black"))
+    for number, text in enumerate(texts):
+        painter.drawText(40, 20 + pitch * number + painter.fontMetrics().ascent(), text)
+    painter.end()
+    return rgb_from_buffer(image.width(), image.height(), image.bytesPerLine(), bytes(image.constBits()))
+
+
+@pytest.mark.parametrize("family, pitch", [("Malgun Gothic", 17), ("Gulim", 21)])
+def test_real_model_reads_a_paragraph_selected_across_a_4k_screen(qapp, ocr, family, pitch):
+    """문단 하나를 4K 화면 폭으로 고르면 한 글자도 못 읽었다(2026-11-08). 같은 문단을 700px 폭으로 고르면 다 읽는다."""
+    texts = ["대기환경보전법 시행규칙 일부개정령안", "환경부령 제1000호로 공포한다", "부칙 시행일 관련 규정을 준용한다",
+             "배출시설 설치 허가 기준을 정한다", "측정 결과는 매월 보고한다"]
+    found = "".join(box.text for box in ocr.recognize(paragraph(texts, family, 13, pitch, 3840))).replace(" ", "")
+    for text in texts:
+        assert text.replace(" ", "") in found, found
 
 
 def test_real_model_returns_boxes_in_source_coordinates(qapp, ocr):

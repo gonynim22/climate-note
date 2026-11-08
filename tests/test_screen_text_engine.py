@@ -216,6 +216,25 @@ def test_text_finder_takes_memory_straight_from_the_system(qapp, monkeypatch):
     assert arenas == {"det": False, "rec": True}
 
 
+def test_text_finder_does_not_plan_memory_by_input_shape(qapp, monkeypatch):
+    """onnxruntime은 같은 모양 입력을 두 번째 돌릴 때 미리 짜 둔 메모리 묶음을 한꺼번에 잡는데, 첫 실행보다 약 100MB 컸다
+    (A4 한 쪽을 다시 읽으면 최대 633MB, 끄면 527MB, 판독·시간 같음, 2026-11-08). 넓은 영역을 띠로 나눠 찾으면 한 번 읽는
+    동안에도 같은 모양이 거듭된다. 인식 모델은 그대로 둔다."""
+    import onnxruntime as ort
+
+    patterns = {}
+
+    class RecordingSession(ort.InferenceSession):
+        def __init__(self, path, options, **kwargs):
+            patterns[Path(path).stem] = options.enable_mem_pattern
+            super().__init__(path, options, **kwargs)
+
+    monkeypatch.setattr(ort, "InferenceSession", RecordingSession)
+    found = [item.text for item in OcrEngine().recognize(render(["환경 점검 결과 알림"], 16))]
+    assert "환경 점검 결과 알림" in found
+    assert patterns == {"det": False, "rec": True}
+
+
 def test_engine_reads_when_sessions_have_no_memory_arena(qapp, monkeypatch):
     """아레나를 끈 세션에 '실행이 끝나면 돌려 달라'는 옵션을 주면 onnxruntime이 실행을 거부한다(InvalidArgument).
     메모리를 아끼려고 아레나를 꺼도(RapidOCR의 기본값) 글자 따기가 멈추면 안 된다."""
@@ -280,6 +299,19 @@ def test_resize_bilinear_does_not_build_full_size_temporaries():
     finally:
         tracemalloc.stop()
     assert peak < 1.25 * out.nbytes
+
+
+@pytest.mark.parametrize("shape, size, rows", [
+    ((257, 333, 3), (300, 290), (37, 201)),    # 여러 줄 묶음에 걸치는 키우기의 가운데
+    ((50, 70, 3), (140, 100), (99, 100)),      # 마지막 한 줄
+    ((50, 70, 3), (35, 25), (0, 9)),           # 1배와 2배 사이로 줄이기의 첫 줄들
+    ((40, 60, 3), (60, 40), (5, 33)),          # 크기가 같으면 그 줄 그대로
+])
+def test_resize_bilinear_computes_only_the_asked_rows(shape, size, rows):
+    """넓은 영역을 띠로 나눠 찾을 때 띠마다 그 줄만 계산한다. 전체를 계산해 자른 것과 비트 단위로 같아야 한다."""
+    image = np.random.default_rng(11).integers(0, 256, shape, dtype=np.uint8)
+    got = resize_bilinear(image, *size, rows=rows)
+    assert np.array_equal(got, _resize_as_before(image, *size)[rows[0]:rows[1]])
 
 
 def test_detect_holds_only_the_model_input_while_the_model_runs():
