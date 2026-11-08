@@ -9,6 +9,7 @@
   <br><br>
   <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases"><img src="readme/button-download.svg" alt="최신 버전 받기"></a>
   <a href="https://gonynim22.github.io/climate-note/climate-note-intro/climate-note-intro.html" target="_blank" rel="noopener noreferrer"><img src="readme/button-slides.svg" alt="제품 소개 슬라이드"></a>
+  <a href="https://gonynim22.github.io/climate-note/climate-note-intro/climate-note-video.html" target="_blank" rel="noopener noreferrer"><img src="readme/button-video.svg" alt="제품 소개 영상"></a>
   <a href="README_detail.md"><img src="readme/button-detail.svg" alt="상세 안내"></a>
   <br>
   <sub>인터넷이 막힌 PC는 <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/raw/main/climate-note-intro/climate-note-intro.html?inline=false">소개 슬라이드 파일</a>을 받아 더블클릭하세요.</sub>
