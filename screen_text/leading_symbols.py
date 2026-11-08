@@ -6,6 +6,8 @@
 구별할 수 없어 크기에 따라 'ㅇ'이나 '○'로 내되 확인 필요로 표시한다. 줄 가운데서 모델이 건너뛴 체크박스(□ ■)도
 같은 모양 분류로 찾는다. 계약은 docs/SCREEN_TEXT.md를 따른다.
 """
+import threading
+
 import numpy as np
 
 INK_MIN_DIFF = 24          # 배경 중앙값과 이만큼(0~255) 달라야 글자 픽셀
@@ -64,14 +66,79 @@ def _gray(pixels):
     return pixels.astype(np.float32) @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
 
 
+def median(values):
+    """np.median과 같은 값. float32 배열은 같은 계산을 준비 비용 없이 한다(작은 배열을 수만 번 재는 표 선 찾기에서 컸다).
+
+    np.median처럼 가운데 두 값의 float32 합을 반으로 나누고, NaN이 있으면 NaN을 낸다.
+    """
+    flat = np.asarray(values).ravel()
+    size = flat.size
+    if flat.dtype != np.float32 or size == 0:
+        return np.median(flat)
+    half = size // 2
+    part = np.partition(flat, (half, -1) if size % 2 else (half - 1, half, -1))
+    if np.isnan(part[-1]):
+        return part[-1]
+    return part[half] if size % 2 else (part[half - 1] + part[half]) / np.float32(2)
+
+
+def row_medians(band):
+    """np.median(band, axis=1)과 같은 값. float32 2차원 배열은 np.median과 같은 연산(가운데 값의 평균)을 직접 한다."""
+    rows, size = band.shape
+    if band.dtype != np.float32 or rows == 0 or size == 0:
+        return np.median(band, axis=1)
+    half = size // 2
+    part = np.partition(band, (half, -1) if size % 2 else (half - 1, half, -1), axis=1)
+    middle = np.mean(part[:, half:half + 1] if size % 2 else part[:, half - 1:half + 1], axis=1)
+    missing = np.isnan(part[:, -1])
+    if missing.any():
+        middle[missing] = part[missing, -1]
+    return middle
+
+
+_shared = threading.local()
+
+
+class shared_ink:
+    """이 블록 안에서 같은 crop(같은 메모리·모양·간격)의 글자 픽셀 기준을 한 번만 잰다.
+
+    인식 상자 하나에 규칙 열 개 남짓이 같은 crop의 ink_mask를 거듭 불렀다. 잰 crop을 블록 끝까지 쥐고 있어 그 메모리를 다른
+    배열이 다시 쓸 수 없고, 블록 안에서는 화면 이미지를 바꾸지 않으므로 같은 값이 나온다. 블록을 벗어나면 버린다.
+    """
+
+    def __enter__(self):
+        self._outer = getattr(_shared, "memo", None)
+        _shared.memo = {}
+        return self
+
+    def __exit__(self, *_):
+        _shared.memo = self._outer
+        return False
+
+
+def ink_level(crop):
+    """회색이 배경(중앙값)과 다른 정도(float32 배열)와 그 최대. shared_ink 블록 안에서는 같은 crop을 한 번만 잰다."""
+    memo = getattr(_shared, "memo", None)
+    if memo is not None:
+        key = (crop.__array_interface__["data"][0], crop.shape, crop.strides, crop.dtype.str)
+        found = memo.get(key)
+        if found is not None:
+            return found[1], found[2]
+    gray = _gray(crop)
+    if gray.size == 0:
+        diff, peak = gray, 0.0
+    else:
+        diff = np.abs(gray - median(gray))
+        peak = float(diff.max())
+    if memo is not None:
+        memo[key] = (crop, diff, peak)
+    return diff, peak
+
+
 def ink_mask(crop, fraction=INK_PEAK_FRACTION):
     """배경(중앙값 색)과 충분히 다른 글자 픽셀. 옅은 잡음은 글자로 세지 않는다."""
-    gray = _gray(crop)
-    if gray.size == 0:  # 아주 좁은 칸은 표 선을 빼면 남는 픽셀이 없다
-        return np.zeros(gray.shape, dtype=bool)
-    diff = np.abs(gray - np.median(gray))
-    peak = float(diff.max())
-    if peak <= 0:
+    diff, peak = ink_level(crop)
+    if diff.size == 0 or peak <= 0:  # 아주 좁은 칸은 표 선을 빼면 남는 픽셀이 없다
         return np.zeros(diff.shape, dtype=bool)
     return diff > max(INK_MIN_DIFF, fraction * peak)
 
@@ -99,23 +166,46 @@ def _blobs(ink, reference_height=0, limit=4, thin=None):
         occupied = np.flatnonzero(blob.any(axis=1))
         blob = blob[occupied[0]:occupied[-1] + 1]
         blob_h, blob_w = blob.shape
-        qw, qh = max(1, round(blob_w * .25)), max(1, round(blob_h * .25))
-        corners = float(np.mean([blob[:qh, :qw].mean(), blob[:qh, -qw:].mean(),
-                                 blob[-qh:, :qw].mean(), blob[-qh:, -qw:].mean()]))
-        cy0, cx0 = int(blob_h * .3), int(blob_w * .3)
-        center = float(blob[cy0:max(cy0 + 1, int(blob_h * .7)), cx0:max(cx0 + 1, int(blob_w * .7))].mean())
         outline = blob if thin is None else thin[:, a:b + 1][occupied[0]:occupied[-1] + 1]
-        row, column = outline[blob_h // 2], outline[:, blob_w // 2]
-        closed = bool(row[:blob_w // 2].any() and row[blob_w // 2 + 1:].any() and column[:blob_h // 2].any() and column[blob_h // 2 + 1:].any())
-        th, tw = max(1, round(blob_h * TIP_SIZE)), max(1, round(blob_w * TIP_SIZE))
-        tips = float(np.mean([blob[:th, :tw].any(), blob[:th, -tw:].any(), blob[-th:, :tw].any(), blob[-th:, -tw:].any()]))
-        one_sided = bool(blob[:th, :tw].any() and blob[-th:, :tw].any() and not blob[:th, -tw:].any() and not blob[-th:, -tw:].any())
-        blobs.append(dict(width=blob_w, height=blob_h, fill=float(blob.mean()), center=center, corners=corners, tips=tips, one_sided=one_sided, closed=closed, mirror=float((blob == blob[:, ::-1]).mean()),
-                          relative_height=blob_h / height, line_height=height, left=int(a), right=int(b), top_span=float(blob[0].mean()),
-                          top=int(occupied[0]), bottom=int(occupied[-1]),
-                          middle=((occupied[0] + occupied[-1]) / 2 - rows[0]) / max(1, rows[-1] - rows[0]),
-                          gap=int(runs[k + 1][0] - b - 1) if k + 1 < len(runs) else 10 ** 6))
+        blobs.append(_Blob(blob, outline, width=blob_w, height=blob_h, relative_height=blob_h / height, line_height=height,
+                           left=int(a), right=int(b), top=int(occupied[0]), bottom=int(occupied[-1]),
+                           middle=((occupied[0] + occupied[-1]) / 2 - rows[0]) / max(1, rows[-1] - rows[0]),
+                           gap=int(runs[k + 1][0] - b - 1) if k + 1 < len(runs) else 10 ** 6))
     return blobs
+
+
+class _Blob(dict):
+    """덩어리 하나의 특징. 모양 특징(채움·꼭짓점·대칭 등)은 처음 찾을 때 잰다.
+
+    줄 안 체크박스 찾기는 덩어리 대부분을 크기만 보고 거른다. 모든 덩어리의 모양을 미리 재던 것이 상자마다 수백 번이었다(2026-11-09).
+    """
+
+    def __init__(self, blob, outline, **sizes):
+        super().__init__(sizes)
+        self._blob, self._outline = blob, outline
+
+    def __missing__(self, key):
+        if "fill" in self:
+            raise KeyError(key)
+        self.update(_shape_features(self._blob, self._outline))
+        return dict.__getitem__(self, key)
+
+
+def _shape_features(blob, outline):
+    """덩어리 모양 특징. blob은 위아래를 잘라 낸 글자 픽셀, outline은 트였는지 잴 옅은 픽셀까지 본 같은 자리다."""
+    blob_h, blob_w = blob.shape
+    qw, qh = max(1, round(blob_w * .25)), max(1, round(blob_h * .25))
+    corners = float(np.mean([blob[:qh, :qw].mean(), blob[:qh, -qw:].mean(),
+                             blob[-qh:, :qw].mean(), blob[-qh:, -qw:].mean()]))
+    cy0, cx0 = int(blob_h * .3), int(blob_w * .3)
+    center = float(blob[cy0:max(cy0 + 1, int(blob_h * .7)), cx0:max(cx0 + 1, int(blob_w * .7))].mean())
+    row, column = outline[blob_h // 2], outline[:, blob_w // 2]
+    closed = bool(row[:blob_w // 2].any() and row[blob_w // 2 + 1:].any() and column[:blob_h // 2].any() and column[blob_h // 2 + 1:].any())
+    th, tw = max(1, round(blob_h * TIP_SIZE)), max(1, round(blob_w * TIP_SIZE))
+    tips = float(np.mean([blob[:th, :tw].any(), blob[:th, -tw:].any(), blob[-th:, :tw].any(), blob[-th:, -tw:].any()]))
+    one_sided = bool(blob[:th, :tw].any() and blob[-th:, :tw].any() and not blob[:th, -tw:].any() and not blob[-th:, -tw:].any())
+    return dict(fill=float(blob.mean()), center=center, corners=corners, tips=tips, one_sided=one_sided, closed=closed,
+                mirror=float((blob == blob[:, ::-1]).mean()), top_span=float(blob[0].mean()))
 
 
 def _is_rule(blob):
@@ -226,27 +316,34 @@ def _continues_outside(image, crop, blob, x_from, y0, y1):
     return False
 
 
-def leading_symbol(image, index, boxes, readable=None):
+def leading_symbol(image, index, boxes, readable=None, table=None, heights=None):
     """index번 상자의 줄 맨 앞 기호. (종류, 시작 x, 끝 x, 기호만 든 상자인가) 또는 None.
 
     기호는 상자 안이나 바로 왼쪽에 있을 수 있다. 위치 찾기가 기호를 글자와 따로 상자로 자르기도 하므로(기호만
     든 상자), 높이 비율은 같은 줄 오른쪽 이웃 상자의 글자 높이에 견주고 그 상자는 이 기호를 다시 찾지 않는다.
     readable은 상자별로 모델이 글자를 읽었는지다. 빈 글자로 읽은 상자는 그 안의 기호를 내놓지 못하므로 왼쪽
     탐색을 막지 않는다(양식의 '□ 시 □ 군 ■ 구'. 기호 일부나 속만 잘린 상자도 있어 그 상자에서 분류하지 않는다).
+    table은 boxes의 (개수, 4) float64 배열, heights는 상자 번호별 _ink_height를 담아 둘 사전이다(여러 상자를 차례로 볼 때 한 번씩만 잰다).
     """
     box = boxes[index]
     x0, y0, x1, y1 = box
     height = y1 - y0
-    left_limit = 0
-    for j, other in enumerate(boxes):  # 먼저 시작한 같은 줄의 상자(겹치면 그 상자) 몫인 왼쪽은 찾지 않는다
-        if j != index and other[0] < x0 and _same_row(other, box) and (readable is None or readable[j]):
-            left_limit = max(left_limit, other[2] + 1)
+    left_x, top_y, right_x, bottom_y = (np.asarray(boxes, dtype=np.float64).reshape(-1, 4) if table is None else table).T
+    same = np.minimum(bottom_y, y1) - np.maximum(top_y, y0) >= .5 * np.minimum(bottom_y - top_y, height)   # _same_row(다른 상자, box)
+    same[index] = False
+    # 먼저 시작한 같은 줄의 상자(겹치면 그 상자) 몫인 왼쪽은 찾지 않는다
+    before = same & (left_x < x0) & (True if readable is None else np.asarray(readable, dtype=bool))
+    left_limit = max(0, int((right_x[before] + 1).max())) if before.any() else 0
     x_from = max(left_limit, x0 - int(round(SEARCH_LEFT * height)))
     x_to = min(x1, x0 + int(round(SEARCH_RIGHT * height)))
     if x_to - x_from < 6:
         return None
-    reference = max((_ink_height(image, other) for j, other in enumerate(boxes)
-                     if j != index and other[0] >= x0 and other[0] - x0 <= 10 * height and _same_row(other, box)), default=0)
+    heights = {} if heights is None else heights
+    after = np.flatnonzero(same & (left_x >= x0) & (left_x - x0 <= 10 * height)).tolist()
+    for j in after:
+        if j not in heights:
+            heights[j] = _ink_height(image, boxes[j])
+    reference = max((heights[j] for j in after), default=0)
     crop = image[y0:y1, x_from:x_to]
     blobs = _blobs(ink_mask(crop), reference, thin=ink_mask(crop, THIN_INK_FRACTION))
     last_rule = max((k for k, blob in enumerate(blobs) if _is_rule(blob) and x_from + blob["right"] < x0), default=-1)
@@ -264,10 +361,12 @@ def leading_symbol(image, index, boxes, readable=None):
 def apply_leading_symbols(image, boxes, results):
     """[(글자, 점수)]를 [(글자, 점수, 확인 필요 앞글자 수)]로. 기호가 보이면 앞에 붙이거나(모델이 건너뜀) 닮은 글자를 교체한다."""
     readable = [bool(text.strip()) for text, _ in results]
+    table, heights = np.asarray(boxes, dtype=np.float64).reshape(-1, 4), {}
     out = []
     for index, (text, score) in enumerate(results):
         flagged = 0
-        found = leading_symbol(image, index, boxes, readable) if readable[index] else None
+        with shared_ink():   # 한 상자의 진한·옅은 글자 픽셀을 같은 기준으로 잰다
+            found = leading_symbol(image, index, boxes, readable, table, heights) if readable[index] else None
         if found:
             kind, _, right, alone = found
             body = text.lstrip()

@@ -6,6 +6,7 @@ SHA-256을 확인한 번들 모델만 불러온다. 계약은 docs/SCREEN_TEXT.m
 import hashlib
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 
 import numpy as np
@@ -13,13 +14,13 @@ import numpy as np
 from app_paths import resource_root
 from screen_text.cell_marks import empty_cell_boxes, gap_mark_boxes, read_marks
 from screen_text.corner_brackets import restore_corner_brackets
-from screen_text.deskew import skew_angle, straighten
+from screen_text.deskew import ink_pixels, skew_angle, straighten
 from screen_text.layout import Grid, GridCell, RecognizedBoxes, TextBox
-from screen_text.leading_symbols import apply_leading_symbols, ink_mask, restore_inline_checkboxes
+from screen_text.leading_symbols import apply_leading_symbols, ink_mask, restore_inline_checkboxes, shared_ink
 from screen_text.marks import rescue_marks, restore_circled_digits, restore_stars, restore_thin_capitals
 from screen_text.number_marks import restore_number_marks
 from screen_text.roman import restore_roman
-from screen_text.table_lines import RIDGE_CONTRAST, find_grids, fit_boxes
+from screen_text.table_lines import RIDGE_CONTRAST, find_grids, fit_boxes, grid_gray, grid_lines
 from screen_text.triangles import restore_triangles
 from screen_text.units import restore_units
 from screen_text.word_spaces import join_words
@@ -61,6 +62,7 @@ MAX_REC_BOXES = 512
 MAX_REC_BATCH_WIDTH = 8192 # 한 배치의 패딩 폭 합계 상한
 MAX_SIDE = 4000            # 입력 이미지 긴 변 상한 (넘으면 줄인다)
 RESIZE_ROWS = 32           # 크기를 바꿀 때 한 번에 계산하는 줄 수. 이미지 전체 크기의 실수 임시 배열을 만들지 않는다
+PARALLEL_ROWS = 128        # 큰 이미지를 여러 스레드로 나눠 계산할 때 한 일감의 줄 수(numpy는 계산하는 동안 GIL을 놓는다)
 UPSCALE = 1.0              # 작은 글씨 확대 배율 (Task 4 측정으로 확정)
 CHARSET_SIZE = 11945
 OUT_OF_MEMORY = ("MemoryError", "RuntimeException")  # 큰 입력을 포기하고 첫 결과로 계속할 오류
@@ -126,62 +128,235 @@ def rgb_from_buffer(width, height, bytes_per_line, data):
     return raw.reshape(height, bytes_per_line)[:, : width * 3].reshape(height, width, 3).copy()
 
 
-def resize_bilinear(image, width, height, rows=None):
+def _in_parallel(fill, first, last, pool):
+    """fill(시작, 끝)을 PARALLEL_ROWS 줄씩 나눠 pool에서 돌린다. 줄끼리 서로 기대지 않는 계산만 쓴다(결과는 한 스레드와 같다)."""
+    spans = [(start, min(start + PARALLEL_ROWS, last)) for start in range(first, last, PARALLEL_ROWS)]
+    if pool is None or len(spans) < 2:
+        for span in spans:
+            fill(*span)
+        return
+    futures = [pool.submit(fill, *span) for span in spans]
+    wait(futures)   # 하나가 실패해도 나머지가 끝난 뒤에 알린다(메모리가 모자랄 때 첫 결과로 계속하는 경로가 있다)
+    for future in futures:
+        future.result()
+
+
+def _skew_and_gray(plain, sharp):
+    """기울기를 잴 화면 전체의 글자 픽셀(plain)과 표 선을 찾을 회색 그림(sharp). 둘 다 그림 크기의 실수 사본을 잠깐 만들므로 차례로 만든다."""
+    return ink_pixels(plain), grid_gray(sharp)
+
+
+class _Deferred:
+    """나중에 다른 스레드에서 시작할 계산. 시작하지 못한 채 결과를 찾으면 부른 스레드에서 계산한다(어느 쪽이든 결과는 같다)."""
+
+    def __init__(self, pool, function, *args):
+        self._pool, self._function, self._args, self._future = pool, function, args, None
+
+    def start(self):
+        if self._future is None and self._pool is not None:
+            self._future = self._pool.submit(self._function, *self._args)
+            self._args = ()   # 넘긴 큰 배열을 끝날 때까지 여기서도 쥐지 않는다
+
+    def result(self):
+        if self._future is None:
+            self._future = _Done(self._function(*self._args))
+            self._args = ()
+        return self._future.result()
+
+
+class _Done:
+    """이미 계산한 결과(Future와 같은 모양으로 꺼낸다)."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def result(self):
+        return self._value
+
+
+def _block_mean(image, factor):
+    """factor×factor 칸 평균으로 줄인 float32 이미지. uint8은 칸의 합을 정수로 더한다(이미지 전체를 실수로 바꾸지 않는다).
+
+    합이 정수라 float32로 더해도 정확하고(255·factor² < 2^24) 나누기는 np.mean과 같은 연산이라 결과가 비트 단위로 같다.
+    """
+    src_h, src_w = image.shape[:2]
+    cut_h, cut_w = src_h // factor * factor, src_w // factor * factor
+    if image.dtype != np.uint8 or image.ndim != 3:
+        return image[:cut_h, :cut_w].astype(np.float32).reshape(cut_h // factor, factor, cut_w // factor, factor, -1).mean(axis=(1, 3))
+    total = np.zeros((cut_h // factor, cut_w // factor, image.shape[2]), dtype=np.uint32)
+    for dy in range(factor):
+        for dx in range(factor):
+            total += image[dy:cut_h:factor, dx:cut_w:factor]
+    mean = total.astype(np.float32)
+    return np.true_divide(mean, np.intp(factor * factor), out=mean, casting="unsafe")
+
+
+def resize_bilinear(image, width, height, rows=None, pool=None, out=None):
     """numpy 이중선형 크기 변경. 크게 줄일 때는 정수 배 평균으로 먼저 줄인다.
 
     줄 묶음마다 계산해 이미지 전체 크기의 실수 임시 배열을 만들지 않는다(2배로 키운 A4 한 쪽에서 366MB였다, 2026-11-08).
     uint8은 실수로 바꿔도 값이 그대로라 묶음마다 바꾸고, 계산 순서는 전과 같아 결과가 비트 단위로 같다.
+    가로 보간은 원본 줄마다 한 번만 하고 결과 줄들이 나눠 쓴다(같은 줄을 위·아래 이웃으로 거듭 보간하던 것, 2026-11-09).
     rows=(위, 아래)면 결과의 그 줄만 계산한다(띠로 나눠 찾을 때). 전체를 계산해 자른 것과 비트 단위로 같다.
+    pool(스레드 묶음)을 주면 결과 줄을 나눠 동시에 계산한다. 줄마다 같은 연산이라 결과는 같다.
+    out을 주면 결과를 그 배열(모양이 같은 어떤 실수 배열이든)에 넣는다. 계산한 값을 그 형식으로 바꿔 넣는 것과 같다.
     """
     src_h, src_w = image.shape[:2]
     first, last = rows or (0, height)
     if (width, height) == (src_w, src_h):
+        if out is not None:   # uint8은 실수로 바꿀 때 값이 그대로이고 float32 out이면 반올림이 한 번이라 사본 없이 넣어도 같다
+            out[...] = image[first:last] if image.dtype == np.uint8 or out.dtype == np.float32 else image[first:last].astype(np.float32)
+            return out
         return image[first:last].astype(np.float32)
+    plan = _bilinear_plan(image, width, height)
+    if out is None:
+        out = np.empty((last - first, width) + plan[0].shape[2:], dtype=_bilinear_dtype(plan))
+    return _bilinear_rows(plan, first, last, out, pool)
+
+
+def _bilinear_plan(image, width, height):
+    """크기 바꾸기에 쓸 원본(크게 줄일 때는 정수 배 평균을 거친 것)과 줄·열의 이웃 위치·가중치."""
+    src_h, src_w = image.shape[:2]
     factor = int(min(src_w / width, src_h / height))
-    source = image if image.dtype == np.uint8 else image.astype(np.float32)
-    if factor >= 2 and rows:   # 정수 배 평균은 이미지 전체를 바꾼다. 띠는 줄이지 않거나 조금만 줄여 이 경로를 타지 않는다
-        return resize_bilinear(image, width, height)[first:last]
     if factor >= 2:
-        cut_h, cut_w = src_h // factor * factor, src_w // factor * factor
-        source = image[:cut_h, :cut_w].astype(np.float32).reshape(cut_h // factor, factor, cut_w // factor, factor, -1).mean(axis=(1, 3))
+        source = _block_mean(image, factor)
         src_h, src_w = source.shape[:2]
+    else:
+        source = image if image.dtype == np.uint8 else image.astype(np.float32)
     ys = np.clip((np.arange(height, dtype=np.float32) + 0.5) * (src_h / height) - 0.5, 0, src_h - 1)
     xs = np.clip((np.arange(width, dtype=np.float32) + 0.5) * (src_w / width) - 0.5, 0, src_w - 1)
     y0, x0 = np.floor(ys).astype(np.int32), np.floor(xs).astype(np.int32)
     y1, x1 = np.minimum(y0 + 1, src_h - 1), np.minimum(x0 + 1, src_w - 1)
     wy, wx = (ys - y0)[:, None, None], (xs - x0)[None, :, None]
-    out = np.empty((last - first, width) + source.shape[2:], dtype=np.result_type(source.dtype, wx.dtype))
-    for start in range(first, last, RESIZE_ROWS):
-        band = slice(start, min(start + RESIZE_ROWS, last))
-        upper, lower = source[y0[band]], source[y1[band]]
-        top = upper[:, x0] * (1 - wx) + upper[:, x1] * wx
-        bottom = lower[:, x0] * (1 - wx) + lower[:, x1] * wx
-        out[start - first:band.stop - first] = top * (1 - wy[band]) + bottom * wy[band]
+    return source, y0, y1, wy, x0, x1, wx
+
+
+def _bilinear_dtype(plan):
+    return np.result_type(plan[0].dtype, plan[6].dtype)
+
+
+def _bilinear_rows(plan, first, last, out, pool=None, columns=None):
+    """plan으로 결과 first~last 줄(columns를 주면 그 열만)을 out에 넣는다. 원소마다 같은 연산이라 나눠 계산해도 값이 같다."""
+    source, y0, y1, wy, x0, x1, wx = plan
+    if columns is not None:
+        x0, x1, wx = x0[columns], x1[columns], wx[:, columns]
+    left, upper = 1 - wx, 1 - wy
+
+    def fill(start, stop):
+        for begin in range(start, stop, RESIZE_ROWS):
+            band = slice(begin, min(begin + RESIZE_ROWS, stop))
+            low, high = int(y0[begin]), int(y1[band.stop - 1]) + 1   # y0·y1은 줄 순서대로 늘어난다
+            part = source[low:high]
+            across = part[:, x0] * left + part[:, x1] * wx
+            out[begin - first:band.stop - first] = across[y0[band] - low] * upper[band] + across[y1[band] - low] * wy[band]
+
+    _in_parallel(fill, first, last, pool)
     return out
 
 
-def double_size(image):
-    """uint8 이미지를 2배로(이중선형과 같은 3:1 가중). 큰 쪽 이미지를 실수 배열로 만들지 않아 메모리를 아낀다."""
-    def twice(array, axis):
-        length = array.shape[axis]
-        previous = array.take(np.r_[0, 0:length - 1], axis=axis)
-        following = array.take(np.r_[1:length, length - 1], axis=axis)
-        shape = list(array.shape)
-        shape[axis] = 2 * length
-        out = np.empty(shape, dtype=np.uint16)
-        slot = [slice(None)] * array.ndim
-        slot[axis] = slice(0, None, 2)
-        out[tuple(slot)] = (3 * array + previous + 2) >> 2
-        slot[axis] = slice(1, None, 2)
-        out[tuple(slot)] = (3 * array + following + 2) >> 2
-        return out
+def _resized_border(plan, width, height):
+    """plan으로 크기를 바꾼 그림의 첫 줄·끝 줄·첫 열·끝 열(resize_bilinear 결과에서 잘라 낸 것과 같은 값)."""
+    channels = plan[0].shape[2:]
+    dtype = _bilinear_dtype(plan)
+    top = _bilinear_rows(plan, 0, 1, np.empty((1, width) + channels, dtype=dtype))[0]
+    bottom = _bilinear_rows(plan, height - 1, height, np.empty((1, width) + channels, dtype=dtype))[0]
+    sides = _bilinear_rows(plan, 0, height, np.empty((height, 2) + channels, dtype=dtype), columns=[0, width - 1])
+    return top, bottom, sides[:, 0], sides[:, 1]
 
-    return twice(twice(image.astype(np.uint16), 0), 1).astype(np.uint8)
+
+def _twice(array, axis):
+    """uint16 배열을 axis 쪽으로 2배(3:1 가중, 끝은 자기 자신을 이웃으로). 값은 255를 넘지 않는다."""
+    length = array.shape[axis]
+    shape = list(array.shape)
+    shape[axis] = 2 * length
+    out = np.empty(shape, dtype=np.uint16)
+
+    def cut(target, part):
+        index = [slice(None)] * target.ndim
+        index[axis] = part
+        return target[tuple(index)]
+
+    base = array * np.uint16(3)
+    base += 2
+    even, odd = cut(out, slice(0, None, 2)), cut(out, slice(1, None, 2))
+    np.add(cut(base, slice(1, None)), cut(array, slice(0, length - 1)), out=cut(even, slice(1, None)))
+    np.add(cut(base, slice(0, 1)), cut(array, slice(0, 1)), out=cut(even, slice(0, 1)))
+    np.add(cut(base, slice(0, length - 1)), cut(array, slice(1, None)), out=cut(odd, slice(0, length - 1)))
+    np.add(cut(base, slice(length - 1, None)), cut(array, slice(length - 1, None)), out=cut(odd, slice(length - 1, None)))
+    out >>= 2
+    return out
+
+
+def double_size(image, pool=None):
+    """uint8 이미지를 2배로(이중선형과 같은 3:1 가중). 큰 쪽 이미지를 실수 배열로 만들지 않아 메모리를 아낀다.
+
+    줄 묶음마다(위아래 이웃 한 줄씩 더 읽어) 계산해 결과에 바로 넣는다. 정수 계산이라 묶음으로 나눠도 결과는 같다.
+    """
+    height = image.shape[0]
+    out = np.empty((2 * height, 2 * image.shape[1]) + image.shape[2:], dtype=np.uint8)
+
+    def fill(start, stop):
+        low, high = max(0, start - 1), min(height, stop + 1)
+        tall = _twice(image[low:high].astype(np.uint16), 0)[2 * (start - low):2 * (stop - low)]
+        out[2 * start:2 * stop] = _twice(tall, 1)
+
+    _in_parallel(fill, 0, height, pool)
+    return out
+
+
+def _det_input(image, new_w, new_h, top, bottom, pool=None):
+    """image를 new_w×new_h로 바꾼 그림의 top~bottom 줄로 만든 위치 찾기 모델 입력 (1, 3, H, W) float32와 그 줄 수.
+
+    32 배수로 늘이지 않고 바탕색으로 채운다(글자가 찌그러지지 않는다). 모델은 BGR 순서로 학습됐다. 크기를 바꾼 값을 실수 사본 없이
+    채널 평면에 바로 넣고 정규화한다(전에는 입력 전체 크기의 배열을 네댓 번 만들었다, 2026-11-09). 값은 전과 비트 단위로 같다.
+    """
+    rows = bottom - top
+    same = (new_w, new_h) == (image.shape[1], image.shape[0])
+    plan = None if same else _bilinear_plan(image, new_w, new_h)
+    if (top, bottom) == (0, new_h):   # 바탕색은 크기를 바꾼 그림의 둘레에서 잰다
+        border = [part.astype(np.float32) for part in (image[0], image[-1], image[:, 0], image[:, -1])] if same else _resized_border(plan, new_w, new_h)
+    else:   # 띠의 위아래 끝은 글자 사이를 지난다. 채울 바탕색은 그림 전체의 둘레에서 잰다
+        border = (image[0], image[-1], image[:, 0], image[:, -1])
+    tensor = _det_canvas(np.median(np.concatenate(border), axis=0), rows, new_w)
+    target = tensor[0, ::-1, :rows, :new_w].transpose(1, 2, 0)   # 채널을 뒤집어(BGR) 본 (줄, 열, 채널)
+    if same:
+        target[...] = image[top:bottom] if image.dtype == np.uint8 else image[top:bottom].astype(np.float32)
+    else:
+        _bilinear_rows(plan, top, bottom, target, pool)
+    return _normalized(tensor), rows
+
+
+def _det_canvas(color, rows, width):
+    """바탕색 color(RGB)로 채운 (1, 3, H, W) float32 캔버스. 채널은 모델 순서(BGR)다."""
+    fill = np.asarray(color).astype(np.float32)
+    tensor = np.empty((1, 3, -(-rows // 32) * 32, -(-width // 32) * 32), dtype=np.float32)
+    for channel in range(3):
+        tensor[0, channel] = fill[2 - channel]
+    return tensor
+
+
+def _normalized(tensor):
+    """위치 찾기 모델의 정규화(채널마다 float32로 255로 나누고 평균을 빼고 표준편차로 나눈다)를 제자리에서 한다."""
+    for channel in range(3):
+        plane = tensor[0, channel]
+        plane /= np.float32(255.0)
+        plane -= DET_MEAN[channel]
+        plane /= DET_STD[channel]
+    return tensor
 
 
 def _cut_rules(image, color):
-    """고른 영역의 위아래 끝까지 이어진 표 세로선의 열 번호."""
-    ink = np.abs(image.astype(np.int16) - color).max(axis=2) > RIDGE_CONTRAST
+    """고른 영역의 위아래 끝까지 이어진 표 세로선의 열 번호.
+
+    맨 윗줄에서 바탕색과 다른 열만 아래까지 따라가 본다. 그런 열이 없으면 이미지 전체를 재지 않는다(4K 화면에서 0.2초였다).
+    """
+    def inked(pixels):   # 어느 색 채널이든 바탕색과 RIDGE_CONTRAST보다 다르다
+        return np.abs(pixels.astype(np.int16) - color).max(axis=-1) > RIDGE_CONTRAST
+
+    candidates = np.flatnonzero(inked(image[0]))
+    if candidates.size == 0 or not inked(image[:, candidates]).all(axis=0).any():
+        return np.empty(0, dtype=np.intp)
+    ink = inked(image)
     through = ink.all(axis=0)
     rest = np.flatnonzero(ink[:, ~through].any(axis=1))
     if rest.size and image.shape[0] - (rest[-1] - rest[0] + 1) < RULE_PAST_TEXT:
@@ -423,16 +598,24 @@ class OcrEngine:
 
     _sharp = None  # 이번 인식에서 글자 모양을 잴 확대 전 이미지와 배율. 상자를 직접 읽을 때는 없다
     _char_marks = {}  # 이번 인식의 상자 번호별 확신도가 낮은 글자 위치
+    _pool = None   # 큰 이미지 계산을 나눌 스레드 묶음(스레드 하나면 없다)
+    _runner = None  # 인식 모델을 차례로 돌릴 스레드(스레드 하나면 없고 부른 스레드에서 돈다)
+    _waiting = ()   # 다음 위치 찾기 모델이 돌기 시작할 때 다른 스레드에 넘길 일(_Deferred)
 
     def __init__(self, directory=None, threads=None):
         import onnxruntime as ort  # 처음 인식할 때만 불러온다
 
         files = verify_models(directory)
         ort.disable_telemetry_events()
+        workers = threads or min(4, os.cpu_count() or 1)
+        # 큰 이미지의 크기 바꾸기·2배는 모델과 같은 수의 스레드로 나눠 한다. 모델이 도는 동안에는 쉬므로 서로 다투지 않는다
+        self._pool = ThreadPoolExecutor(workers, thread_name_prefix="screen-text") if workers > 1 else None
+        # 인식 모델은 이 스레드 하나에서 차례로 돈다. 그동안 부른 쪽은 앞 묶음의 글자 규칙과 다음 묶음의 입력을 만든다
+        self._runner = ThreadPoolExecutor(1, thread_name_prefix="screen-text-model") if workers > 1 else None
 
         def session(path, arena):
             options = ort.SessionOptions()
-            options.intra_op_num_threads = threads or min(4, os.cpu_count() or 1)
+            options.intra_op_num_threads = workers
             options.inter_op_num_threads = 1
             if not arena:
                 options.enable_cpu_mem_arena = False
@@ -456,6 +639,7 @@ class OcrEngine:
         """RGB 배열(H, W, 3)의 글자 상자를 원본 좌표로 돌려준다(기운 스캔본은 바로 세운 뒤의 좌표). 취소되면 RecognitionCancelled."""
         if cancelled():
             raise RecognitionCancelled
+        self._waiting = ()
         height, width = image.shape[:2]
         scale = min(UPSCALE, MAX_SIDE / max(width, height))
         work = image
@@ -467,16 +651,26 @@ class OcrEngine:
         work = sharp = add_margin(plain, margin)   # 기호·틈은 확대 전의 또렷한 픽셀로 잰다
         factor = 1
         self._components = None
+        # 첫 위치 찾기 모델이 도는 동안(입력이 작아 메모리를 적게 쓴다) 다른 스레드에서 기울기를 잴 화면 전체의 글자 픽셀과 표 선을
+        # 찾을 회색 그림을 차례로 만든다. 둘 다 그림 크기의 실수 사본을 잠깐 만들어, 큰 입력으로 찾는 동안에 만들면 최대 메모리가 늘었다
+        early = _Deferred(self._pool, _skew_and_gray, plain, sharp) if self._pool is not None else None
+        self._waiting = () if early is None else (early,)
         boxes = self._detect(work, cancelled)
         if cancelled():
             raise RecognitionCancelled
-        skew = skew_angle(self._components, plain) if self._components else 0.0
+        skew = skew_angle(self._components, plain, None if early is None else (lambda: early.result()[0])) if self._components else 0.0
         self._components = None
+        gray = None if early is None or skew else early.result()[1]   # 기운 그림을 돌리면 회색 그림도 새로 만든다
+        early = None
         if skew:    # 기운 스캔본은 바로 세워 다시 찾는다. 돌린 뒤의 좌표로 돌려주지만 상자는 서로의 위치만 쓰인다
             work = sharp = add_margin(straighten(plain, skew), margin)
             boxes = self._detect(work, cancelled)
             if cancelled():
                 raise RecognitionCancelled
+        # 표 선 후보는 글자 상자와 상관없다. 다음 위치 찾기 모델이 도는 동안(GIL을 놓는다) 다른 스레드에서 잰다
+        lines = _Deferred(self._pool, grid_lines, sharp, gray)
+        self._waiting = (lines,)
+        gray = None
         text_height = _median_height(boxes)
         side = max(work.shape[:2])
         double = bool(boxes) and text_height < SMALL_TEXT_PX and 2 * side <= MAX_SIDE
@@ -498,8 +692,9 @@ class OcrEngine:
                 margin *= 2
         if cancelled():
             raise RecognitionCancelled
+        self._waiting = ()
         boxes = [fit_to_ink(work, box) for box in boxes]
-        grids = find_grids(sharp, _shrunk_boxes(boxes, factor), DET_MARGIN)
+        grids = find_grids(sharp, _shrunk_boxes(boxes, factor), DET_MARGIN, lines.result())
         if grids:
             boxes = fit_boxes(work, boxes, [_scaled_grid(grid, factor, 0) for grid in grids], factor)
             if cancelled():
@@ -538,7 +733,7 @@ class OcrEngine:
         글자 오류 7.7→36.6%, 2026-11-08). 넘치는 입력은 _detect가 띠로 나눠 찾는다.
         """
         try:
-            work = double_size(image) if factor == 2 else image
+            work = double_size(image, self._pool) if factor == 2 else image
             side = max(work.shape[:2])
             limit = max(DET_LIMIT_SMALL, round(side * DET_SMALL_MIN_SCALE / 2)) if factor == 2 else side
             boxes = self._detect(work, cancelled, limit)
@@ -581,6 +776,8 @@ class OcrEngine:
         tops = [round(k * (new_h - strip) / (count - 1)) for k in range(count)]
         edges = [0] + [(tops[k + 1] + tops[k] + strip) / 2 for k in range(count - 1)] + [new_h]
         boxes = []
+        # 다음 띠의 입력을 앞 띠의 모델이 도는 동안 만들면 FHD·QHD에서 0.12초 빨랐지만 최대 메모리가 입력 하나(약 32MB)만큼 늘어
+        # 그렇게 하지 않는다(2026-11-09). 띠의 입력은 실수 사본 없이 바로 채운다
         for k, top in enumerate(tops):
             for box in self._detect_rows(image, new_w, new_h, top, top + strip, cancelled):
                 if edges[k] <= (box[1] + box[3]) / 2 * new_h / height < edges[k + 1]:
@@ -590,26 +787,16 @@ class OcrEngine:
 
     def _detect_rows(self, image, new_w, new_h, top, bottom, cancelled):
         """image를 new_w×new_h로 바꾼 그림의 top~bottom 줄에서 글자 상자를 찾아 image 좌표로 돌려준다."""
+        return self._det_boxes(_det_input(image, new_w, new_h, top, bottom, self._pool), image, new_w, new_h, top, cancelled)
+
+    def _det_boxes(self, prepared, image, new_w, new_h, top, cancelled):
+        """위치 찾기 모델 입력 prepared=(입력, 줄 수)(그림의 top 줄부터)에서 글자 상자를 찾아 image 좌표로 돌려준다."""
+        tensor, rows = prepared
         height, width = image.shape[:2]
-        whole = (top, bottom) == (0, new_h)
-        small = resize_bilinear(image, new_w, new_h, None if whole else (top, bottom))
-        rows = bottom - top
-        if whole:
-            color = np.median(np.concatenate((small[0], small[-1], small[:, 0], small[:, -1])), axis=0)
-        else:   # 띠의 위아래 끝은 글자 사이를 지난다. 채울 바탕색은 그림 전체의 둘레에서 잰다
-            color = np.median(np.concatenate((image[0], image[-1], image[:, 0], image[:, -1])), axis=0)
-        canvas = np.empty((-(-rows // 32) * 32, -(-new_w // 32) * 32, 3), dtype=np.float32)  # 32 배수로 늘이지 않고 채운다(글자가 찌그러지지 않는다)
-        canvas[:] = color
-        canvas[:rows, :new_w] = small
-        del small   # 모델이 도는 동안이 인식의 최대 메모리 구간이라 그때는 모델 입력만 쥔다
-        bgr = canvas[:, :, ::-1] / 255.0  # 모델은 BGR 순서로 학습됐다
-        del canvas
-        bgr -= DET_MEAN
-        bgr /= DET_STD
-        tensor = np.ascontiguousarray(bgr.transpose(2, 0, 1))[None]
-        del bgr
         if cancelled():
             raise RecognitionCancelled
+        for task in self._waiting:   # 모델이 도는 동안(GIL을 놓는다) 미뤄 둔 일을 다른 스레드에서 한다
+            task.start()
         prob = self._det.run(None, {"x": tensor})[0][0, 0][:rows, :new_w]
         scale_x, scale_y = width / new_w, height / new_h
         boxes = []
@@ -639,7 +826,11 @@ class OcrEngine:
             self._char_marks[index] = marks
 
     def _read(self, image, boxes, cancelled):
-        """상자를 읽는다. 글자 모양·틈은 이번 인식의 확대 전 이미지(self._sharp)에서 잰다."""
+        """상자를 읽는다. 글자 모양·틈은 이번 인식의 확대 전 이미지(self._sharp)에서 잰다.
+
+        모델 실행 스레드(self._runner)가 있으면 다음 묶음을 모델에 먼저 넘겨 두고, 모델이 도는 동안 앞 묶음의 글자 규칙을 잰다.
+        모델은 한 번에 한 묶음씩 같은 순서로 돌고 묶음 구성도 같아 결과는 차례로 읽을 때와 같다(2026-11-09).
+        """
         if cancelled():
             raise RecognitionCancelled
         sharp, factor = self._sharp or (image, 1)
@@ -654,17 +845,19 @@ class OcrEngine:
             widths.append(crop_width)
         results = [("", 0.0)] * len(boxes)
         order = sorted(range(len(boxes)), key=lambda i: widths[i])
-        start = 0
+        batches, start = [], 0
         while start < len(order):
-            if cancelled():
-                raise RecognitionCancelled
             end = start + 1
             while (end < min(start + REC_BATCH, len(order))
                    and widths[order[end]] * (end - start + 1) <= MAX_REC_BATCH_WIDTH):
                 end += 1
-            ids = order[start:end]
-            widest = widths[ids[-1]]
-            batch = np.zeros((len(ids), 3, REC_HEIGHT, widest), dtype=np.float32)
+            batches.append(order[start:end])
+            start = end
+
+        def model_input(ids):
+            if cancelled():
+                raise RecognitionCancelled
+            batch = np.zeros((len(ids), 3, REC_HEIGHT, widths[ids[-1]]), dtype=np.float32)
             for slot, i in enumerate(ids):
                 if cancelled():
                     raise RecognitionCancelled
@@ -673,17 +866,45 @@ class OcrEngine:
                 batch[slot, :, :, : widths[i]] = ((crop / 255.0 - 0.5) / 0.5).transpose(2, 0, 1)
             if cancelled():
                 raise RecognitionCancelled
-            probs = self._rec.run(None, {"x": batch})[0]
-            for slot, i in enumerate(ids):
-                if cancelled():
-                    raise RecognitionCancelled
-                steps = max(1, int(np.ceil(probs.shape[1] * widths[i] / widest)))
-                text, score = ctc_decode(probs[slot, :steps], self._charset)  # 진단 도구가 가로채는 지점: 상자마다 한 번
-                runs = _ctc_runs(probs[slot, :steps], self._charset)
-                pieces = [(char, center) for char, center, _, _ in runs]
-                if "".join(char for char, _ in pieces) == text:  # 글자와 위치가 맞을 때만 공백 위치를 쓴다
-                    x0, y0, x1, y1 = _shrunk_boxes([boxes[i]], factor)[0]
-                    crop = sharp[y0:y1, x0:x1]
+            return batch
+
+        def run(batch):
+            return self._rec.run(None, {"x": batch})[0]
+
+        if self._runner is None:
+            for ids in batches:
+                self._finish_batch(ids, run(model_input(ids)), widths, boxes, sharp, factor, results, cancelled)
+            return results
+        started = []
+        try:
+            started.append(self._runner.submit(run, model_input(batches[0])) if batches else None)
+            for k, ids in enumerate(batches):
+                if k + 1 < len(batches):   # 앞 묶음이 모델에서 도는 동안 다음 묶음의 입력을 만들어 줄 세운다
+                    started.append(self._runner.submit(run, model_input(batches[k + 1])))
+                probs = started[k].result()
+                started[k] = None   # 다 쓴 결과는 놓는다
+                self._finish_batch(ids, probs, widths, boxes, sharp, factor, results, cancelled)
+                del probs
+        finally:
+            for future in started:   # 취소·오류로 그만두면 아직 시작하지 않은 묶음은 돌리지 않는다
+                if future is not None:
+                    future.cancel()
+        return results
+
+    def _finish_batch(self, ids, probs, widths, boxes, sharp, factor, results, cancelled):
+        """모델이 읽은 한 묶음의 확률에서 글자를 풀고 화면 모양 규칙을 적용해 results에 넣는다."""
+        widest = widths[ids[-1]]
+        for slot, i in enumerate(ids):
+            if cancelled():
+                raise RecognitionCancelled
+            steps = max(1, int(np.ceil(probs.shape[1] * widths[i] / widest)))
+            text, score = ctc_decode(probs[slot, :steps], self._charset)  # 진단 도구가 가로채는 지점: 상자마다 한 번
+            runs = _ctc_runs(probs[slot, :steps], self._charset)
+            pieces = [(char, center) for char, center, _, _ in runs]
+            if "".join(char for char, _ in pieces) == text:  # 글자와 위치가 맞을 때만 공백 위치를 쓴다
+                x0, y0, x1, y1 = _shrunk_boxes([boxes[i]], factor)[0]
+                crop = sharp[y0:y1, x0:x1]
+                with shared_ink():   # 아래 규칙들이 같은 crop의 글자 픽셀 기준을 한 번만 잰다
                     pieces = rescue_marks(pieces, probs[slot, :steps], self._charset)
                     pieces = restore_corner_brackets(pieces, crop, steps, x1 - x0)
                     pieces = restore_inline_checkboxes(pieces, crop, steps, x1 - x0)
@@ -698,8 +919,5 @@ class OcrEngine:
                     has_space = self._charset[-1:] == [" "]  # 공백은 사전의 마지막이다
                     spaces = probs[slot, :steps, len(self._charset)] if has_space else np.zeros(steps, np.float32)
                     text = join_words(pieces, spaces, crop, steps, x1 - x0)
-                    self._note_unsure(i, text, pieces, runs, doubtful)
-                results[i] = (text, score)
-            del probs, batch
-            start = end
-        return results
+                self._note_unsure(i, text, pieces, runs, doubtful)
+            results[i] = (text, score)

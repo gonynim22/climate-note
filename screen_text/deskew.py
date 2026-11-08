@@ -73,18 +73,24 @@ def _sampled(ys, xs, owners=None):
     return ys, xs - xs.mean(), None if owners is None else owners[::stride]
 
 
-def skew_angle(components, image):
+def ink_pixels(image):
+    """화면 전체의 글자·선 픽셀 좌표(np.nonzero 결과). 기울기를 잴 때 쓴다."""
+    return np.nonzero(ink_mask(image))
+
+
+def skew_angle(components, image, ink=None):
     """글자 덩어리와 화면의 선으로 잰 기울기(도, 오른쪽이 올라가면 양수). 돌릴 만큼 분명하지 않으면 0.0.
 
     표 선이 있으면 선이 가장 정확하다. 글자가 드문 표는 칸끼리 우연히 맞는 각도가 있어 덩어리만으로는 틀린다. 다만 그림 속의 비스듬한
     선을 따라가지 않도록 글자도 그 각도에서 나빠지지 않을 때만 믿는다. 선이 없으면 글자 줄이 분명히 또렷해질 때만 돌린다.
+    ink는 ink_pixels(image)를 돌려주는 함수다(위치 찾기 모델이 도는 동안 미리 잰 것을 쓴다). 없으면 여기서 잰다.
     """
     found = _pixels(components)
     if found is None or found[0].size < SKEW_MIN_PIXELS:
         return 0.0
     ys, xs, owners = _sampled(*found[:3])
     flat = _sharpness(ys, xs, 0)
-    ink = np.nonzero(ink_mask(image))
+    ink = ink_pixels(image) if ink is None else ink()
     tall = image.shape[0] >= SKEW_TALL * found[4]
     if tall and ink[0].size >= SKEW_MIN_PIXELS:
         ink_ys, ink_xs, _ = _sampled(*ink)

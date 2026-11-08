@@ -9,7 +9,7 @@
 import numpy as np
 
 from screen_text.corner_brackets import components
-from screen_text.leading_symbols import THIN_INK_FRACTION, ink_mask
+from screen_text.leading_symbols import THIN_INK_FRACTION, ink_level, ink_mask
 from screen_text.word_spaces import _height, _ink_runs, _longest_empty, _run_at, without_long_strokes
 
 MARKS = ",."
@@ -164,8 +164,7 @@ def restore_number_marks(pieces, image, box, steps):
     ink = ink_mask(crop, THIN_INK_FRACTION)
     if not ink.any():
         return pieces, ()
-    gray = crop.astype(np.float32) @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
-    level = np.abs(gray - np.median(gray))
+    level = ink_level(crop)[0]   # 회색이 배경(중앙값)과 다른 정도. ink_mask가 잰 값을 그대로 쓴다
     per_step = width / steps
     rows = np.flatnonzero(ink[:box_height].any(axis=1))
     if rows.size == 0:

@@ -163,7 +163,7 @@ def test_real_model_reads_a_tilted_scan(qapp, ocr):
 
 def test_tilted_scan_is_unreadable_without_straightening(qapp, ocr, monkeypatch):
     """시험이 정말 기울기를 재현하는지 확인한다. 고치기 전에는 여섯 줄이 '다' 한 글자로 나왔다."""
-    monkeypatch.setattr(engine, "skew_angle", lambda components, image: 0.0)
+    monkeypatch.setattr(engine, "skew_angle", lambda components, image, ink=None: 0.0)
     tilted = straighten(render_page(), -2.0)
     assert matches(read(ocr, tilted)) == 0
 

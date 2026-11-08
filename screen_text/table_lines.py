@@ -10,7 +10,7 @@ from dataclasses import replace
 import numpy as np
 
 from screen_text.layout import Grid, GridCell
-from screen_text.leading_symbols import ink_mask
+from screen_text.leading_symbols import ink_mask, median, row_medians
 
 RIDGE_REACHES = (2, 4)     # 선 양쪽으로 이만큼 떨어진 픽셀과 견준다. 굵기 2×거리-1 까지의 선이 능선으로 보인다
 RIDGE_CONTRAST = 16        # 양쪽 모두와 이만큼(0~255) 달라야 선이다. 엑셀 눈금선(#D4D4D4 안팎)이 잡힐 만큼 낮다
@@ -47,6 +47,7 @@ EVEN_SHARE = 0.75          # 진짜 선은 길이의 이 비율 이상이 같은
 EVEN_RANGE = 24            # 같은 밝기로 보는 차이(0~255)
 LINE_CONTRAST = 10         # 행의 다수 밝기가 둘레와 이만큼 달라야 선이다
 SPREAD_MIN_COLUMNS = 3     # 이만큼 넓은 병합 칸의 글자가 열마다 하나씩 놓이면 병합이 아니다(두 칸은 낱말 둘과 구별되지 않는다)
+LINE_ROWS = 256            # 능선·계단·행 구간을 한 번에 재는 줄 수(그림 크기의 임시 배열을 만들지 않는다, 결과는 같다)
 
 
 def _gray(image):
@@ -54,46 +55,61 @@ def _gray(image):
 
 
 def _ridges(gray):
-    """위아래 양쪽과 같은 방향으로 달라지는 가로 능선 픽셀."""
+    """위아래 양쪽과 같은 방향으로 달라지는 가로 능선 픽셀. 양쪽 차이가 모두 크다 = 작은 쪽이 크다(모두 작다 = 큰 쪽이 작다).
+
+    LINE_ROWS 줄씩 잰다. 행마다 같은 계산이라 결과는 한꺼번에 잴 때와 같고, 4K 화면에서 그림 크기의 실수 임시 배열을 만들지 않는다.
+    """
     mask = np.zeros(gray.shape, dtype=bool)
+    height = gray.shape[0]
     for reach in RIDGE_REACHES:
-        if gray.shape[0] <= 2 * reach:
-            continue
-        up = gray[reach:-reach] - gray[:-2 * reach]
-        down = gray[reach:-reach] - gray[2 * reach:]
-        mask[reach:-reach] |= ((up > RIDGE_CONTRAST) & (down > RIDGE_CONTRAST)) | ((up < -RIDGE_CONTRAST) & (down < -RIDGE_CONTRAST))
+        for start in range(reach, height - reach, LINE_ROWS):
+            stop = min(start + LINE_ROWS, height - reach)
+            up = gray[start:stop] - gray[start - reach:stop - reach]
+            down = gray[start:stop] - gray[start + reach:stop + reach]
+            hit = np.minimum(up, down) > RIDGE_CONTRAST
+            np.maximum(up, down, out=up)
+            hit |= up < -RIDGE_CONTRAST
+            mask[start:stop] |= hit
     return mask
 
 
 def _steps(gray):
-    """머리글 바탕색의 경계처럼 선 없이 밝기만 바뀌는 곳. 글자 획의 위아래도 여기 걸리므로 길게 이어질 때만 쓴다."""
+    """머리글 바탕색의 경계처럼 선 없이 밝기만 바뀌는 곳. 글자 획의 위아래도 여기 걸리므로 길게 이어질 때만 쓴다(LINE_ROWS 줄씩 잰다)."""
     mask = np.zeros(gray.shape, dtype=bool)
-    if gray.shape[0] > 2:
-        mask[1:-1] = np.abs(gray[2:] - gray[:-2]) > STEP_CONTRAST
+    for start in range(1, gray.shape[0] - 1, LINE_ROWS):
+        stop = min(start + LINE_ROWS, gray.shape[0] - 1)
+        mask[start:stop] = np.abs(gray[start + 1:stop + 1] - gray[start - 1:stop - 1]) > STEP_CONTRAST
     return mask
 
 
-def _runs(row, length):
-    """한 행의 True 구간 중 작은 끊김을 이은 뒤 length 이상인 (시작, 끝) 목록(끝 포함)."""
-    edges = np.flatnonzero(np.diff(np.concatenate(([0], row.astype(np.int8), [0]))))
-    spans, start, end = [], None, None
-    for a, b in zip(edges[0::2].tolist(), (edges[1::2] - 1).tolist()):
-        if start is not None and a - end - 1 <= BRIDGE_GAP:
-            end = b
-            continue
-        if start is not None and end - start + 1 >= length:
-            spans.append((start, end))
-        start, end = a, b
-    if start is not None and end - start + 1 >= length:
-        spans.append((start, end))
+def _row_spans(mask, rows, length):
+    """rows 각 행의 True 구간 중 BRIDGE_GAP 이하의 끊김을 이은 뒤 length 이상인 (시작, 끝) 목록(끝 포함)을 행마다.
+
+    모든 행의 구간을 한꺼번에 찾는다(행마다 numpy를 부르던 것이 4K 화면에서 수천 번이었다). 왼쪽부터 이어 붙이는 규칙은 같다.
+    """
+    spans = [[] for _ in rows]
+    for offset in range(0, len(rows), LINE_ROWS):   # 임시 배열이 그림 크기만큼 커지지 않게 LINE_ROWS 행씩
+        part = rows[offset:offset + LINE_ROWS]
+        padded = np.zeros((len(part), mask.shape[1] + 2), dtype=np.int8)
+        padded[:, 1:-1] = mask[part]
+        change = np.diff(padded, axis=1)
+        row_of, starts = np.nonzero(change == 1)
+        ends = np.nonzero(change == -1)[1] - 1
+        opens = np.ones(starts.size, dtype=bool)   # 앞 구간과 이어지지 않는 구간(행의 첫 구간이거나 틈이 넓다)
+        opens[1:] = (row_of[1:] != row_of[:-1]) | (starts[1:] - ends[:-1] - 1 > BRIDGE_GAP)
+        first = np.flatnonzero(opens)
+        last = np.append(first[1:], starts.size) - 1
+        for row, start, end in zip(row_of[first].tolist(), starts[first].tolist(), ends[last].tolist()):
+            if end - start + 1 >= length:
+                spans[offset + row].append((start, end))
     return spans
 
 
 def _segments(mask, length):
     """가로 선분 [(위, 아래, 왼쪽, 오른쪽)]. 이어진 행의 긴 구간을 한 선분으로 묶는다."""
     finished, active = [], []
-    for y in np.flatnonzero(mask.sum(axis=1) >= length).tolist():
-        spans = _runs(mask[y], length)
+    rows = np.flatnonzero(mask.sum(axis=1) >= length)
+    for y, spans in zip(rows.tolist(), _row_spans(mask, rows, length)):
         carried = []
         for segment in active:
             if segment[1] < y - 1:
@@ -124,6 +140,7 @@ def _lines(gray, length):
     """표 선 후보(위, 아래, 왼쪽, 오른쪽). 능선은 짧아도 믿고, 밝기 계단은 길고 빈틈없을 때만 믿는다."""
     ridges = _ridges(gray)
     found = [s for s in _segments(ridges, length) if _filled(ridges, s, RIDGE_FILL)]
+    del ridges   # 그림 크기의 표시 배열을 둘 다 쥐지 않는다
     steps = _steps(gray)
     found += [s for s in _segments(steps, STEP_LENGTH) if _filled(steps, s, STEP_FILL)]
     return [_tight(gray, segment) for segment in found]
@@ -131,7 +148,9 @@ def _lines(gray, length):
 
 def _even(pixels):
     """한 줄의 밝기가 고른가. 표 선은 고르고 글자 바닥이 늘어선 행은 획과 틈이 번갈아 나온다."""
-    return float((np.abs(pixels - np.median(pixels)) <= EVEN_RANGE).mean()) >= EVEN_SHARE
+    if pixels.size == 0:
+        return False
+    return np.count_nonzero(np.abs(pixels - median(pixels)) <= EVEN_RANGE) / pixels.size >= EVEN_SHARE
 
 
 def _tight(gray, segment):
@@ -140,12 +159,14 @@ def _tight(gray, segment):
     first, last = max(0, top - 2), min(gray.shape[0], bottom + 3)
     band = gray[first:last, left:right + 1]
     # 선은 그 행 픽셀 대부분의 밝기를 바꾸고 글자는 바꾸지 못한다. 글자 바닥 행이 눈금선보다 진해도 선은 이쪽이다
-    majority = np.median(band, axis=1)
-    changed = np.flatnonzero(np.abs(majority - np.median(majority)) >= LINE_CONTRAST)
-    rows = np.array([row for row in changed if _even(band[row])], dtype=np.int64)    # 굵은 글씨 행은 다수가 바뀌어도 고르지 않다
+    majority = row_medians(band)
+    changed = np.flatnonzero(np.abs(majority - median(majority)) >= LINE_CONTRAST)
+    # 굵은 글씨 행은 다수가 바뀌어도 고르지 않다(_even을 바뀐 행마다 부른 것과 같다. 행의 중앙값이 곧 majority다)
+    near = np.abs(band[changed] - majority[changed, None]) <= EVEN_RANGE
+    rows = changed[np.count_nonzero(near, axis=1) / band.shape[1] >= EVEN_SHARE].astype(np.int64)
     if rows.size == 0 or rows.size == band.shape[0]:
         profile = band.mean(axis=1)
-        contrast = np.abs(profile - np.median(profile))
+        contrast = np.abs(profile - median(profile))
         peak = float(contrast.max())
         if peak <= 0:
             return segment
@@ -156,12 +177,15 @@ def _tight(gray, segment):
 def _without_text_rows(gray, lines):
     """고른 선 옆의 고르지 않은 줄을 뺀다. 눈금선 바로 위에 숫자 바닥이 길게 늘어서면 선으로 보이고, 둘을 한 선으로 묶으면 칸이 글자 안쪽까지 좁아진다."""
     even = [line for line in lines if _even(gray[line[0]:line[1] + 1, line[2]:line[3] + 1].mean(axis=0))]
+    kept = set(even)
+    top, bottom, left, right = np.asarray(even, dtype=np.float64).reshape(-1, 4).T
+    centers = (top + bottom) / 2
 
     def beside(line):
         center = (line[0] + line[1]) / 2
-        return any(abs((other[0] + other[1]) / 2 - center) <= CLUSTER_GAP
-                   and min(other[3], line[3]) - max(other[2], line[2]) >= SAME_LINE * (line[3] - line[2] + 1) for other in even)
-    return [line for line in lines if line in even or not beside(line)]
+        return bool(np.any((np.abs(centers - center) <= CLUSTER_GAP)
+                           & (np.minimum(right, line[3]) - np.maximum(left, line[2]) >= SAME_LINE * (line[3] - line[2] + 1))))
+    return [line for line in lines if line in kept or not beside(line)]
 
 
 def _touches(line, column):
@@ -391,7 +415,7 @@ def _open_spread_cells(grid, boxes):
     return replace(grid, cells=tuple(sorted(cells, key=lambda cell: (cell.row, cell.column))))
 
 
-def _is_stroke(column, boxes, solid=False, image=None):
+def _is_stroke(column, boxes, solid=False, image=None, table=None):
     """세로 선분 대부분이 글자 상자 안쪽에 있으면 글자 획이다. 여러 줄을 곧게 가로지르면 표 선이다.
 
     눈금선이 옅으면 위치 찾기가 옆 칸까지 한 상자로 묶어 표 선이 상자 안을 지난다. solid는 선분의 밝기가 고른가다.
@@ -401,19 +425,25 @@ def _is_stroke(column, boxes, solid=False, image=None):
     """
     left, right, top, bottom = column
     length = bottom - top + 1
-    inside, tallest, edge = 0, 0, False
-    for box in boxes:
-        x0, y0, x1, y1 = box
-        overlap = max(0, min(bottom + 1, y1) - max(top, y0))
-        if not overlap:
-            continue
-        if x0 < left and right < x1:
-            inside += overlap
-            tallest = max(tallest, y1 - y0)
-        elif image is not None and x0 - 1 <= left and right <= x1 and overlap >= .9 * length and _within_text(column, box, image):
-            edge = True
-            tallest = max(tallest, y1 - y0)
+    x0, y0, x1, y1 = (_box_table(boxes) if table is None else table).T   # 상자마다 돌던 계산을 배열로 한 번에 한다
+    overlap = np.maximum(0, np.minimum(bottom + 1, y1) - np.maximum(top, y0))
+    near = overlap > 0
+    around = near & (x0 < left) & (right < x1)
+    heights = y1 - y0
+    inside = sum(overlap[around].tolist())
+    tallest = max(heights[around].tolist(), default=0)
+    edge = False
+    if image is not None:
+        for index in np.flatnonzero(near & ~around & (x0 - 1 <= left) & (right <= x1) & (overlap >= .9 * length)).tolist():
+            if _within_text(column, boxes[index], image):
+                edge = True
+                tallest = max(tallest, heights[index])
     return (inside >= .9 * length or edge) and not (solid and length >= STROKE_LINES * tallest)
+
+
+def _box_table(boxes):
+    """상자 목록을 (개수, 4) float64 배열로. 정수 좌표는 float64에서도 정확해 상자마다 계산하던 것과 같은 값이 나온다."""
+    return np.asarray(boxes, dtype=np.float64).reshape(-1, 4)
 
 
 def _within_text(column, box, image):
@@ -427,14 +457,13 @@ def _within_text(column, box, image):
     return rows.size > 0 and max(y0 + int(rows[0]) - top, bottom - y0 - int(rows[-1])) <= EDGE_STROKE_REACH
 
 
-def _in_text_row(line, boxes):
+def _in_text_row(line, boxes, table=None):
     """가로 선분이 글자 상자의 위아래 안쪽을 지나면 글자 획이다. 한글 가로획은 한 행에 나란히 놓여 표 선처럼 길게 이어진다."""
     top, bottom, left, right = line
-    inside = 0
-    for x0, y0, x1, y1 in boxes:
-        reach = STROKE_EDGE * (y1 - y0)
-        if y0 + reach < top and bottom < y1 - reach:
-            inside += max(0, min(right + 1, x1) - max(left, x0))
+    x0, y0, x1, y1 = (_box_table(boxes) if table is None else table).T
+    reach = STROKE_EDGE * (y1 - y0)
+    across = (y0 + reach < top) & (bottom < y1 - reach)
+    inside = sum(np.maximum(0, np.minimum(right + 1, x1[across]) - np.maximum(left, x0[across])).tolist())
     return inside >= STROKE_SHARE * (right - left + 1)
 
 
@@ -467,24 +496,46 @@ def _with_outer_labels(grid, boxes, margin):
     return replace(grid, columns=grid.columns + 1, left=left, cells=tuple(sorted(moved + added, key=lambda cell: (cell.row, cell.column))))
 
 
-def find_grids(image, boxes, margin=0):
+def grid_gray(image):
+    """표 선을 찾을 회색 그림(grid_lines에 미리 만들어 넘길 수 있다). 그림 크기의 float32 사본을 잠깐 만든다."""
+    return _gray(image)
+
+
+def grid_lines(image, gray=None):
+    """글자 상자와 상관없는 표 선 후보. (가로선 후보, 그중 밝기가 고른 선, 세로선 후보 [(왼쪽, 오른쪽, 위, 아래, 고른가)]). 너무 작으면 None.
+
+    위치 찾기 모델이 도는 동안 미리 잴 수 있게 find_grids에서 떼어 냈다(2026-11-09). 상자로 거르기 전의 후보를 모두 재지만
+    find_grids가 같은 순서로 거르므로 결과는 한꺼번에 잴 때와 같다. gray는 같은 image의 grid_gray 결과다(없으면 여기서 만든다).
+    """
+    if min(image.shape[:2]) < 2 * max(RIDGE_REACHES) + 1:
+        return None
+    gray = _gray(image) if gray is None else gray
+    across = _without_text_rows(gray, _lines(gray, MIN_H_LENGTH))
+    even = {line for line in across if _even(gray[line[0]:line[1] + 1, line[2]:line[3] + 1].mean(axis=0))}
+    down = [(left, right, top, bottom, _even(gray[top:bottom + 1, left:right + 1].mean(axis=1)))
+            for left, right, top, bottom in _lines(gray.T, MIN_V_LENGTH)]
+    return across, even, down
+
+
+def find_grids(image, boxes, margin=0, lines=None):
     """RGB 이미지에서 표 격자 목록. 좌표는 이미지 픽셀이고, 표 선이 없으면 빈 목록이다.
 
     boxes는 위치 찾기 상자, margin은 이미지 둘레에 두른 여백이다. 영역을 표 중간에서 잘라 고른 세로선은 고른 영역의 끝에서 끝난다
-    (여백까지 이어 그린 선도 그 끝에서 자른다).
+    (여백까지 이어 그린 선도 그 끝에서 자른다). lines는 같은 image로 미리 잰 grid_lines 결과다(없으면 여기서 잰다).
     """
-    if min(image.shape[:2]) < 2 * max(RIDGE_REACHES) + 1:
+    found = grid_lines(image) if lines is None else lines
+    if found is None:
         return []
-    gray = _gray(image)
-    horizontal = [line for line in _without_text_rows(gray, _lines(gray, MIN_H_LENGTH)) if not _in_text_row(line, boxes)]
-    solid = {line for line in horizontal if _even(gray[line[0]:line[1] + 1, line[2]:line[3] + 1].mean(axis=0))}
+    across, even_across, down = found
+    table = _box_table(boxes)
+    horizontal = [line for line in across if not _in_text_row(line, boxes, table)]
+    solid = {line for line in horizontal if line in even_across}
     if len(horizontal) < 2:
         return []
     area = (margin, image.shape[0] - 1 - margin)
     vertical = []
-    for left, right, top, bottom in _lines(gray.T, MIN_V_LENGTH):
-        even = _even(gray[top:bottom + 1, left:right + 1].mean(axis=1))
-        if not _is_stroke((left, right, top, bottom), boxes, even, image):
+    for left, right, top, bottom, even in down:
+        if not _is_stroke((left, right, top, bottom), boxes, even, image, table):
             vertical.append((left, right, max(top, area[0]), min(bottom, area[1])))
             if even:
                 solid.add(vertical[-1])
