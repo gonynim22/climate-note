@@ -21,11 +21,11 @@
 
 <table>
   <tr>
-    <td width="88"><img src="readme/chip-climate.svg" width="56" height="28" alt="기후"></td>
+    <td width="88" valign="top"><img src="readme/chip-climate.svg" width="56" height="28" alt="기후"></td>
     <td><b>포스트잇 대신, 바탕화면에</b><br>모니터 테두리와 책상 위를 덮은 포스트잇에서 시작했습니다. 붙이고, 적고, 또 잊어버리는 종이 메모를 바탕화면으로 옮기면 종이는 줄고 할 일은 늘 눈앞에 남습니다. <mark>종이 한 장이라도 아끼자는 마음</mark>을 담아 이름을 <b>'기후노트'</b>로 지었습니다.</td>
   </tr>
   <tr>
-    <td width="88"><img src="readme/chip-time.svg" width="56" height="28" alt="시간"></td>
+    <td width="88" valign="top"><img src="readme/chip-time.svg" width="56" height="28" alt="시간"></td>
     <td><b>공공기관의 시간은 국민의 시간</b><br>공공기관 직원의 시간은 <mark>국민 모두의 시간</mark>이기도 합니다. 일정과 자주 쓰는 업무 도구를 한곳에 모아, 찾고 옮겨 적느라 흘려보내는 시간을 줄이고 싶었습니다.</td>
   </tr>
 </table>
