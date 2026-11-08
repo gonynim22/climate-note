@@ -7,9 +7,6 @@
   <img src="readme/badge-offline.svg" alt="네트워크 오프라인 전용">
   <img src="readme/badge-license.svg" alt="라이선스 GPL-3.0">
   <br><br>
-  <b>Windows 바탕화면에 늘 떠 있는 캘린더 · 메모 · 위젯 앱</b><br>
-  일정과 메모는 이 PC 안에만 암호화해 저장하고, 외부 서버로 보내지 않습니다.
-  <br><br>
   <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases"><img src="readme/button-download.svg" alt="최신 버전 받기"></a>
   <a href="https://gonynim22.github.io/climate-note/climate-note-intro/climate-note-intro.html" target="_blank" rel="noopener noreferrer"><img src="readme/button-slides.svg" alt="제품 소개 슬라이드"></a>
   <a href="README_detail.md"><img src="readme/button-detail.svg" alt="상세 안내"></a>
@@ -21,7 +18,12 @@
 
 <table>
   <tr>
-    <td><sub><sub><img src="readme/chip-climate.svg" width="44" height="22" alt="기후"></sub></sub> <b>포스트잇 대신, 바탕화면에</b><br>모니터 테두리와 책상 위를 덮은 포스트잇에서 시작했습니다. 붙이고, 적고, 또 잊어버리는 종이 메모를 바탕화면으로 옮기면 종이는 줄고 할 일은 늘 눈앞에 남습니다. <mark>종이 한 장이라도 아끼자는 마음</mark>을 담아 이름을 <b>'기후노트'</b>로 지었습니다.<br><br><sub><sub><img src="readme/chip-time.svg" width="44" height="22" alt="시간"></sub></sub> <b>공공기관의 시간은 국민의 시간</b><br>공공기관 직원의 시간은 <mark>국민 모두의 시간</mark>이기도 합니다. 일정과 자주 쓰는 업무 도구를 한곳에 모아, 찾고 옮겨 적느라 흘려보내는 시간을 줄이고 싶었습니다.</td>
+    <td>
+      <h3><sub><sub><img src="readme/chip-climate.svg" width="56" height="28" alt="기후"></sub></sub> 포스트잇 대신, 바탕화면에</h3>
+      모니터 테두리와 책상 위를 덮은 포스트잇에서 시작했습니다. 붙이고, 적고, 또 잊어버리는 종이 메모를 바탕화면으로 옮기면 종이는 줄고 할 일은 늘 눈앞에 남습니다. <mark>종이 한 장이라도 아끼자는 마음</mark>을 담아 이름을 <b>'기후노트'</b>로 지었습니다.
+      <h3><sub><sub><img src="readme/chip-time.svg" width="56" height="28" alt="시간"></sub></sub> 공공기관의 시간은 국민의 시간</h3>
+      공공기관 직원의 시간은 <mark>국민 모두의 시간</mark>이기도 합니다. 일정과 자주 쓰는 업무 도구를 한곳에 모아, 찾고 옮겨 적느라 흘려보내는 시간을 줄이고 싶었습니다.
+    </td>
   </tr>
 </table>
 
