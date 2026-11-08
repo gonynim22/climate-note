@@ -1,4 +1,6 @@
 """작은 글씨와 바짝 고른 영역: 여백, 패딩, 2배 확대, 글자별 확인 표시."""
+from pathlib import Path
+
 import numpy as np
 import pytest
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
@@ -158,7 +160,7 @@ def test_scaled_grid_moves_cells_with_the_table():
 
 
 class Recorder:
-    """위치 모델 입력 크기를 적어 두는 대역."""
+    """위치 모델 입력 크기를 적어 두는 대역. 키운 입력에서는 글자도 키운 자리에 낸다(첫 호출의 폭 대비)."""
 
     def __init__(self, heights):
         self.shapes, self.heights = [], list(heights)
@@ -166,10 +168,12 @@ class Recorder:
     def run(self, _, feed):
         tensor = feed["x"]
         self.shapes.append(tensor.shape)
+        scale = tensor.shape[3] / self.shapes[0][3]
         probability = np.zeros((1, 1) + tensor.shape[2:], np.float32)
         height = self.heights.pop(0)
         if height:
-            probability[0, 0, 40:40 + height // 3, 40:200] = .9
+            top, left, right = round(40 * scale), round(40 * scale), round(200 * scale)
+            probability[0, 0, top:top + height // 3, left:right] = .9
         return [probability]
 
 
@@ -193,6 +197,79 @@ def test_large_text_is_detected_once():
     det = Recorder([60])
     fake_engine(det).recognize(np.full((60, 400, 3), 255, np.uint8))
     assert len(det.shapes) == 1
+
+
+class InkDetector:
+    """글자 픽셀이 든 줄을 그대로 글자 확률로 내는 위치 모델 대역. 배율과 무관하다.
+
+    drops[호출 순번]에 든 줄 번호(위에서부터)는 그 호출에서 놓친다. 정확히 2배로 키운 입력에서 모델이 엑셀 표의 한 열을
+    통째로 놓친 일을 흉내 낸다. fail[호출 순번]의 예외는 그 호출에서 낸다.
+    """
+
+    def __init__(self, drops=None, fail=None):
+        self.calls, self.drops, self.fail = 0, drops or {}, fail or {}
+
+    def run(self, _, feed):
+        tensor = feed["x"]
+        self.calls += 1
+        if self.calls in self.fail:
+            raise self.fail[self.calls]("bad allocation")
+        dark = tensor[0].mean(axis=0) < 0.0       # 정규화한 입력에서 중간 회색보다 어두운 화소(2배로 키우면 1px 획이 회색이 된다)
+        probability = np.zeros((1, 1) + tensor.shape[2:], np.float32)
+        rows = np.flatnonzero(dark.any(axis=1))
+        bands = np.split(rows, np.flatnonzero(np.diff(rows) > 1) + 1) if rows.size else []
+        for number, band in enumerate(bands):
+            if number in self.drops.get(self.calls, ()):
+                continue
+            columns = np.flatnonzero(dark[band].any(axis=0))
+            probability[0, 0, band[0]:band[-1] + 1, columns[0]:columns[-1] + 1] = .9
+        return [probability]
+
+
+def two_lines(short=False):
+    """작은 글씨 두 줄. 획을 띄엄띄엄 그린다(막대로 채우면 배경 추정이 깨진다). short면 아랫줄이 짧다."""
+    image = np.full((60, 400, 3), 255, np.uint8)
+    image[14:22, 40:360:3] = 0
+    image[36:44, 40:(100 if short else 360):3] = 0
+    return image
+
+
+def test_line_lost_at_exact_double_size_is_found_by_a_slightly_smaller_retry():
+    """정확히 2배로 키운 입력에서 위치 모델이 줄을 통째로 놓치면 입력을 조금 줄여 한 번 더 찾는다(엑셀 표 142→7자)."""
+    det = InkDetector(drops={2: {0}})
+    boxes = fake_engine(det).recognize(two_lines())
+    assert det.calls == 3
+    assert sorted(round(box.y / 10) for box in boxes) == [1, 3]       # 두 줄이 모두 남는다
+
+
+def test_double_size_result_that_keeps_the_lines_is_not_retried():
+    det = InkDetector()
+    assert len(fake_engine(det).recognize(two_lines())) == 2
+    assert det.calls == 2
+
+
+def test_small_loss_at_double_size_is_not_retried():
+    """짧은 줄 하나를 놓친 정도로는 다시 찾지 않는다. 표 칸을 나눠 찾은 2배 상자는 1배 상자를 다 덮지 않는 게 정상이다."""
+    det = InkDetector(drops={2: {1}})
+    fake_engine(det).recognize(two_lines(short=True))
+    assert det.calls == 2
+
+
+def test_double_size_input_already_reduced_to_the_limit_is_not_retried():
+    """2배 이미지가 커서 이미 긴 변 1920px로 줄여 찾았으면 0.97배로 다시 찾아도 같은 입력이다. 헛 찾기를 하지 않는다."""
+    image = np.full((60, 1000, 3), 255, np.uint8)
+    image[14:22, 40:960:3] = 0
+    image[36:44, 40:960:3] = 0
+    det = InkDetector(drops={2: {0}})
+    fake_engine(det).recognize(image)
+    assert det.calls == 2
+
+
+def test_retry_that_does_not_recover_the_lines_keeps_the_double_size_result():
+    det = InkDetector(drops={2: {0}, 3: {0}})
+    boxes = fake_engine(det).recognize(two_lines())
+    assert det.calls == 3
+    assert [round(box.y / 10) for box in boxes] == [3]
 
 
 def test_detection_input_is_padded_not_stretched():
@@ -332,3 +409,33 @@ def test_other_errors_on_second_pass_are_not_hidden():
 
     with pytest.raises(ValueError):
         fake_engine(Failing([12])).recognize(np.full((60, 400, 3), 255, np.uint8))
+
+
+@pytest.mark.parametrize("error", [MemoryError, RuntimeException])
+def test_out_of_memory_on_retry_keeps_the_double_size_result(error):
+    det = InkDetector(drops={2: {0}}, fail={3: error})
+    boxes = fake_engine(det).recognize(two_lines())
+    assert det.calls == 3
+    assert [round(box.y / 10) for box in boxes] == [3]
+
+
+def test_other_errors_on_retry_are_not_hidden():
+    with pytest.raises(ValueError):
+        fake_engine(InkDetector(drops={2: {0}}, fail={3: ValueError})).recognize(two_lines())
+
+
+def load_fixture(name):
+    image = QImage(str(Path(__file__).parent / "fixtures" / name)).convertToFormat(QImage.Format_RGB888)
+    return rgb_from_buffer(image.width(), image.height(), image.bytesPerLine(), bytes(image.constBits()))
+
+
+def test_real_model_reads_excel_table_whose_column_vanishes_at_exact_double_size(qapp, ocr):
+    """실제 엑셀 창(굴림, 100%)의 5열 표. 정확히 2배로 키운 입력에서 위치 모델이 제목 열을 거의 다 놓쳤고,
+    상자가 없는 칸의 글자 획이 표 선으로 잡혀 12행 20열 격자가 됐다('문 정보통신 역량 향상과정'→'략 상과정', 142/381자)."""
+    from screen_text.layout import build_blocks, to_plain
+    found = ocr.recognize(load_fixture("screen_text_excel_table.png"))
+    assert [(grid.rows, grid.columns) for grid in found.grids] == [(12, 5)]     # 끝 글자 'ㅣ'가 열이 되면 6열이다
+    text = to_plain(build_blocks(found))
+    for phrase in ("정보통신 역량 향상과정", "우수부서 인센티브", "디지털트", "평가 기준 및 방법", "슈퍼컴퓨터 프로그",
+                   "직무-23 이해하기", "탄소중립포인트제 목표물량", "국제업무에", "총 작품 내외 선", "막으로 도출된", "영향을"):
+        assert phrase in text, text

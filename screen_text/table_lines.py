@@ -40,6 +40,7 @@ CROWD_MIN_BOXES = 6        # 상자가 이보다 적으면 몰림을 말할 수 
 STROKE_EDGE = 0.2          # 글자 상자의 위아래 이 비율 안쪽을 지나는 가로 선분이 글자 획이다
 STROKE_LINES = 2.5         # 세로 선분이 글자 상자 높이의 이 배수 이상이면 여러 줄을 가로지르는 표 선이다
 STROKE_SHARE = 0.5         # 그 길이가 선분의 이 비율 이상이면
+EDGE_STROKE_REACH = 1      # 상자 가장자리에 걸친 세로 선분은 상자 안 다른 글자보다 위아래로 이보다(픽셀) 더 뻗지 않아야 글자 획이다
 MIN_PART_HEIGHT = 0.4      # 칸으로 나눈 조각의 높이 하한(상자 높이 대비). 옆 행을 살짝 건드린 자투리는 글자가 아니다
 GRID_MIN_LINES = 1.8       # 표 높이는 글자 상자 높이의 이 배수 이상이다(글자 획이 만든 격자를 거른다)
 EVEN_SHARE = 0.75          # 진짜 선은 길이의 이 비율 이상이 같은 밝기다. 글자 행은 획과 틈이 번갈아 나온다
@@ -390,20 +391,40 @@ def _open_spread_cells(grid, boxes):
     return replace(grid, cells=tuple(sorted(cells, key=lambda cell: (cell.row, cell.column))))
 
 
-def _is_stroke(column, boxes, solid=False):
+def _is_stroke(column, boxes, solid=False, image=None):
     """세로 선분 대부분이 글자 상자 안쪽에 있으면 글자 획이다. 여러 줄을 곧게 가로지르면 표 선이다.
 
     눈금선이 옅으면 위치 찾기가 옆 칸까지 한 상자로 묶어 표 선이 상자 안을 지난다. solid는 선분의 밝기가 고른가다.
+    상자는 첫 글자나 끝 글자의 획에서 끝나기도 한다(엑셀 표 '미리'의 'ㅣ'가 열 경계가 되어 12행 6열이 됐다). 상자 가장자리
+    1px에 걸친 선분은 그 상자 하나가 거의 다 덮고 상자 안 다른 글자보다 위아래로 더 뻗지 않을 때만 획이다(image가 있을 때).
+    상자 끝에 놓인 표 선은 칸 높이를 다 달려 글자보다 길고, 여러 행에 걸친 표 선은 상자 하나로 덮이지 않는다.
     """
     left, right, top, bottom = column
-    inside, tallest = 0, 0
-    for x0, y0, x1, y1 in boxes:
+    length = bottom - top + 1
+    inside, tallest, edge = 0, 0, False
+    for box in boxes:
+        x0, y0, x1, y1 = box
+        overlap = max(0, min(bottom + 1, y1) - max(top, y0))
+        if not overlap:
+            continue
         if x0 < left and right < x1:
-            overlap = max(0, min(bottom + 1, y1) - max(top, y0))
             inside += overlap
-            if overlap:
-                tallest = max(tallest, y1 - y0)
-    return inside >= .9 * (bottom - top + 1) and not (solid and bottom - top + 1 >= STROKE_LINES * tallest)
+            tallest = max(tallest, y1 - y0)
+        elif image is not None and x0 - 1 <= left and right <= x1 and overlap >= .9 * length and _within_text(column, box, image):
+            edge = True
+            tallest = max(tallest, y1 - y0)
+    return (inside >= .9 * length or edge) and not (solid and length >= STROKE_LINES * tallest)
+
+
+def _within_text(column, box, image):
+    """세로 선분이 상자 안 다른 글자의 위아래 끝을 EDGE_STROKE_REACH보다 넘지 않는가. 가로로 꽉 찬 행(표 가로선)은 글자로 치지 않는다."""
+    left, right, top, bottom = column
+    x0, y0, x1, y1 = (max(0, value) for value in box)
+    ink = ink_mask(image[y0:y1, x0:x1])
+    ink[:, max(0, left - 1 - x0):max(0, right + 2 - x0)] = False
+    ink[ink.mean(axis=1) > .8] = False
+    rows = np.flatnonzero(ink.any(axis=1))
+    return rows.size > 0 and max(y0 + int(rows[0]) - top, bottom - y0 - int(rows[-1])) <= EDGE_STROKE_REACH
 
 
 def _in_text_row(line, boxes):
@@ -463,7 +484,7 @@ def find_grids(image, boxes, margin=0):
     vertical = []
     for left, right, top, bottom in _lines(gray.T, MIN_V_LENGTH):
         even = _even(gray[top:bottom + 1, left:right + 1].mean(axis=1))
-        if not _is_stroke((left, right, top, bottom), boxes, even):
+        if not _is_stroke((left, right, top, bottom), boxes, even, image):
             vertical.append((left, right, max(top, area[0]), min(bottom, area[1])))
             if even:
                 solid.add(vertical[-1])

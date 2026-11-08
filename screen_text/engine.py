@@ -29,6 +29,9 @@ DET_LIMIT_SMALL = 1920     # 작은 글씨를 2배로 다시 찾을 때의 긴 �
 DET_MARGIN = 32            # 위치 찾기 전에 이미지 둘레에 두르는 배경 여백(픽셀). 영역을 바짝 골라도 가장자리 글자를 놓치지 않는다
 RULE_PAST_TEXT = 2         # 표 세로선은 글자보다 이만큼(픽셀) 더 뻗는다. 바짝 고른 글자의 세로획은 글자와 함께 끝난다
 SMALL_TEXT_PX = 22         # 상자 높이 중앙값이 이보다 작으면 2배로 키워 다시 찾고 읽는다
+RETRY_LOST = 0.3           # 2배로 찾은 상자가 1배 상자 폭을 이만큼 잃으면 위치 찾기 입력을 조금 줄여 한 번 더 찾는다
+RETRY_SCALE = 0.97         # 그때 2배 이미지를 줄이는 비율. 정확히 2배인 입력에서만 위치 모델이 표의 한 열을 통째로 놓쳤다
+RETRY_RECOVERED = 0.1      # 다시 찾은 결과는 잃은 폭이 이보다 작을 때만 쓴다. 아니면 2배 결과를 그대로 둔다
 CHAR_UNSURE = 0.65         # 글자 확신도가 이보다 낮으면 그 글자만 확인 필요로 표시한다
 CUT_LINE_HEIGHT = 0.8      # 영역 끝에 잘린 이웃 줄의 높이 상한(다른 줄 높이 대비). 그보다 높으면 읽을 만한 줄이다
 CUT_LINE_SCORE = 0.8       # 잘린 줄로 볼 인식 점수 상한
@@ -342,6 +345,29 @@ def _grown_boxes(boxes, factor):
     return [tuple(value * factor for value in box) for box in boxes]
 
 
+def _lost_share(first, again, shape):
+    """첫 결과 상자 폭 중 다시 찾은 상자가 절반도 덮지 못한 비율. 상자는 모두 같은 좌표(shape 크기의 이미지)다.
+
+    2배로 찾은 상자는 표 칸을 나눠 1배 상자를 다 덮지 않는 게 보통이라, 줄이 통째로 빠진 것만 크게 잡히게 폭으로 센다.
+    """
+    covered = np.zeros(shape[:2], dtype=bool)
+    for x0, y0, x1, y1 in again:
+        covered[max(0, y0):y1, max(0, x0):x1] = True
+    total = lost = 0
+    for x0, y0, x1, y1 in first:
+        width = max(1, x1 - x0)
+        total += width
+        region = covered[max(0, y0):y1, max(0, x0):x1]
+        if region.size and region.mean() < 0.5:
+            lost += width
+    return lost / total if total else 0.0
+
+
+def _out_of_memory(error):
+    """큰 입력을 포기하고 앞 결과로 계속할 오류인가. onnxruntime의 할당 실패는 RuntimeError가 아닌 자체 예외다."""
+    return type(error).__name__ in OUT_OF_MEMORY
+
+
 def _scaled_grid(grid, factor, shift):
     """격자 좌표를 factor배 한 뒤 shift를 뺀다."""
     def x(value):
@@ -400,7 +426,7 @@ class OcrEngine:
         text_height = float(np.median([y1 - y0 for _, y0, _, y1 in boxes])) if boxes else 0.0
         side = max(work.shape[:2])
         if boxes and text_height < SMALL_TEXT_PX and 2 * side <= MAX_SIDE:
-            again = self._detect_again(work, 2, cancelled)
+            again = self._detect_again(work, 2, cancelled, boxes)
             if again is not None:
                 work, boxes = again
                 factor = 2
@@ -440,17 +466,35 @@ class OcrEngine:
                                    text, score, unsure_prefix, chars))
         return RecognizedBoxes(out, [_scaled_grid(grid, factor / scale, DET_MARGIN * factor / scale) for grid in grids])
 
-    def _detect_again(self, image, factor, cancelled):
-        """더 큰 입력으로 다시 찾는다. 메모리가 모자라면 None을 돌려 첫 결과로 계속한다."""
+    def _detect_again(self, image, factor, cancelled, first=()):
+        """더 큰 입력으로 다시 찾는다. 메모리가 모자라면 None을 돌려 첫 결과로 계속한다.
+
+        정확히 2배로 키운 입력에서 위치 모델이 글자를 통째로 놓칠 때가 있다(엑셀 표의 제목 열. 1.98배·2.02배에서는 찾는다).
+        2배 결과가 첫 결과 first(image 좌표)의 상자 폭을 많이 잃었으면 입력을 조금 줄여 한 번 더 찾고, first를 거의 다 덮을
+        때만 그 결과를 쓴다. 잃은 것이 적으면 다시 찾지 않는다.
+        """
         try:
             work = double_size(image) if factor == 2 else image
-            return work, self._detect(work, cancelled, DET_LIMIT_SMALL)
+            boxes = self._detect(work, cancelled, DET_LIMIT_SMALL)
         except RecognitionCancelled:
             raise
-        except Exception as error:  # onnxruntime의 할당 실패는 RuntimeError가 아닌 자체 예외다
-            if type(error).__name__ not in OUT_OF_MEMORY:
+        except Exception as error:
+            if not _out_of_memory(error):
                 raise
             return None
+        limit = int(max(work.shape[:2]) * RETRY_SCALE)   # 이미 상한까지 줄여 찾은 큰 입력은 다시 찾아도 같은 입력이다
+        if factor == 2 and first and limit < DET_LIMIT_SMALL and _lost_share(first, _shrunk_boxes(boxes, 2), image.shape) >= RETRY_LOST:
+            try:
+                retry = self._detect(work, cancelled, limit)
+            except RecognitionCancelled:
+                raise
+            except Exception as error:   # 다시 찾기만 포기하고 2배 결과로 계속한다
+                if not _out_of_memory(error):
+                    raise
+                retry = None
+            if retry is not None and _lost_share(first, _shrunk_boxes(retry, 2), image.shape) < RETRY_RECOVERED:
+                boxes = retry
+        return work, boxes
 
     def _detect(self, image, cancelled=lambda: False, limit=None):
         if cancelled():

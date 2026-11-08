@@ -389,6 +389,65 @@ def test_stroke_of_one_line_is_still_a_stroke():
     assert not _is_stroke((50, 50, 12, 60), [(10, 10, 120, 26), (10, 28, 120, 44), (10, 46, 120, 62)], True)
 
 
+def tight_sheet(edge):
+    """엑셀 100%처럼 글자(12px)가 행 높이(16px)를 거의 채운 3행 3열 표. 가운데 칸 글자의 첫 획이나 끝 획이 상자 끝에 걸린다.
+
+    edge가 'right'면 상자가 끝 글자 'ㅣ' 바로 앞에서 끝나고(반열림 끝 = 획 열), 'left'면 상자가 첫 획 열에서 시작한다.
+    그 획은 위아래 눈금선에 3px 안으로 다가가 표 선처럼 양 끝이 닿는다. 들여 쓴 글자라 첫 획도 칸 테두리에서 7px보다 멀다
+    (가까우면 테두리와 한 선으로 묶여 열이 되지 않는다).
+    """
+    xs, ys = [20, 90, 230, 300], [20, 36, 52, 68]
+    image = grid_image(xs, ys, color=(160, 160, 160))
+    boxes = []
+    for top in ys[:-1]:
+        for left, right in zip(xs, xs[1:]):
+            glyphs = list(range(left + 14, right - 14, 9))
+            for x in glyphs:     # 글자 몸통: 한글처럼 글자 높이를 다 채운다(위아래 가로획과 가운데 세로획)
+                image[top + 3, x:x + 5] = 40
+                image[top + 14, x:x + 5] = 40
+                image[top + 3:top + 15, x + 2] = 40
+            stroke = glyphs[-1] + 7 if edge == "right" else glyphs[0] - 3
+            image[top + 3:top + 15, stroke] = 40       # 'ㅣ': 글자 높이를 다 달리는 세로획
+            if edge == "right":
+                boxes.append((left + 4, top + 2, stroke, top + 15))
+            else:
+                boxes.append((stroke, top + 2, glyphs[-1] + 7, top + 15))
+    return image, boxes
+
+
+def test_glyph_stroke_just_past_the_end_of_its_box_is_not_a_column():
+    """위치 찾기 상자가 끝 글자의 마지막 획 바로 앞에서 끝났다('미리'의 'ㅣ'). 그 획이 열 경계가 되어 12행 6열이 됐다."""
+    image, boxes = tight_sheet("right")
+    assert [(g.rows, g.columns) for g in find_grids(image, boxes)] == [(3, 3)]
+
+
+def test_glyph_stroke_on_the_first_column_of_its_box_is_not_a_column():
+    """상자가 첫 글자의 획 열에서 시작했다('○ 우수부서'의 '○')."""
+    image, boxes = tight_sheet("left")
+    assert [(g.rows, g.columns) for g in find_grids(image, boxes)] == [(3, 3)]
+
+
+def test_rule_on_the_first_column_of_a_text_box_stays_a_column():
+    """머리글 행에만 있는 세로선에 글자 상자 왼쪽 끝이 걸렸다(e1 72쪽 150%). 선은 칸 높이를 다 달려 글자보다 위아래로 길다."""
+    image = canvas(360, 120)
+    for y in (20, 54, 88):
+        hline(image, y, 20, 320)
+    for x in (20, 220, 320):
+        vline(image, x, 20, 88)
+    vline(image, 120, 20, 54)      # 머리글 행만 나뉜다
+    for left in (28, 128, 228):
+        for x in range(left, left + 60, 8):
+            image[27:47, x] = 40
+            image[37, x:x + 5] = 40
+    boxes = [(26, 25, 92, 50), (120, 18, 192, 56), (226, 25, 292, 50), (26, 59, 192, 84), (226, 59, 292, 84)]
+    for x in range(28, 180, 8):
+        image[61:81, x] = 40
+    grids = find_grids(image, boxes)
+    assert [(g.rows, g.columns) for g in grids] == [(2, 3)]
+    spans = {(c.row, c.column): c.column_span for c in grids[0].cells}
+    assert spans[0, 0] == 1 and spans[1, 0] == 2
+
+
 def test_columns_rise_above_the_top_line():
     """엑셀 열 머리글 띠는 위에 가로선이 없어 세로선 위끝이 뜬다. 가로선을 여럿 가로지르면 표 선이다."""
     image = canvas(300, 200)
