@@ -56,6 +56,7 @@ MAX_REC_WIDTH = 4096       # 종횡비 이상 상자는 압축하지 않고 영�
 MAX_REC_BOXES = 512
 MAX_REC_BATCH_WIDTH = 8192 # 한 배치의 패딩 폭 합계 상한
 MAX_SIDE = 4000            # 입력 이미지 긴 변 상한 (넘으면 줄인다)
+RESIZE_ROWS = 32           # 크기를 바꿀 때 한 번에 계산하는 줄 수. 이미지 전체 크기의 실수 임시 배열을 만들지 않는다
 UPSCALE = 1.0              # 작은 글씨 확대 배율 (Task 4 측정으로 확정)
 CHARSET_SIZE = 11945
 OUT_OF_MEMORY = ("MemoryError", "RuntimeException")  # 큰 입력을 포기하고 첫 결과로 계속할 오류
@@ -122,24 +123,33 @@ def rgb_from_buffer(width, height, bytes_per_line, data):
 
 
 def resize_bilinear(image, width, height):
-    """numpy 이중선형 크기 변경. 크게 줄일 때는 정수 배 평균으로 먼저 줄인다."""
-    source = image.astype(np.float32)
-    src_h, src_w = source.shape[:2]
+    """numpy 이중선형 크기 변경. 크게 줄일 때는 정수 배 평균으로 먼저 줄인다.
+
+    줄 묶음마다 계산해 이미지 전체 크기의 실수 임시 배열을 만들지 않는다(2배로 키운 A4 한 쪽에서 366MB였다, 2026-11-08).
+    uint8은 실수로 바꿔도 값이 그대로라 묶음마다 바꾸고, 계산 순서는 전과 같아 결과가 비트 단위로 같다.
+    """
+    src_h, src_w = image.shape[:2]
     if (width, height) == (src_w, src_h):
-        return source
+        return image.astype(np.float32)
     factor = int(min(src_w / width, src_h / height))
+    source = image if image.dtype == np.uint8 else image.astype(np.float32)
     if factor >= 2:
         cut_h, cut_w = src_h // factor * factor, src_w // factor * factor
-        source = source[:cut_h, :cut_w].reshape(cut_h // factor, factor, cut_w // factor, factor, -1).mean(axis=(1, 3))
+        source = image[:cut_h, :cut_w].astype(np.float32).reshape(cut_h // factor, factor, cut_w // factor, factor, -1).mean(axis=(1, 3))
         src_h, src_w = source.shape[:2]
     ys = np.clip((np.arange(height, dtype=np.float32) + 0.5) * (src_h / height) - 0.5, 0, src_h - 1)
     xs = np.clip((np.arange(width, dtype=np.float32) + 0.5) * (src_w / width) - 0.5, 0, src_w - 1)
     y0, x0 = np.floor(ys).astype(np.int32), np.floor(xs).astype(np.int32)
     y1, x1 = np.minimum(y0 + 1, src_h - 1), np.minimum(x0 + 1, src_w - 1)
     wy, wx = (ys - y0)[:, None, None], (xs - x0)[None, :, None]
-    top = source[y0][:, x0] * (1 - wx) + source[y0][:, x1] * wx
-    bottom = source[y1][:, x0] * (1 - wx) + source[y1][:, x1] * wx
-    return top * (1 - wy) + bottom * wy
+    out = np.empty((height, width) + source.shape[2:], dtype=np.result_type(source.dtype, wx.dtype))
+    for start in range(0, height, RESIZE_ROWS):
+        rows = slice(start, start + RESIZE_ROWS)
+        upper, lower = source[y0[rows]], source[y1[rows]]
+        top = upper[:, x0] * (1 - wx) + upper[:, x1] * wx
+        bottom = lower[:, x0] * (1 - wx) + lower[:, x1] * wx
+        out[rows] = top * (1 - wy[rows]) + bottom * wy[rows]
+    return out
 
 
 def double_size(image):
@@ -377,6 +387,24 @@ def _scaled_grid(grid, factor, shift):
     return Grid(grid.rows, grid.columns, cells, x(grid.left), x(grid.top), x(grid.right), x(grid.bottom))
 
 
+class _ReleasingSession:
+    """모델 세션에 실행 옵션(실행이 끝나면 계산 메모리를 돌려준다)을 붙인다.
+
+    onnxruntime은 한 번 쓴 계산 메모리를 다음 실행을 위해 붙잡아 둔다. A4 한 쪽이면 인식이 끝난 뒤에도 약 700MB가
+    남았고, 돌려주게 하면 220MB로 줄었다(속도·판독 같음, 2026-11-08). 부르는 모양 run(names, feed)은 그대로다.
+    """
+
+    def __init__(self, session, run_options):
+        self._session = session
+        self._run_options = run_options
+
+    def run(self, output_names, input_feed, run_options=None):
+        return self._session.run(output_names, input_feed, run_options or self._run_options)
+
+    def get_outputs(self):
+        return self._session.get_outputs()
+
+
 class OcrEngine:
     """번들 모델 세션을 들고 RGB 배열의 글자 상자를 읽는다. 세션 생성은 무겁다."""
 
@@ -388,12 +416,22 @@ class OcrEngine:
 
         files = verify_models(directory)
         ort.disable_telemetry_events()
-        options = ort.SessionOptions()
-        options.intra_op_num_threads = threads or min(4, os.cpu_count() or 1)
-        options.inter_op_num_threads = 1
-        providers = ["CPUExecutionProvider"]
-        self._det = ort.InferenceSession(str(files["det"]), options, providers=providers)
-        self._rec = ort.InferenceSession(str(files["rec"]), options, providers=providers)
+
+        def session(path, arena):
+            options = ort.SessionOptions()
+            options.intra_op_num_threads = threads or min(4, os.cpu_count() or 1)
+            options.inter_op_num_threads = 1
+            if not arena:
+                options.enable_cpu_mem_arena = False
+            release = ort.RunOptions()
+            if options.enable_cpu_mem_arena:   # 아레나가 없는 세션에 이 옵션을 주면 실행이 거부된다(InvalidArgument)
+                release.add_run_config_entry("memory.enable_memory_arena_shrinkage", "cpu:0")
+            return _ReleasingSession(ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"]), release)
+
+        # 위치 찾기는 몇 번만 크게 돌아 메모리를 운영체제에서 바로 받고 돌려준다. 인식은 작은 실행이 많아 아레나를 두고(없으면
+        # 1.7배 느렸다) 실행이 끝날 때마다 돌려준다
+        self._det = session(files["det"], arena=False)
+        self._rec = session(files["rec"], arena=True)
         self._charset = load_charset(files["dict"])
         if self._rec.get_outputs()[0].shape[-1] != len(self._charset) + 1:
             raise ModelIntegrityError("인식 모델과 사전이 맞지 않습니다")
@@ -507,8 +545,13 @@ class OcrEngine:
         canvas = np.empty((-(-new_h // 32) * 32, -(-new_w // 32) * 32, 3), dtype=np.float32)  # 32 배수로 늘이지 않고 채운다(글자가 찌그러지지 않는다)
         canvas[:] = color
         canvas[:new_h, :new_w] = small
-        tensor = canvas[:, :, ::-1] / 255.0  # 모델은 BGR 순서로 학습됐다
-        tensor = ((tensor - DET_MEAN) / DET_STD).transpose(2, 0, 1)[None].astype(np.float32)
+        del small   # 모델이 도는 동안이 인식의 최대 메모리 구간이라 그때는 모델 입력만 쥔다
+        bgr = canvas[:, :, ::-1] / 255.0  # 모델은 BGR 순서로 학습됐다
+        del canvas
+        bgr -= DET_MEAN
+        bgr /= DET_STD
+        tensor = np.ascontiguousarray(bgr.transpose(2, 0, 1))[None]
+        del bgr
         if cancelled():
             raise RecognitionCancelled
         prob = self._det.run(None, {"x": tensor})[0][0, 0][:new_h, :new_w]

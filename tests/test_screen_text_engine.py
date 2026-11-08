@@ -164,6 +164,147 @@ def test_cancel_raises_before_reading(qapp, ocr):
         ocr.recognize(image, cancelled=lambda: True)
 
 
+def _arena_shrinkage(run_options):
+    """모델 실행 옵션에 담긴 '실행이 끝나면 계산 메모리를 돌려준다' 설정. 없으면 None."""
+    if run_options is None:
+        return None
+    try:
+        return run_options.get_run_config_entry("memory.enable_memory_arena_shrinkage")
+    except RuntimeError:   # onnxruntime은 없는 설정을 예외로 알린다
+        return None
+
+
+def test_every_model_run_gives_back_its_working_memory(qapp, monkeypatch):
+    """onnxruntime은 한 번 쓴 계산 메모리를 다음 실행을 위해 붙잡아 둔다. A4 한 쪽이면 인식이 끝난 뒤에도
+    약 700MB가 남았다(2026-11-08). 아레나를 둔 세션은 실행이 끝날 때마다 CPU 메모리를 돌려 달라고 해야 한다."""
+    import onnxruntime as ort
+
+    runs = []
+
+    class RecordingSession(ort.InferenceSession):
+        def __init__(self, path, options, **kwargs):
+            self.model, self.arena = Path(path).stem, options.enable_cpu_mem_arena
+            super().__init__(path, options, **kwargs)
+
+        def run(self, output_names, input_feed, run_options=None):
+            runs.append((self.model, self.arena, _arena_shrinkage(run_options)))
+            return super().run(output_names, input_feed, run_options)
+
+    monkeypatch.setattr(ort, "InferenceSession", RecordingSession)
+    found = [item.text for item in OcrEngine().recognize(render(["환경 점검 결과 알림"], 16))]
+    assert "환경 점검 결과 알림" in found
+    assert {model for model, _, _ in runs} == {"det", "rec"}
+    assert all(shrink == "cpu:0" for _, arena, shrink in runs if arena)
+    assert any(arena for _, arena, _ in runs)
+
+
+def test_text_finder_takes_memory_straight_from_the_system(qapp, monkeypatch):
+    """위치 찾기는 한 번에 몇 번만 크게 돌아(2배 A4 약 420MB) 아레나에 붙잡아 둘 까닭이 없다. 아레나를 끄면 최대 커밋이
+    약 160MB 줄고 시간은 같았다(2026-11-08). 인식 모델은 작은 실행이 많아 아레나가 있어야 빠르다(모두 끄면 1.7배 느렸다)."""
+    import onnxruntime as ort
+
+    arenas = {}
+
+    class RecordingSession(ort.InferenceSession):
+        def __init__(self, path, options, **kwargs):
+            arenas[Path(path).stem] = options.enable_cpu_mem_arena
+            super().__init__(path, options, **kwargs)
+
+    monkeypatch.setattr(ort, "InferenceSession", RecordingSession)
+    found = [item.text for item in OcrEngine().recognize(render(["환경 점검 결과 알림"], 16))]
+    assert "환경 점검 결과 알림" in found
+    assert arenas == {"det": False, "rec": True}
+
+
+def test_engine_reads_when_sessions_have_no_memory_arena(qapp, monkeypatch):
+    """아레나를 끈 세션에 '실행이 끝나면 돌려 달라'는 옵션을 주면 onnxruntime이 실행을 거부한다(InvalidArgument).
+    메모리를 아끼려고 아레나를 꺼도(RapidOCR의 기본값) 글자 따기가 멈추면 안 된다."""
+    import onnxruntime as ort
+
+    original = ort.SessionOptions
+
+    def without_arena():
+        options = original()
+        options.enable_cpu_mem_arena = False
+        return options
+
+    monkeypatch.setattr(ort, "SessionOptions", without_arena)
+    found = [item.text for item in OcrEngine().recognize(render(["환경 점검 결과 알림"], 16))]
+    assert "환경 점검 결과 알림" in found
+
+
+def _resize_as_before(image, width, height):
+    """2026-11-08 이전의 resize_bilinear(한 번에 통째로 계산). 메모리를 줄여도 값은 비트 단위로 같아야 한다."""
+    source = image.astype(np.float32)
+    src_h, src_w = source.shape[:2]
+    if (width, height) == (src_w, src_h):
+        return source
+    factor = int(min(src_w / width, src_h / height))
+    if factor >= 2:
+        cut_h, cut_w = src_h // factor * factor, src_w // factor * factor
+        source = source[:cut_h, :cut_w].reshape(cut_h // factor, factor, cut_w // factor, factor, -1).mean(axis=(1, 3))
+        src_h, src_w = source.shape[:2]
+    ys = np.clip((np.arange(height, dtype=np.float32) + 0.5) * (src_h / height) - 0.5, 0, src_h - 1)
+    xs = np.clip((np.arange(width, dtype=np.float32) + 0.5) * (src_w / width) - 0.5, 0, src_w - 1)
+    y0, x0 = np.floor(ys).astype(np.int32), np.floor(xs).astype(np.int32)
+    y1, x1 = np.minimum(y0 + 1, src_h - 1), np.minimum(x0 + 1, src_w - 1)
+    wy, wx = (ys - y0)[:, None, None], (xs - x0)[None, :, None]
+    top = source[y0][:, x0] * (1 - wx) + source[y0][:, x1] * wx
+    bottom = source[y1][:, x0] * (1 - wx) + source[y1][:, x1] * wx
+    return top * (1 - wy) + bottom * wy
+
+
+@pytest.mark.parametrize("shape, size", [
+    ((50, 70, 3), (35, 25)),       # 1배와 2배 사이로 줄이기
+    ((50, 70, 3), (140, 100)),     # 키우기
+    ((300, 500, 3), (130, 70)),    # 정수 배 평균으로 먼저 줄이는 경로
+    ((257, 333, 3), (300, 290)),   # 여러 줄 묶음에 걸치는 키우기
+    ((40, 60, 3), (60, 40)),       # 크기가 같으면 그대로
+])
+def test_resize_bilinear_values_do_not_change(shape, size):
+    image = np.random.default_rng(7).integers(0, 256, shape, dtype=np.uint8)
+    got, want = resize_bilinear(image, *size), _resize_as_before(image, *size)
+    assert got.dtype == want.dtype
+    assert np.array_equal(got, want)
+
+
+def test_resize_bilinear_does_not_build_full_size_temporaries():
+    """2배로 키운 A4 한 쪽(약 1700×2400)을 위치 찾기 크기로 줄일 때 numpy 임시 배열이 366MB까지 갔다(2026-11-08)."""
+    import tracemalloc
+
+    image = np.zeros((2400, 1700, 3), dtype=np.uint8)
+    tracemalloc.start()
+    try:
+        out = resize_bilinear(image, 1360, 1920)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 1.25 * out.nbytes
+
+
+def test_detect_holds_only_the_model_input_while_the_model_runs():
+    """위치 찾기 모델이 도는 구간이 인식의 최대 메모리다. 그동안 줄인 이미지와 캔버스를 쥐고 있었다(2배 A4에서 123MB)."""
+    import tracemalloc
+
+    engine = OcrEngine()
+    seen = {}
+
+    class ZeroDetector:
+        def run(self, _, feed):
+            seen["held"], seen["input"] = tracemalloc.get_traced_memory()[0], feed["x"].nbytes
+            batch, _, height, width = feed["x"].shape
+            return [np.zeros((batch, 1, height, width), dtype=np.float32)]
+
+    engine._det = ZeroDetector()
+    image = np.full((1700, 1240, 3), 255, dtype=np.uint8)
+    tracemalloc.start()
+    try:
+        assert engine._detect(image, limit=1920) == []
+    finally:
+        tracemalloc.stop()
+    assert seen["held"] < 1.1 * seen["input"]
+
+
 def test_engine_refuses_tampered_models(tmp_path):
     copy = tmp_path / "models"
     shutil.copytree(MODEL_DIR, copy)
