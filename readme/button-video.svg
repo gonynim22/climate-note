@@ -1,16 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="208" height="48" viewBox="0 0 208 48" role="img" aria-label="제품 소개 영상">
+<svg xmlns="http://www.w3.org/2000/svg" width="156" height="48" viewBox="0 0 156 48" role="img" aria-label="소개 영상">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="208" y2="48" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#F2F7FF"/>
-      <stop offset="1" stop-color="#C8DBFA"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="156" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFF5EC"/>
+      <stop offset="1" stop-color="#FFD8B8"/>
     </linearGradient>
   </defs>
-  <rect x="0.5" y="0.5" width="207" height="47" rx="9.5" fill="url(#bg)" stroke="#9FBBEA"/>
-  <rect x="15.5" y="11" width="32" height="21" rx="3.5" fill="#0B2A5E"/>
-  <path d="M16.5 14.5a2.5 2.5 0 0 1 2.5-2.5h9l-8 19h-1a2.5 2.5 0 0 1-2.5-2.5z" fill="#FFFFFF" fill-opacity="0.08"/>
+  <rect x="0.5" y="0.5" width="155" height="47" rx="9.5" fill="url(#bg)" stroke="#F2B184"/>
+  <rect x="15.5" y="11" width="32" height="21" rx="3.5" fill="#9A3412"/>
+  <path d="M16.5 14.5a2.5 2.5 0 0 1 2.5-2.5h9l-8 19h-1a2.5 2.5 0 0 1-2.5-2.5z" fill="#FFFFFF" fill-opacity="0.1"/>
   <path d="M28.6 16.6v8.8l7.4-4.4z" fill="#FFFFFF"/>
-  <rect x="15.5" y="35.5" width="32" height="3" rx="1.5" fill="#B4C9EE"/>
-  <rect x="15.5" y="35.5" width="14" height="3" rx="1.5" fill="#2563EB"/>
-  <circle cx="29.5" cy="37" r="3.2" fill="#2563EB" stroke="#FFFFFF" stroke-width="1.4"/>
-  <text x="130" y="30" font-family="'Segoe UI','Malgun Gothic','Apple SD Gothic Neo',sans-serif" font-size="16" font-weight="700" fill="#0B1B36" text-anchor="middle">제품 소개 영상</text>
+  <rect x="15.5" y="35.5" width="32" height="3" rx="1.5" fill="#F7C9A5"/>
+  <rect x="15.5" y="35.5" width="14" height="3" rx="1.5" fill="#E8590C"/>
+  <circle cx="29.5" cy="37" r="3.2" fill="#E8590C" stroke="#FFFFFF" stroke-width="1.4"/>
+  <text x="104" y="30" font-family="'Segoe UI','Malgun Gothic','Apple SD Gothic Neo',sans-serif" font-size="16" font-weight="700" fill="#4A1B06" text-anchor="middle">소개 영상</text>
 </svg>
