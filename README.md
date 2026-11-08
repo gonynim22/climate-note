@@ -1,89 +1,89 @@
 <img src="readme/app.png" alt="기후노트 — 늘 보이는 곳에, 오늘 할 일. 일정·메모·D-Day·집중 모드를 함께 펼치는 크게 모드 화면과 바로가기 사이드바가 있는 기본 크기 화면">
 
 <div align="center">
+  <br>
   <img src="readme/badge-version.svg" alt="버전 v4.8">
   <img src="readme/badge-windows.svg" alt="Windows 10 · 11">
   <img src="readme/badge-offline.svg" alt="네트워크 오프라인 전용">
   <img src="readme/badge-license.svg" alt="라이선스 GPL-3.0">
-</div>
-<br>
-<div align="center">
+  <br><br>
+  <b>Windows 바탕화면에 늘 떠 있는 캘린더 · 메모 · 위젯 앱</b><br>
+  일정과 메모는 이 PC 안에만 암호화해 저장하고, 외부 서버로 보내지 않습니다.
+  <br><br>
   <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases"><img src="readme/button-download.svg" alt="최신 버전 받기"></a>
   <a href="https://gonynim22.github.io/climate-note/climate-note-intro/climate-note-intro.html" target="_blank" rel="noopener noreferrer"><img src="readme/button-slides.svg" alt="제품 소개 슬라이드"></a>
   <a href="README_detail.md"><img src="readme/button-detail.svg" alt="상세 안내"></a>
   <br>
-  <sub>소개 슬라이드가 열리지 않는 PC(인터넷 차단)는 <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/raw/main/climate-note-intro/climate-note-intro.html?inline=false">HTML 파일을 내려받아</a> 더블클릭하세요.</sub>
-</div>
-<br>
-<div align="center">
-  Windows 바탕화면에서 쓰는 <b>오프라인 전용</b> 캘린더·메모·위젯 앱입니다.<br>
-  일정과 메모를 이 PC에만 암호화해 저장하며, 외부 서버로 보내지 않습니다.<br>
-  설정에서 인터넷 접속을 켠 PC만 새 버전이 있는지 확인합니다(기본 꺼짐).
+  <sub>인터넷이 막힌 PC는 <a href="https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/raw/main/climate-note-intro/climate-note-intro.html?inline=false">소개 슬라이드 파일</a>을 받아 더블클릭하세요.</sub>
 </div>
 
-## <sub><img src="readme/icon-features.svg" width="26" height="26" alt=""></sub> 주요 기능
-
-<table>
-  <tr><td><b>캘린더</b></td><td>기본·중간·크게 3단계 크기, 일정·메모, 공휴일 테마(v4.6), 전역 검색, AI 법령정보 검색</td></tr>
-  <tr><td><b>일정</b></td><td>시작 시각·알림·반복(매일·평일·매주·매월·매년)·여러 날 기간, 반복 일정의 이 날만 수정(v4.5)</td></tr>
-  <tr><td><b>위젯</b></td><td>스티키 노트, D-Day, 집중 모드(포모도로)</td></tr>
-  <tr><td><b>바탕화면</b></td><td><kbd>Win</kbd> + <kbd>D</kbd>에도 남는 바탕화면 고정, 바로가기 사이드바, 트레이 상주</td></tr>
-  <tr><td><b>보안</b></td><td>PIN 잠금, 이 PC에만 암호화 저장</td></tr>
-  <tr><td><b>내장 자료</b></td><td>공휴일·음력 데이터(인터넷 연결 불필요)</td></tr>
-  <tr><td><b>새 버전 알림</b></td><td>설정에서 인터넷 접속을 켠 PC만 GitLab의 새 버전을 확인해 알림(v4.7, 기본 꺼짐)</td></tr>
-</table>
+## <sub><img src="icon/climate_note_style16_continents_final.svg" width="26" height="26" alt=""></sub> 앱의 목적
 
 <table>
   <tr>
-    <td><sub><sub><img src="readme/icon-miniapps.svg" width="22" height="22" alt=""></sub></sub> <b>미니앱</b></td>
-    <td><sub><sub><img src="resources/icons/mini_apps/unit_converter.svg" width="22" height="22" alt=""></sub></sub> 단위 환산</td>
-    <td><sub><sub><img src="resources/icons/mini_apps/date_time.svg" width="22" height="22" alt=""></sub></sub> 날짜/시간 계산</td>
-    <td><sub><sub><img src="resources/icons/mini_apps/money_notation.svg" width="22" height="22" alt=""></sub></sub> 금액 표기</td>
-    <td><sub><sub><img src="resources/icons/mini_apps/document_converter.svg" width="22" height="22" alt=""></sub></sub> 파일 변환</td>
-    <td><sub><sub><img src="screen_text/icon.svg" width="22" height="22" alt=""></sub></sub> 화면 글자 따기</td>
+    <td width="88"><img src="readme/chip-climate.svg" width="56" height="28" alt="기후"></td>
+    <td><b>포스트잇 대신, 바탕화면에</b><br>모니터 테두리와 책상 위를 덮은 포스트잇에서 시작했습니다. 붙이고, 적고, 또 잊어버리는 종이 메모를 바탕화면으로 옮기면 종이는 줄고 할 일은 늘 눈앞에 남습니다. <mark>종이 한 장이라도 아끼자는 마음</mark>을 담아 이름을 <b>'기후노트'</b>로 지었습니다.</td>
+  </tr>
+  <tr>
+    <td width="88"><img src="readme/chip-time.svg" width="56" height="28" alt="시간"></td>
+    <td><b>공공기관의 시간은 국민의 시간</b><br>공공기관 직원의 시간은 <mark>국민 모두의 시간</mark>이기도 합니다. 일정과 자주 쓰는 업무 도구를 한곳에 모아, 찾고 옮겨 적느라 흘려보내는 시간을 줄이고 싶었습니다.</td>
   </tr>
 </table>
 
-## <sub><img src="readme/icon-download.svg" width="26" height="26" alt=""></sub> 받기
+## <sub><img src="readme/icon-features.svg" width="26" height="26" alt=""></sub> 주요 기능
 
-1. **[Releases](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)** 에서 EXE 파일 하나를 받습니다. 설치 없이 실행합니다.
-2. 처음 실행할 때 Windows SmartScreen 경고가 뜨면 <kbd>추가 정보</kbd> → <kbd>실행</kbd>을 누르세요. 코드 서명이 없어서 나타나는 경고입니다.
+- **캘린더** — 기본 · 중간 · 크게 세 가지 크기, 공휴일 · 음력 내장, 공휴일 테마
+- **일정** — 시작 시각 · 알림 · 반복 · 여러 날 기간, 반복 일정의 이 날만 수정
+- **위젯** — 스티키 노트, D-Day, 집중 모드(포모도로)
+- **바탕화면** — <kbd>Win</kbd> + <kbd>D</kbd>에도 남는 고정, 바로가기 사이드바, 트레이 상주
+- **검색** — 일정 · 메모 전체 검색, AI 법령정보 검색
+- **보안** — 이 PC에만 암호화 저장, PIN 잠금, 인터넷 접속 기본 꺼짐
+- **미니앱** — <sub><sub><img src="resources/icons/mini_apps/unit_converter.svg" width="22" height="22" alt=""></sub></sub> 단위 환산 &nbsp; <sub><sub><img src="resources/icons/mini_apps/date_time.svg" width="22" height="22" alt=""></sub></sub> 날짜/시간 계산 &nbsp; <sub><sub><img src="resources/icons/mini_apps/money_notation.svg" width="22" height="22" alt=""></sub></sub> 금액 표기 &nbsp; <sub><sub><img src="resources/icons/mini_apps/document_converter.svg" width="22" height="22" alt=""></sub></sub> 파일 변환 &nbsp; <sub><sub><img src="screen_text/icon.svg" width="22" height="22" alt=""></sub></sub> 화면 글자 따기
+
+## <sub><img src="readme/icon-download.svg" width="26" height="26" alt=""></sub> 시작하기
+
+1. [**Releases**](https://gitlab.aigov.go.kr/whrhkdrh/climate-note/-/releases)에서 EXE 파일 하나를 받아 실행합니다. 설치는 필요 없습니다.
+2. SmartScreen 경고가 뜨면 <kbd>추가 정보</kbd> → <kbd>실행</kbd>을 누르세요. 코드 서명이 없어서 나오는 경고입니다.
 3. 받은 파일은 릴리스 설명의 SHA-256과 비교할 수 있습니다: `Get-FileHash <파일명> -Algorithm SHA256`
 
 ## <sub><img src="readme/icon-update.svg" width="26" height="26" alt=""></sub> 업데이트
 
-실행 중인 기후노트를 트레이에서 **완전히 종료**한 뒤 새 EXE로 바꿔 실행합니다. 데이터는 `%LOCALAPPDATA%\MyDesktopCalendar\`에 그대로 남습니다. 초기화나 가져오기는 필요 없습니다.
+트레이에서 기후노트를 **완전히 종료**한 뒤 새 EXE를 실행하면 됩니다. 데이터는 `%LOCALAPPDATA%\MyDesktopCalendar\`에 그대로 남아 초기화나 가져오기가 필요 없습니다.
 
 <details>
-<summary><b>다른 PC로 옮기기</b></summary>
+<summary>다른 PC로 옮기기</summary>
 
-데이터는 이 PC와 Windows 계정에 묶여 있습니다. 다른 PC로 옮길 때는 설정의 **내보내기/가져오기**를 쓰세요.
+데이터는 이 PC와 Windows 계정에 묶여 있습니다. 설정의 **내보내기 / 가져오기**로 옮기세요.
 
 </details>
 
 <details>
-<summary><b>버전별 주의사항 (v4.3 · v4.5 · v4.6 · v4.7 · v4.8)</b></summary>
+<summary>버전별 주의사항</summary>
 
-- v4.3부터 새 내보내기는 12자 이상 암호를 사용하고 기존 4자리 PIN 파일도 읽습니다. 잠금 PIN의 검증값 저장으로 바뀐 뒤에는 v4.3 이상을 사용하세요. 소스·EXE 구분과 호환 안내는 [상세 안내](README_detail.md)를 참고하세요.
-- v4.5로 처음 실행하면 DB가 v19로 바뀝니다. v4.4b 이하 EXE는 새 데이터를 변경하지 않고 실행을 중단하므로 v4.5로 여세요. 새 내보내기는 v4 형식이며 기존 v1~v3 파일도 가져올 수 있습니다. 되돌리기 보호본과 주의사항은 [상세 안내](README_detail.md)에 있습니다.
-- v4.6은 데이터 형식이 v4.5와 같아 EXE만 바꾸면 됩니다. 공휴일 테마는 설정 → 화면 표시 → `공휴일 테마`에서 끌 수 있습니다.
-- v4.7은 데이터 형식이 v4.6과 같아 EXE만 바꾸면 됩니다. 새 버전 알림은 설정 → 시스템 → `인터넷 접속`을 켠 PC만 쓰며 기본은 꺼짐입니다. 업무망 PC는 꺼 두세요.
-- v4.8은 데이터 형식이 v4.7과 같아 EXE만 바꾸면 됩니다. 화면 글자 따기가 숫자의 소수점·쉼표, 단위, 로마 숫자, 엑셀 표를 더 정확히 읽습니다.
+| 버전 | 알아둘 점 |
+|:--|:--|
+| **v4.8** | EXE만 바꾸면 됩니다(데이터 형식은 v4.7과 같음). 화면 글자 따기가 숫자의 소수점·쉼표, 단위, 로마 숫자, 엑셀 표를 더 정확히 읽습니다. |
+| **v4.7** | EXE만 바꾸면 됩니다. 새 버전 알림은 설정 → 시스템 → `인터넷 접속`을 켠 PC만 쓰며 기본은 꺼짐입니다. 업무망 PC는 꺼 두세요. |
+| **v4.6** | EXE만 바꾸면 됩니다. 공휴일 테마는 설정 → 화면 표시 → `공휴일 테마`에서 끌 수 있습니다. |
+| **v4.5** | 처음 실행하면 DB가 v19로 바뀝니다. v4.4b 이하 EXE는 새 데이터를 바꾸지 않고 실행을 멈추므로 v4.5 이상으로 여세요. 새 내보내기는 v4 형식이며 v1~v3 파일도 가져올 수 있습니다. |
+| **v4.3** | 새 내보내기는 12자 이상 암호를 쓰고, 기존 4자리 PIN 파일도 읽습니다. 잠금 PIN이 검증값 저장으로 바뀐 뒤에는 v4.3 이상을 쓰세요. |
+
+되돌리기 보호본과 소스 · EXE 구분은 [상세 안내](README_detail.md)에 있습니다.
 
 </details>
 
 ## <sub><img src="readme/icon-shield.svg" width="26" height="26" alt=""></sub> 요구 환경 · 라이선스
 
-Windows 10 이상(Windows 11 권장). Windows 전용입니다.
+- Windows 10 이상(Windows 11 권장), Windows 전용
+- GNU GPL v3.0 — [LICENSE](LICENSE) · 제3자 구성요소 고지 [licenses/](licenses/) · [기본 목록](licenses/components.json) · [소스 제공 안내](licenses/APP-NOTICE.txt)
+- 설정 → 라이선스에서 구성요소별 원문과 출처를 오프라인으로 열람 · 복사할 수 있습니다.
 
-GNU GPL v3.0 — [LICENSE](LICENSE). 제3자 구성요소 고지는 [licenses/](licenses/)에 있습니다.
-
-설정 → 라이선스에서 구성요소별 원문과 출처를 오프라인으로 열람·복사할 수 있습니다. [기본 목록](licenses/components.json), [소스 제공 안내](licenses/APP-NOTICE.txt)를 참조하세요.
-
-본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. 한글·HWPX 변환기는 별도 설치 제품으로 해당 사용권이 적용됩니다.
+<sub>본 제품은 한컴의 HWP 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다. 한글·HWPX 변환기는 별도 설치 제품으로 해당 사용권이 적용됩니다.</sub>
 
 ---
 
-기능 상세, 버전별 변경·검증, 소스 실행·테스트·빌드는 **[README_detail.md](README_detail.md)**, 개발 규칙은 [AGENTS.md](AGENTS.md)에 있습니다.
-
-만든이: 기후에너지환경부 보문산불주먹
+<div align="center">
+  <sub>기능 상세 · 버전별 변경 · 소스 실행 · 테스트 · 빌드는 <a href="README_detail.md"><b>README_detail.md</b></a>, 개발 규칙은 <a href="AGENTS.md">AGENTS.md</a>에 있습니다.</sub>
+  <br>
+  <sub>만든이: 기후에너지환경부 보문산불주먹</sub>
+</div>
