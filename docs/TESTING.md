@@ -31,7 +31,7 @@
 
 ## 개발 하네스 — 다음 버전부터의 기본 경로
 
-Windows / Python 3.13과 `requirements-lock.txt`의 직접 의존성 10개를 사용한다. HWP 변환 후속에서 기존 lock의 `pywin32==311`을 직접 의존성으로 명시했고, push 보안 검사 1단계에서 XML 읽기용 `defusedxml==0.7.1`을 추가했다. 갱신 범위와 검증은 [1단계 작업 기록](work/2026-10-05-push-security-scan-step1.md)을 따른다.
+Windows / Python 3.13과 `requirements-lock.txt`의 직접 의존성 10개를 사용한다. HWP 변환 후속에서 기존 lock의 `pywin32==311`을 직접 의존성으로 명시했고, push 보안 검사 1단계에서 XML 읽기용 `defusedxml==0.7.1`을 추가했다. 갱신 범위와 검증은 [1단계 작업 기록](work/2026-10-05-push-security-scan-step1.md)을 따른다. pywin32 줄의 `; sys_platform == "win32"`는 push 보안 검사(OSV) 대응 표시이며 하네스는 `;` 뒤를 버전으로 읽지 않는다([기록](work/2026-11-09-push-osv-pywin32-marker.md)).
 하네스는 패키지를 설치하거나 lock을 갱신하지 않는다. 버전이 다르면 환경 오류로 중단하므로
 개발자가 해당 가상환경에서 `pip install -r requirements-lock.txt`로 맞춘다.
 

@@ -120,6 +120,19 @@ def test_doctor_detects_dependency_problem_without_importing_it(monkeypatch, ins
     assert any("cryptography" in error for error in report["errors"])
 
 
+def test_doctor_reads_lock_line_with_environment_marker(tmp_path, monkeypatch):
+    # lock의 pywin32 줄에는 'Windows에서만 설치' 표시가 붙는다(2026-11-09 push 보안 검사 대응).
+    # 표시 뒤를 버전으로 읽으면 설치 버전과 늘 달라 빌드 사전검사가 멈춘다.
+    verify.atomic_text(tmp_path / "requirements-lock.txt",
+                       'pywin32==311; sys_platform == "win32"\ncryptography==50.0.0\n')
+    installed = {"pywin32": "311", "cryptography": "50.0.0"}
+    monkeypatch.setattr(verify.metadata, "version", lambda name: installed.get(name, "0"))
+    report = verify.doctor(root=tmp_path)
+    assert report["dependencies"]["pywin32"] == {"expected": "311", "actual": "311"}
+    assert report["dependencies"]["cryptography"] == {"expected": "50.0.0", "actual": "50.0.0"}
+    assert not any(error.startswith(("pywin32", "cryptography")) for error in report["errors"])
+
+
 def test_tool_import_has_no_app_side_effects():
     command = [sys.executable, "-c", (
         "import sys; from tools import verify, smoke_release; "

@@ -134,11 +134,12 @@ def doctor(root=ROOT):
               "platform": platform.platform(), "dependencies": {}, "errors": []}
     if sys.platform != "win32" or sys.version_info[:2] != (3, 13):
         result["errors"].append("검증 환경은 Windows / Python 3.13입니다.")
+    # 환경 표시(pywin32 줄의 '; sys_platform == "win32"')는 버전이 아니므로 버린다.
     with open(Path(root) / "requirements-lock.txt", encoding="utf-8") as stream:
         pinned = {
-            name.split("[", 1)[0].lower(): version
+            name.split("[", 1)[0].lower(): version.strip()
             for line in stream if "==" in line and not line.lstrip().startswith("#")
-            for name, version in [line.strip().split("==", 1)]
+            for name, version in [line.split(";", 1)[0].strip().split("==", 1)]
         }
     for name in DIRECT_DEPENDENCIES:
         try:

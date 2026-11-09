@@ -122,11 +122,29 @@ def test_requirements_lock_matches_verified_direct_dependencies():
     }
     pinned = {}
     for line in lock_lines:
-        name, version = line.split("==", 1)
+        name, version = line.split(";", 1)[0].strip().split("==", 1)
         pinned[name.split("[", 1)[0].lower()] = version
 
     for name in direct_names:
         assert pinned[name.lower()] == distribution(name).version
+
+
+def test_pywin32_lines_carry_windows_only_marker():
+    # GitLab push 보안 검사의 OSV-Scanner는 Linux에서 deps.dev로 하위 의존성을 푼다.
+    # 2026-11-09 deps.dev가 pywin32의 의존성 자료를 모든 버전에서 주지 않아(404) 검사가
+    # 종료 코드 127로 끝나고 push가 거절됐다. 이 표시가 있으면 pywin32==311은 그대로
+    # 취약점 대조에 들어가고 해석만 건너뛴다. pip freeze로 lock을 다시 만들면 표시가 빠진다.
+    from packaging.requirements import Requirement
+
+    for file_name in ("requirements.txt", "requirements-lock.txt"):
+        with open(ROOT / file_name, encoding="utf-8") as f:
+            lines = [line.strip() for line in f
+                     if line.strip() and not line.lstrip().startswith("#")]
+        pywin32 = [line for line in lines if Requirement(line).name.lower() == "pywin32"]
+        assert len(pywin32) == 1, file_name
+        requirement = Requirement(pywin32[0])
+        assert str(requirement.marker) == 'sys_platform == "win32"', file_name
+        assert requirement.marker.evaluate(), file_name
 
 
 def test_bundled_third_party_license_texts_and_notices_exist():

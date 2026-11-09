@@ -6,6 +6,6 @@ pytest
 pytest-qt
 pytest-timeout
 PyInstaller
-pywin32
+pywin32; sys_platform == "win32"
 defusedxml
 onnxruntime
