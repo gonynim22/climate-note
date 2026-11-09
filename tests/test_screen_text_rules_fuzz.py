@@ -5,6 +5,7 @@
 import numpy as np
 import pytest
 
+from screen_text.corner_brackets import restore_corner_brackets
 from screen_text.number_marks import restore_number_marks
 from screen_text.roman import restore_roman, stroke_count
 from screen_text.table_lines import find_grids, fit_boxes
@@ -63,6 +64,24 @@ def test_empty_crop_and_box_at_the_image_edge():
     assert restore_number_marks(pieces, image, (0, 5, 6, 6), 4)[0] == pieces
     assert restore_units(pieces, image[:0], 4, 6) == (pieces, ())
     assert restore_roman(pieces, image[:0], 4, 6) == pieces
+
+
+BRACKET_CHARS = list("[]',.\"‘’“”r5ㄷFP*°¶ㅣ가나2 ")
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_corner_brackets_never_raise(seed):
+    # 낫표 규칙은 건너뛴 괄호를 찾느라 모든 줄의 화면을 본다(2026-11-09)
+    rng = np.random.default_rng(1000 + seed)
+    for _ in range(25):
+        height, width = int(rng.integers(1, 40)), int(rng.integers(1, 160))
+        crop = random_image(rng, height, width)
+        steps = int(rng.integers(1, 60))
+        count = int(rng.integers(0, 14))
+        centers = np.sort(rng.uniform(0, steps, count))
+        pieces = [(BRACKET_CHARS[int(rng.integers(0, len(BRACKET_CHARS)))], float(c)) for c in centers]
+        out = restore_corner_brackets(pieces, crop, steps, width)
+        assert len(out) >= len(pieces)
 
 
 @pytest.mark.parametrize("seed", range(20))
