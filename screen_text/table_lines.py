@@ -45,6 +45,10 @@ MIN_PART_HEIGHT = 0.4      # 칸으로 나눈 조각의 높이 하한(상자 높
 GRID_MIN_LINES = 1.8       # 표 높이는 글자 상자 높이의 이 배수 이상이다(글자 획이 만든 격자를 거른다)
 EVEN_SHARE = 0.75          # 진짜 선은 길이의 이 비율 이상이 같은 밝기다. 글자 행은 획과 틈이 번갈아 나온다
 EVEN_RANGE = 24            # 같은 밝기로 보는 차이(0~255)
+MAX_BREAK = 1              # 글자 상자 안을 지나는 긴 선분이 표 선이려면 이보다 긴(행) 끊김이 없어야 한다
+CROSS_SHARE = 0.25         # 표 위 끝 아래로 글자 상자 높이의 이 비율 이상 내려온 상자는 그 끝이 가로지른 것이다
+TEXT_SHARE = 0.02          # 밝기 계단 선의 행에 행 밝기와 다른 픽셀이 이 비율 이상이면 글자가 든 행이다
+TEXT_RUNS = 3              # 그 픽셀이 이만큼의 토막 이상이어야 글자다(비스듬한 경계는 한 덩어리다)
 LINE_CONTRAST = 10         # 행의 다수 밝기가 둘레와 이만큼 달라야 선이다
 SPREAD_MIN_COLUMNS = 3     # 이만큼 넓은 병합 칸의 글자가 열마다 하나씩 놓이면 병합이 아니다(두 칸은 낱말 둘과 구별되지 않는다)
 LINE_ROWS = 256            # 능선·계단·행 구간을 한 번에 재는 줄 수(그림 크기의 임시 배열을 만들지 않는다, 결과는 같다)
@@ -171,7 +175,42 @@ def _tight(gray, segment):
         if peak <= 0:
             return segment
         rows = np.flatnonzero(contrast >= .5 * peak)
-    return first + int(rows[0]), first + int(rows[-1]), left, right
+    start, stop = int(rows[0]), int(rows[-1])
+    if _is_step(majority):
+        # 선 없이 밝기만 바뀌는 경계(진한 머리글 띠의 위 끝)는 두 단을 다 선으로 잡는다. 그중 글자 픽셀이 든 행은 칸 몫이고,
+        # 선과 글자 사이에 빈 행 하나를 남긴다. 칸 안쪽이 글자 첫 행부터면 2배 크롭의 안쪽 1px이 흰 글자 윗줄을 잘랐다
+        # (엑셀 진한 머리글 '측정소'→'측성소', 'T-N T-P'→'교지 ¶ 교', 2026-11-09). 글자가 닿지 않은 경계는 그대로다
+        while stop > start and _has_text(band[stop], majority[stop]):
+            stop -= 1
+        while start < stop and _has_text(band[start], majority[start]):
+            start += 1
+        if first + stop > 0 and stop + 1 < band.shape[0] and _has_text(band[stop + 1], majority[stop + 1]):
+            start, stop = min(start, stop - 1), stop - 1   # 창 위로 한 행 나갈 수 있다(그림 밖으로는 안 나간다)
+        elif start > 0 and first + start + 1 < gray.shape[0] and _has_text(band[start - 1], majority[start - 1]):
+            start, stop = start + 1, max(stop, start + 1)
+    return first + start, first + stop, left, right
+
+
+def _is_step(majority):
+    """창의 행 밝기가 위 한 단, 아래 다른 한 단으로 고르게 나뉘었는가(밝기 계단). 가운데가 다른 선은 계단이 아니다."""
+    low, high = float(majority[:2].mean()), float(majority[-2:].mean())
+    if abs(high - low) < STEP_CONTRAST:
+        return False
+    side = (majority - (low + high) / 2) * np.sign(high - low) > 0
+    k = int(np.argmax(side))
+    return (k > 0 and not side[:k].any() and bool(side[k:].all())
+            and np.abs(majority[:k] - low).max() <= EVEN_RANGE and np.abs(majority[k:] - high).max() <= EVEN_RANGE)
+
+
+def _has_text(row, level):
+    """한 행에 행 밝기와 다른 픽셀(글자)이 TEXT_SHARE 이상, TEXT_RUNS토막 이상 든가.
+
+    기운 표의 비스듬한 경계도 행마다 일부 픽셀을 다른 밝기로 만들지만 한 덩어리로 이어진다. 글자 획은 여러 토막이다.
+    """
+    off = np.abs(row - level) > EVEN_RANGE
+    if np.count_nonzero(off) < TEXT_SHARE * row.size:
+        return False
+    return int(np.count_nonzero(off[1:] & ~off[:-1])) + int(off[0]) >= TEXT_RUNS
 
 
 def _without_text_rows(gray, lines):
@@ -438,7 +477,21 @@ def _is_stroke(column, boxes, solid=False, image=None, table=None):
             if _within_text(column, boxes[index], image):
                 edge = True
                 tallest = max(tallest, heights[index])
-    return (inside >= .9 * length or edge) and not (solid and length >= STROKE_LINES * tallest)
+    return (inside >= .9 * length or edge) and not (solid and length >= STROKE_LINES * tallest
+                                                    and (image is None or _unbroken(image, column)))
+
+
+def _unbroken(image, column):
+    """세로 선분이 글자 줄 사이에서도 끊기지 않는가. 진짜 표 선은 줄 사이 빈 행에서도 이어지고, 행마다 같은 x에 선
+    낱말 끝 세로획('유역계획과'의 'ㅏ')은 3px 틈 잇기로 한 선분이 되어도 줄 사이에서 2행 넘게 끊긴다(2026-11-09)."""
+    left, right, top, bottom = column
+    values = _gray(image[top:bottom + 1, left:right + 1]).mean(axis=1)
+    off = np.abs(values - median(values)) > EVEN_RANGE
+    run = longest = 0
+    for flag in off.tolist():
+        run = run + 1 if flag else 0
+        longest = max(longest, run)
+    return longest <= MAX_BREAK
 
 
 def _box_table(boxes):
@@ -475,6 +528,25 @@ def _to_area_edge(grid, margin, vertical):
     if not margin or closed or not 0 < grid.left - margin <= EDGE_REACH:
         return grid
     return replace(grid, left=margin, cells=tuple(replace(cell, left=margin) if cell.column == 0 else cell for cell in grid.cells))
+
+
+def _clear_top(grid, boxes, horizontal, margin):
+    """선 없이 세로선 끝으로 정한 표 위 끝이 글자 상자를 가로지르면 그 글자 위까지 올린다. 위 끝에 가로선이 있으면 그대로다.
+
+    엑셀 열 머리글의 구분선은 위로 갈수록 옅어져 머리글 띠 중간부터 잡힌다. 위 끝이 머리글 글자를 가로질러 글자 아랫부분만
+    든 얇은 빈 행이 생겼고, 그 칸의 조각이 '−', '±'로 읽혔다(2026-11-09). 행 머리글 쪽은 _to_area_edge가 맡는다.
+    """
+    width = grid.right - grid.left
+    if grid.top - margin <= JOIN_TOLERANCE or any(
+            abs((top + bottom) / 2 - grid.top) <= CLUSTER_GAP and min(right, grid.right) - max(left, grid.left) >= .5 * width
+            for top, bottom, left, right in horizontal):
+        return grid   # 고른 영역 끝까지 이어진 세로선은 영역이 표를 자른 것이다. 거기 걸친 상자는 끝에서 잘린 줄이다
+    crossing = [y0 for x0, y0, x1, y1 in boxes
+                if y0 < grid.top < y1 and grid.left <= (x0 + x1) / 2 <= grid.right and y1 - grid.top >= CROSS_SHARE * (y1 - y0)]
+    if not crossing:
+        return grid
+    top = max(margin, min(crossing) - 1)
+    return replace(grid, top=top, cells=tuple(replace(cell, top=top) if cell.row == 0 else cell for cell in grid.cells))
 
 
 def _with_outer_labels(grid, boxes, margin):
@@ -544,7 +616,8 @@ def find_grids(image, boxes, margin=0, lines=None):
         grid = _grid(lines, columns)
         if grid is not None:
             grids.append(grid)
-    found = (_to_area_edge(_open_spread_cells(grid, boxes), margin, vertical) for grid in _keep_real(grids, boxes, image))
+    found = (_to_area_edge(_open_spread_cells(_clear_top(grid, boxes, horizontal, margin), boxes), margin, vertical)
+             for grid in _keep_real(grids, boxes, image))
     return sorted((_with_outer_labels(grid, boxes, margin) for grid in found), key=lambda grid: grid.top)
 
 

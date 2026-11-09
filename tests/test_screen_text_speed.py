@@ -1,6 +1,8 @@
 """화면 글자 따기 속도 되찾기(2026-11-09): 빨라진 계산이 v4.8 배포 때와 비트 단위로 같은 값을 내는지 본다.
 
 판독을 바꾸지 않는 최적화만 한다(사용자 결정 2026-11-07 "정확도는 포기 못해"). 아래 _v48_* 함수는 v4.8 배포 코드 그대로다.
+다만 2026-11-10에 일부러 바꾼 판정(줄 사이에서 끊기는 세로 선분, 밝기 계단의 글자 행)은 기준에도 똑같이 더했다.
+빨라진 계산이 같은 값을 내는지만 보려는 것이다(기록 docs/work/2026-11-09-screen-text-rival-gap.md).
 """
 from concurrent.futures import ThreadPoolExecutor
 
@@ -321,7 +323,17 @@ def _v48_tight(gray, segment):
         if peak <= 0:
             return segment
         rows = np.flatnonzero(contrast >= .5 * peak)
-    return first + int(rows[0]), first + int(rows[-1]), left, right
+    start, stop = int(rows[0]), int(rows[-1])
+    if T._is_step(majority):   # 2026-11-10 의미 변경(밝기 계단의 글자 행)은 기준에도 똑같이 더한다
+        while stop > start and T._has_text(band[stop], majority[stop]):
+            stop -= 1
+        while start < stop and T._has_text(band[start], majority[start]):
+            start += 1
+        if first + stop > 0 and stop + 1 < band.shape[0] and T._has_text(band[stop + 1], majority[stop + 1]):
+            start, stop = min(start, stop - 1), stop - 1
+        elif start > 0 and first + start + 1 < gray.shape[0] and T._has_text(band[start - 1], majority[start - 1]):
+            start, stop = start + 1, max(stop, start + 1)
+    return first + start, first + stop, left, right
 
 
 def _v48_without_text_rows(gray, lines):
@@ -349,7 +361,9 @@ def _v48_is_stroke(column, boxes, solid=False, image=None):
         elif image is not None and x0 - 1 <= left and right <= x1 and overlap >= .9 * length and T._within_text(column, box, image):
             edge = True
             tallest = max(tallest, y1 - y0)
-    return (inside >= .9 * length or edge) and not (solid and length >= T.STROKE_LINES * tallest)
+    # 2026-11-10 의미 변경(줄 사이에서 끊기는 세로 선분은 글자 획)은 기준에도 똑같이 더한다
+    return (inside >= .9 * length or edge) and not (solid and length >= T.STROKE_LINES * tallest
+                                                    and (image is None or T._unbroken(image, column)))
 
 
 def _v48_in_text_row(line, boxes):

@@ -701,14 +701,14 @@ class OcrEngine:
                 raise RecognitionCancelled
         shrunk = _shrunk_boxes(boxes, factor)
         added = len(boxes)
-        boxes = boxes + _grown_boxes(empty_cell_boxes(sharp, grids, shrunk) + gap_mark_boxes(sharp, shrunk), factor)
+        boxes = boxes + _grown_boxes(empty_cell_boxes(sharp, grids, shrunk, DET_MARGIN) + gap_mark_boxes(sharp, shrunk, grids), factor)
         self._sharp, self._char_marks = (sharp, factor), {}
         try:
             read = self._read(work, boxes, cancelled)
             marks = self._char_marks
         finally:
             self._sharp = self._components = None
-        results = read_marks(sharp, grids, _shrunk_boxes(boxes, factor), apply_leading_symbols(sharp, _shrunk_boxes(boxes, factor), read), added)
+        results = read_marks(sharp, grids, _shrunk_boxes(boxes, factor), apply_leading_symbols(sharp, _shrunk_boxes(boxes, factor), read, grids), added)
         cut = _cut_line_boxes(sharp, _shrunk_boxes(boxes, factor), results, DET_MARGIN) | _fragment_boxes(boxes, results)
         out = []
         for index, ((x0, y0, x1, y1), (text, score, unsure_prefix)) in enumerate(zip(boxes, results)):

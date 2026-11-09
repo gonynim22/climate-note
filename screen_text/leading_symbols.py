@@ -46,6 +46,7 @@ DOT_MIN_FILL = 0.8
 DOT_MIDDLE = (0.3, 0.7)    # 줄 위(0)~아래(1)에서 점 가운데의 자리. 마침표(0.9)와 위 점을 거른다
 CHECKBOX_MIN_HEIGHT = 0.6  # 줄 안 체크박스는 줄 글자 높이의 이 비율 이상(실측 0.79~0.93. ㄱ ㄷ 왼쪽 획은 0.71 이하이고 뒤 글자에 붙는다)
 CHECKBOX_MIN_PX = 6        # 이보다 작으면 마침표·가운뎃점이 네모로 보이는 크기다
+MODEL_SURE = 0.8           # 한 글자 상자를 모델이 이만큼 확신해 한글로 읽었으면 기호로 바꾸지 않는다(실측 기호를 한글로 잘못 읽은 상자 0.17~0.60, 스캔에서 번진 진짜 글자 0.93~1.00)
 FILLED = "■"
 FILLED_CIRCLE = "●"
 FILLED_DIAMOND = "◆"
@@ -316,7 +317,7 @@ def _continues_outside(image, crop, blob, x_from, y0, y1):
     return False
 
 
-def leading_symbol(image, index, boxes, readable=None, table=None, heights=None):
+def leading_symbol(image, index, boxes, readable=None, table=None, heights=None, left_bound=0):
     """index번 상자의 줄 맨 앞 기호. (종류, 시작 x, 끝 x, 기호만 든 상자인가) 또는 None.
 
     기호는 상자 안이나 바로 왼쪽에 있을 수 있다. 위치 찾기가 기호를 글자와 따로 상자로 자르기도 하므로(기호만
@@ -324,6 +325,7 @@ def leading_symbol(image, index, boxes, readable=None, table=None, heights=None)
     readable은 상자별로 모델이 글자를 읽었는지다. 빈 글자로 읽은 상자는 그 안의 기호를 내놓지 못하므로 왼쪽
     탐색을 막지 않는다(양식의 '□ 시 □ 군 ■ 구'. 기호 일부나 속만 잘린 상자도 있어 그 상자에서 분류하지 않는다).
     table은 boxes의 (개수, 4) float64 배열, heights는 상자 번호별 _ink_height를 담아 둘 사전이다(여러 상자를 차례로 볼 때 한 번씩만 잰다).
+    left_bound는 상자가 든 표 칸의 왼쪽 안쪽 x다. 그보다 왼쪽에서 끝나는 덩어리는 다른 칸의 것이다.
     """
     box = boxes[index]
     x0, y0, x1, y1 = box
@@ -346,8 +348,11 @@ def leading_symbol(image, index, boxes, readable=None, table=None, heights=None)
     reference = max((heights[j] for j in after), default=0)
     crop = image[y0:y1, x_from:x_to]
     blobs = _blobs(ink_mask(crop), reference, thin=ink_mask(crop, THIN_INK_FRACTION))
-    last_rule = max((k for k, blob in enumerate(blobs) if _is_rule(blob) and x_from + blob["right"] < x0), default=-1)
-    for blob in blobs[last_rule + 1:]:  # 표 선 왼쪽은 다른 칸이다. 옆 칸 글자의 조각을 기호로 읽지 않는다
+    # 표 선 왼쪽은 다른 칸이다. 옆 칸 글자의 조각을 기호로 읽지 않는다. 격자가 아는 칸 경계(left_bound)는 옅은 눈금선처럼
+    # 글자 픽셀로 잡히지 않는 선도 지킨다. 자른 그림은 그대로 두어 기호 크기를 견주는 줄 높이를 바꾸지 않는다
+    last_rule = max((k for k, blob in enumerate(blobs)
+                     if (_is_rule(blob) and x_from + blob["right"] < x0) or x_from + blob["right"] < left_bound), default=-1)
+    for blob in blobs[last_rule + 1:]:
         if _is_rule(blob):
             continue
         kind = _classify(blob)
@@ -358,15 +363,32 @@ def leading_symbol(image, index, boxes, readable=None, table=None, heights=None)
     return None
 
 
-def apply_leading_symbols(image, boxes, results):
-    """[(글자, 점수)]를 [(글자, 점수, 확인 필요 앞글자 수)]로. 기호가 보이면 앞에 붙이거나(모델이 건너뜀) 닮은 글자를 교체한다."""
+def _cell_left(box, grids):
+    """상자 가운데가 든 표 칸의 왼쪽 안쪽 x(표 밖이면 0)."""
+    x, y = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    for grid in grids:
+        for cell in grid.cells:
+            if cell.left <= x <= cell.right and cell.top <= y <= cell.bottom:
+                return int(cell.left)
+    return 0
+
+
+def apply_leading_symbols(image, boxes, results, grids=()):
+    """[(글자, 점수)]를 [(글자, 점수, 확인 필요 앞글자 수)]로. 기호가 보이면 앞에 붙이거나(모델이 건너뜀) 닮은 글자를 교체한다.
+
+    grids는 image 좌표의 표 격자다. 표 안의 상자는 제 칸 안에서만 기호를 찾는다. 옆 칸의 체크박스는 그 칸의 표시로
+    따로 읽히므로 옅은 눈금선 너머에서 다시 붙이면 두 번 나온다(엣지 표의 '□ □ 정호진', 2026-11-09).
+    """
     readable = [bool(text.strip()) for text, _ in results]
     table, heights = np.asarray(boxes, dtype=np.float64).reshape(-1, 4), {}
     out = []
     for index, (text, score) in enumerate(results):
         flagged = 0
         with shared_ink():   # 한 상자의 진한·옅은 글자 픽셀을 같은 기준으로 잰다
-            found = leading_symbol(image, index, boxes, readable, table, heights) if readable[index] else None
+            found = (leading_symbol(image, index, boxes, readable, table, heights, _cell_left(boxes[index], grids))
+                     if readable[index] else None)
+        if found and found[3] and score >= MODEL_SURE and any("가" <= char <= "힣" for char in text):
+            found = None   # 세로로 쓴 칸의 한 글자('해 당 없 음')가 스캔에서 번져 ● ◆ 모양이 됐다. 모델은 확신했다
         if found:
             kind, _, right, alone = found
             body = text.lstrip()

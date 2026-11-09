@@ -507,3 +507,69 @@ def test_left_column_of_a_two_column_page_stays_outside():
     lines = [(20, y0 + 8, 140, y1 - 8) for y0, y1 in zip(ys, ys[1:])]
     grids = find_grids(image, boxes_in(xs, ys) + lines, margin=8)
     assert len(grids) == 1 and grids[0].columns == 2
+
+
+def test_final_vowels_lined_up_across_rows_are_not_a_column():
+    """엑셀 부서 이름이 모두 '과'로 끝나 'ㅏ' 세로획이 행마다 같은 x에 섰다. 3px 틈 잇기로 한 선분이 되어
+    칸이 'ㅏ'에서 나뉘었다('과'→'고', 잘린 가로획은 옆 칸의 '-'). 진짜 표 선은 줄 사이에서도 이어진다."""
+    from screen_text.table_lines import _is_stroke
+    image = canvas(120, 90)
+    boxes = []
+    for top in (10, 32, 54):
+        image[top:top + 19, 50] = 40
+        boxes.append((20, top - 1, 60, top + 20))
+    column = (50, 50, 10, 72)
+    assert not _is_stroke(column, boxes, True)          # 그림을 모르면 길고 고른 선분은 예전처럼 표 선이다
+    assert _is_stroke(column, boxes, True, image)       # 줄 사이에서 끊기므로 글자 획이다
+
+
+def header_band_sheet():
+    """엑셀 열 머리글 띠: 구분선이 위로 갈수록 옅어져 띠 중간(43)부터 잡히고 위에 가로선이 없다."""
+    image = canvas(300, 200)
+    for y in (52, 80, 110, 140):
+        hline(image, y, 20, 280, (200, 200, 200))
+    for x in (20, 100, 190, 280):
+        vline(image, x, 43, 140, (200, 200, 200))
+    header = [(55, 33, 65, 50), (140, 33, 150, 50), (230, 33, 240, 50)]
+    body = [(x0, y + 8, x0 + 60, y + 22) for y in (52, 80, 110) for x0 in (30, 110, 200)]
+    return image, header + body
+
+
+def test_header_letters_are_not_cut_by_faded_column_separators():
+    """표 위 끝이 머리글 글자를 가로질러 글자 아랫부분만 든 얇은 빈 행이 생겼고 그 칸의 조각이 '− ±'로 읽혔다."""
+    image, boxes = header_band_sheet()
+    grids = find_grids(image, boxes, margin=32)
+    assert len(grids) == 1
+    assert min(cell.top for cell in grids[0].cells if cell.row == 0) <= 33
+
+
+def test_grid_cut_by_the_selection_edge_keeps_its_top():
+    """세로선이 고른 영역 끝까지 이어지면 영역이 표를 자른 것이다. 거기 걸친 상자는 끝에서 잘린 줄이라 끌어올리지 않는다."""
+    image, boxes = header_band_sheet()
+    grids = find_grids(image, boxes, margin=40)
+    assert len(grids) == 1
+    assert min(cell.top for cell in grids[0].cells if cell.row == 0) >= 43
+
+
+def test_dark_header_band_keeps_its_first_text_row():
+    """진한 머리글 띠는 선 없이 밝기만 바뀐다. 띠 첫 두 행을 선으로 잡아 칸이 흰 글자 첫 행 다음부터 시작했고
+    2배 크롭이 글자 윗줄을 잘랐다(엑셀 '측정소'→'측성소'). 선과 글자 사이에는 띠 한 행을 남긴다."""
+    from screen_text.table_lines import _gray, _tight
+    image = canvas(300, 80)
+    image[32:46, 10:290] = (40, 50, 90)           # 진한 남색 띠
+    for x in range(20, 280, 9):                   # 흰 글자 획: 띠 둘째 행(33)부터
+        image[33:44, x:x + 2] = 255
+    _, bottom, _, _ = _tight(_gray(image), (31, 31, 10, 289))
+    assert bottom <= 31                           # 칸 안쪽이 띠 첫 행(32)부터 시작한다
+
+
+def test_slanted_edge_is_not_mistaken_for_text():
+    """기운 표의 비스듬한 경계도 행마다 일부 픽셀을 다른 밝기로 만들지만 한 덩어리다. 글자로 보고 선을 옮기면
+    기운 선 조각이 한 선으로 묶이지 않아 표의 행을 잃었다."""
+    from screen_text.table_lines import _has_text
+    row = np.full(200, 255.0)
+    row[150:] = 50
+    assert not _has_text(row, 255.0)
+    row = np.full(200, 255.0)
+    row[20:200:9] = 50
+    assert _has_text(row, 255.0)

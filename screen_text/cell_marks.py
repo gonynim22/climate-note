@@ -28,7 +28,9 @@ STAR_SOLID = 0.8            # 가운데가 이만큼 차면 ★
 MIN_HEIGHT = 0.4            # 표시 높이의 하한(줄 글자 높이 대비)
 MAX_HEIGHT = 1.45           # 표시 높이의 상한. 넘으면 그림이나 표 선이다
 MAX_WIDTH = 2.2             # 표시 폭의 상한(줄 글자 높이 대비)
-DASH_MIN_WIDTH = 0.3        # 칸의 '-' 폭 하한(줄 글자 높이 대비)
+DASH_MIN_WIDTH = 0.2        # 칸의 '-' 폭 하한(상자 높이 대비). 맑은 고딕 13px '-'는 폭 5px·상자 23px였다
+DASH_MIN_ASPECT = 2         # 칸의 '-'는 폭이 높이의 이 배수 이상이다. 점·마침표는 네모에 가깝다
+CUT_REACH = 3               # 고른 영역 끝에서 이만큼(픽셀) 안에 닿은 조각은 끝에서 잘린 글자다(칸 안쪽 INSET 2 + 1)
 RULE_FILL = 0.8             # 칸 가장자리에서 이 비율 이상 찬 행·열은 표 선의 찌꺼기다
 INSET = 2                   # 칸 변에서 표 선 몫으로 빼는 폭
 PAD = 1                     # 표시 상자의 둘레 여백
@@ -132,9 +134,14 @@ def _inside(box, cell):
     return cell.left <= x <= cell.right and cell.top <= y <= cell.bottom
 
 
-def empty_cell_boxes(image, grids, boxes):
-    """글자 상자가 없는 칸에서 표시 크기의 덩어리를 찾아 상자로 낸다. image와 grids, boxes는 같은 좌표다."""
+def empty_cell_boxes(image, grids, boxes, margin=0):
+    """글자 상자가 없는 칸에서 표시 크기의 덩어리를 찾아 상자로 낸다. image와 grids, boxes는 같은 좌표다.
+
+    margin은 image 둘레의 여백이다. 고른 영역의 위아래 끝에 닿은 납작한 조각은 끝에서 잘린 글자(원의 아랫부분, '거'의
+    아랫획)라서 '-'로 내지 않는다.
+    """
     line = _line_height(boxes)
+    area_top, area_bottom = margin + CUT_REACH, image.shape[0] - margin - CUT_REACH
     found = []
     if line <= 0:
         return found
@@ -151,7 +158,8 @@ def empty_cell_boxes(image, grids, boxes):
                 continue
             y0, y1, x0, x1 = span
             tall, wide = y1 - y0, x1 - x0
-            is_dash = tall <= MIN_HEIGHT * line and wide >= DASH_MIN_WIDTH * line
+            is_dash = (tall <= MIN_HEIGHT * line and wide >= max(DASH_MIN_WIDTH * line, DASH_MIN_ASPECT * tall)
+                       and not (margin and (top + y0 <= area_top or top + y1 >= area_bottom)))
             if (is_dash or MIN_HEIGHT * line <= tall <= MAX_HEIGHT * line) and wide <= MAX_WIDTH * line:
                 found.append((left + x0 - PAD, top + y0 - PAD, left + x1 + PAD, top + y1 + PAD))
     return found
@@ -161,16 +169,33 @@ def _same_row(a, b):
     return min(a[3], b[3]) - max(a[1], b[1]) >= SAME_ROW * min(a[3] - a[1], b[3] - b[1])
 
 
-def gap_mark_boxes(image, boxes):
-    """한 줄의 상자 사이에 든 표시('접수 ▶ 심사')의 상자. 사진이나 아이콘을 읽지 않도록 모양이 분명한 것만 낸다."""
+def _cell_of(box, grids):
+    x, y = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    for grid in grids:
+        for cell in grid.cells:
+            if cell.left <= x <= cell.right and cell.top <= y <= cell.bottom:
+                return cell
+    return None
+
+
+def gap_mark_boxes(image, boxes, grids=()):
+    """한 줄의 상자 사이에 든 표시('접수 ▶ 심사')의 상자. 사진이나 아이콘을 읽지 않도록 모양이 분명한 것만 낸다.
+
+    표 안의 상자는 제 칸 끝까지만 본다. 뒤 상자가 다른 칸이면 그 상자는 이 표시를 글머리로 가져가지 않으므로(줄 맨 앞
+    기호는 제 칸 안에서만 찾는다) 칸 끝의 표시('임기 내 완료 ●')를 여기서 낸다. 칸의 마지막 상자 뒤도 칸 끝까지 본다.
+    """
     found = []
     for box in boxes:
         height = box[3] - box[1]
+        cell = _cell_of(box, grids) if grids else None
         following = [other for other in boxes if other[0] > box[2] and _same_row(box, other)]
-        if not following:
-            continue
-        right = min(other[0] for other in following)
-        if right - box[2] < MIN_GAP * height:
+        nearest = min(following, key=lambda other: other[0]) if following else None
+        same_cell = nearest is not None and (cell is None or _cell_of(nearest, grids) is cell)
+        right = nearest[0] if same_cell else None
+        if cell is not None:
+            edge = int(cell.right) - INSET + 1
+            right = edge if right is None else min(right, edge)
+        if right is None or right - box[2] < MIN_GAP * height:
             continue
         crop = ink_mask(image[box[1]:box[3], box[2]:right])
         span = _trimmed(crop)
@@ -180,7 +205,7 @@ def gap_mark_boxes(image, boxes):
         if not MIN_HEIGHT * height <= y1 - y0 <= MAX_HEIGHT * height:
             continue
         kind = mark_of(crop[y0:y1, x0:x1])
-        taken = kind in BULLET_MARKS and right - (box[2] + x1) <= SEARCH_LEFT * height  # 뒤 상자의 글머리로 이미 읽힌다('□ 시 ■ 군')
+        taken = kind in BULLET_MARKS and same_cell and right - (box[2] + x1) <= SEARCH_LEFT * height  # 뒤 상자의 글머리로 이미 읽힌다('□ 시 ■ 군')
         if kind in GAP_MARKS and not taken:
             found.append((box[2] + x0 - PAD, box[1] + y0 - PAD, box[2] + x1 + PAD, box[1] + y1 + PAD))
     return found

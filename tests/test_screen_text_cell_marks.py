@@ -213,6 +213,55 @@ def test_hollow_shape_between_words_is_not_trusted():
     assert gap_mark_boxes(image, boxes) == []
 
 
+def test_short_dash_in_an_empty_cell_gets_a_box():
+    """맑은 고딕 13px의 '-'는 폭 5px로 상자 높이의 0.3배에 못 미쳐 공문서 표의 '-' 칸이 통째로 사라졌다."""
+    image, grid = sheet({(0, 1): np.ones((1, 5), bool)})
+    assert len(empty_cell_boxes(image, [grid], [BOX])) == 1
+
+
+def test_dot_in_an_empty_cell_is_not_a_dash():
+    image, grid = sheet({(0, 1): np.ones((2, 3), bool)})
+    assert empty_cell_boxes(image, [grid], [BOX]) == []
+
+
+def test_flat_piece_cut_by_the_selection_edge_is_not_a_dash():
+    """고른 영역 위 끝에서 잘린 글자의 아랫부분(원의 아랫부분, '거'의 아랫획)이 '-'로 나왔다."""
+    image, grid = sheet({})
+    image[12:13, 62:70] = 0                       # 첫 행 둘째 칸의 맨 위, 영역 끝(여백 10px) 바로 아래
+    assert len(empty_cell_boxes(image, [grid], [BOX])) == 1          # 여백을 모르면 '-'로 본다
+    assert empty_cell_boxes(image, [grid], [BOX], margin=10) == []
+
+
+def cell_row(mark, last=False):
+    """[낱말 표시 | 낱말] 두 칸. 표시는 앞 칸 끝에 있고 칸 사이에 표 선이 있다(고산 '임기 내 완료 ●')."""
+    image = np.full((60, 221, 3), 255, np.uint8)
+    image[10, 10:211] = image[50, 10:211] = 0
+    image[10:51, 10] = image[10:51, 110] = image[10:51, 210] = 0
+    for x in range(16, 56, 4):
+        image[20:40, x:x + 2] = 0
+    image[22:22 + mark.shape[0], 80:80 + mark.shape[1]][mark] = 0
+    boxes = [(14, 18, 58, 42)]
+    if not last:
+        for x in range(116, 156, 4):
+            image[20:40, x:x + 2] = 0
+        boxes.append((114, 18, 158, 42))
+    cells = (GridCell(0, 0, 1, 1, 11, 11, 110, 50), GridCell(0, 1, 1, 1, 111, 11, 210, 50))
+    return image, boxes, Grid(1, 2, cells, 10, 10, 210, 50)
+
+
+def test_mark_at_the_end_of_a_cell_gets_its_own_box():
+    """다음 칸의 글자는 칸 너머의 표시를 글머리로 가져가지 않는다. 표 선을 빼고 칸 끝까지 본다."""
+    image, boxes, grid = cell_row(disc(16))
+    found = gap_mark_boxes(image, boxes, [grid])
+    assert len(found) == 1 and 76 <= found[0][0] <= 82
+
+
+def test_mark_after_the_last_word_of_a_row_gets_its_own_box():
+    image, boxes, grid = cell_row(disc(16), last=True)
+    assert len(gap_mark_boxes(image, boxes, [grid])) == 1
+    assert gap_mark_boxes(image, boxes) == []     # 표 밖이면 뒤 상자가 없는 줄 끝은 보지 않는다
+
+
 def render_table(mark):
     font = QFont("Malgun Gothic")
     font.setPixelSize(16)

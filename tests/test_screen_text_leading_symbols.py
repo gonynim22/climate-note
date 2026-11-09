@@ -436,3 +436,43 @@ def test_letter_d_is_not_a_ring():
     ink[3, 7] = ink[10, 7] = True
     ink[4:10, 8] = True
     assert _classify(_blobs(ink)[0]) is None
+
+
+# ── 표 칸 경계(2026-11-09, 엣지 표의 '□ □ 정호진') ──
+def checkbox_cell_row():
+    """[체크박스 칸 | 옅은 눈금선 | 이름 칸]. 눈금선은 진한 체크박스에 견주면 글자 픽셀 문턱을 넘지 못한다."""
+    from screen_text.layout import Grid, GridCell
+    image = np.full((HEIGHT, 120, 3), 255, np.uint8)
+    image[3:19, 6:22][glyph("hollow", 16)] = 0
+    image[:, 30] = 215
+    for x in (40, 54, 68):
+        draw_text_block(image, x)
+    cells = (GridCell(0, 0, 1, 1, 0, 0, 30, HEIGHT), GridCell(0, 1, 1, 1, 31, 0, 120, HEIGHT))
+    return image, Grid(1, 2, cells, 0, 0, 120, HEIGHT)
+
+
+def test_checkbox_in_the_next_cell_is_not_attached_again():
+    """옆 칸의 체크박스는 그 칸의 표시로 따로 읽힌다. 옅은 눈금선 너머에서 이름 앞에 다시 붙여 '□ □ 정호진'이 됐다."""
+    image, grid = checkbox_cell_row()
+    boxes = [(4, 1, 24, 21), (38, 0, 82, HEIGHT)]
+    results = [("", 0.0), ("정호진", 0.99)]
+    assert symbols.apply_leading_symbols(image, boxes, results)[1][0] == "□ 정호진"   # 격자를 모르면 예전처럼 붙인다
+    assert symbols.apply_leading_symbols(image, boxes, results, [grid])[1][0] == "정호진"
+
+
+def test_symbol_straddling_the_cell_edge_stays_with_the_cell():
+    """제목 □의 왼쪽 변이 아래 표의 왼쪽 테두리와 한 줄로 이어져 칸 경계가 □ 안을 지났다. 칸 안에서 끝나는 기호는 이 칸의 것이다."""
+    from screen_text.layout import Grid, GridCell
+    image, end = separate_symbol_image("hollow", 11)    # □는 4~14, 칸 경계는 □ 안을 지나는 6
+    grid = Grid(1, 1, (GridCell(0, 0, 1, 1, 6, 0, 120, HEIGHT),), 6, 0, 120, HEIGHT)
+    out = symbols.apply_leading_symbols(image, [(26, 0, end, HEIGHT)], [("성과지표", 0.99)], [grid])
+    assert out[0][0] == "□ 성과지표"
+
+
+def test_hangul_the_model_is_sure_of_stays_in_a_one_letter_box():
+    """세로로 쓴 칸의 한 글자('해 당 없 음')가 스캔에서 번져 ■ 모양이 됐다. 모델이 확신한 한글은 그대로 둔다."""
+    image, end = separate_symbol_image("filled", 12)
+    boxes = [(2, 2, 22, 20), (26, 0, end, HEIGHT)]
+    assert symbols.apply_leading_symbols(image, boxes, [("음", 0.97), ("추진배경", 0.99)])[0] == ("음", 0.97, 0)
+    # 기호만 든 상자를 모델이 한글로 잘못 읽을 때는 확신이 낮다(실측 0.17~0.60, '에' '이' '곳')
+    assert symbols.apply_leading_symbols(image, boxes, [("에", 0.3), ("추진배경", 0.99)])[0][0] == "■"
