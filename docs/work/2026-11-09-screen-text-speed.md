@@ -70,7 +70,7 @@
 | 확인 필요 표시까지 모든 필드 | 같음 2,872/2,872 | `results/fields__r6.json`·`fields__fast3.json`, `scripts/full_fields.py` | sym unit xls hwp brow tables marks short cond e1 web stress gdi 표본, 표시가 든 사례 1,244장 |
 | 영역 크기 24종 시간·메모리 | 완료 | `results/region__speed5.jsonl` | 위 표. 판독 해시 24종 같음 |
 | `verify.py quick --tests tests/test_screen_text*.py` | 통과(1,567) | `output/harness/20261109-022931-8a070dcc1b` | 새 시험 133개 포함. 경고 1개는 qfluentwidgets의 기존 scipy 경고 |
-| `release` | 미실행 | | 배포 때 그때 코드로 PowerShell `release` |
+| `release` | 실패 → 수정 | `output/harness/20261109-211652-ae7af39e03` | 낫표·겹낫표 작업과 묶어 처음 돌린 release. 시험 4,335·빌드 통과, 격리 실행 `screen_text`가 실패했다. EXE의 `error.log`: "화면 글자 인식 모듈 불러오기 실패: ModuleNotFoundError". 이 작업이 `engine.py`에 들인 `concurrent.futures`를 `build.spec`의 excludes가 빼고 있었다. excludes에서 빼고 `tests/test_packaging.py`에 앱 import·excludes 겹침 시험을 더했다. 다시 돌린 결과는 [낫표·겹낫표 기록](2026-11-09-screen-text-nakpyo-double.md) |
 
 현재 입력에 대한 실제 결과만 기입한다. 이전 버전의 테스트 수를 현재 통과로 복사하지 않는다.
 
@@ -79,4 +79,5 @@
 - 남은 문제 / 수동 확인: 업무 PC 시간(코어가 4개보다 적으면 겹치기 이득이 줄어든다). 큰 영역의 첫 최대 메모리 증가(4K +40~50MB)는 표 선 후보 겹치기의 대가다. 두 번 인식한 프로세스 전체의 최대(OS 최대 작업 집합)로 보면 24개 중 19개가 같거나 줄었고, 가장 큰 값은 603→554MB로 내려갔다. 5MB 넘게 는 것은 4K 화면 둘뿐이다(`uhd-3p` 481→526, `uhd-5p100` 480→520). 그래서 이 증가는 그대로 둔다(2026-11-09 사용자 결정). 더 줄일 수 있는 직렬 조각은 각각 1% 안팎이다(4K 표 선 찾기의 상자 판정 0.06초, 여백 두르기 0.04초, 띠 사이 라벨링 0.01초씩, 글머리 기호 0.05초).
 - 변경한 정본 문서: `docs/SCREEN_TEXT.md`(속도 항목, 큰 영역 시간), `AGENTS.md`(글자 따기 계약의 속도 문장), `docs/RELEASE_HISTORY.md`(v4.8 배포 뒤 수정).
 - 다음 행동: EXE·버전·`release`는 다음 글자 따기 작업과 묶어 만든다(2026-11-09 사용자 동의). 남은 글자 따기 과제는 남은 낫표·『』, 1,936px 넘는 영역 2배.
+- 교훈(2026-11-09 밤): 이 작업은 판독을 비트 단위로 비교했지만 EXE를 빌드하지 않아, 새로 쓴 표준 라이브러리 `concurrent.futures`가 `build.spec`에서 빠진 것을 놓쳤다. 이 커밋으로 만든 EXE는 없다(첫 release가 잡았다). 엔진 import를 바꾼 작업은 `release`까지 돌린다(`AGENTS.md` 명령 절).
 - 배포·커밋·push 여부: 이 기록이 든 커밋을 GitLab → GitHub `main`에 push했다(2026-11-09). EXE·버전·`release`는 하지 않았다.

@@ -36,6 +36,7 @@
 - 출력은 `output/harness/<run-id>/`에 보존한다. 자동 검사 통과는 배포 승인이 아니다. Win+D·혼합 DPI·KVM·최종 UI 확인은 [수동 검사](docs/TESTING.md)에 남긴다.
 - 앱 실행은 `python main.py`, 일반 빌드는 `.\.venv\Scripts\python.exe build_app.py` 또는 `build.bat`, 직접 전체 검사는 `python -m pytest tests -q`도 지원한다. 의존성 재현은 같은 가상환경에서 `pip install -r requirements-lock.txt`로 한다. 하네스와 일반 빌드는 패키지를 자동 설치하거나 lock을 갱신하지 않는다.
 - `build.bat`은 작업 디렉터리와 무관하게 프로젝트 `.venv` Python을 실행한다. `build_app.py`는 `tools.verify.doctor()` 사전검사 후 같은 인터프리터의 PyInstaller를 `--clean`으로 실행하며, 환경 불일치·빌드 실패는 비영 종료한다. 전역 Python이나 이전 빌드 캐시의 구형 Qt가 다시 포함되지 않도록 이 경로를 유지한다.
+- 앱 코드(`src/`·`screen_text/`)가 import하는 모듈은 `build.spec`의 excludes에 넣지 않는다. 빼면 빌드는 성공하고 EXE에서만 그 기능이 멈춘다(2026-11-09 속도 개선이 글자 따기 엔진에 들인 `concurrent.futures`를 excludes가 빼서 EXE의 글자 따기가 '인식 모듈 불러오기 실패'가 됐고, `release` 격리 실행이 잡았다). `tests/test_packaging.py`가 두 폴더의 import와 excludes가 겹치지 않음을 확인한다. 소스 실행·pytest만으로는 보이지 않으므로 엔진 import를 바꾼 작업은 `release`까지 돌린다.
 - `release`와 일반 빌드는 PowerShell에서 실행한다. Git Bash에서 실행하면 PyInstaller가 PATH의 `C:\Program Files\Git\mingw64\bin` OpenSSL DLL(`libcrypto-3-x64.dll`·`libssl-3-x64.dll`)을 EXE에 포함한다(2026-09-28 v3.8c 첫 release에서 확인). EXE 확인 때 `build/build/Analysis-00.toc`의 BINARY 원본 경로와 직전 release 대비 크기를 대조한다. 테스트 프로필(quick/data/full)은 Git Bash에서 실행해도 된다.
 
 ## 핵심 개발 원칙

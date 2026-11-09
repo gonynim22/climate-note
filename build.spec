@@ -78,7 +78,7 @@ a = Analysis(
         'pydoc',
         'doctest',
         'asyncio',
-        'concurrent',
+        # 'concurrent'는 빼지 않는다: 글자 따기 엔진이 concurrent.futures의 스레드 실행기를 쓴다(2026-11-09 속도 개선)
         'multiprocessing',
         'ctypes.test',
         'lib2to3',

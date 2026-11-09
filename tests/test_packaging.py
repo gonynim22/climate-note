@@ -1,5 +1,6 @@
 """배포 패키지 메타데이터·의존성·고지 파일 회귀 테스트."""
 
+import ast
 import sys
 from importlib.metadata import distribution
 from pathlib import Path
@@ -240,6 +241,28 @@ def _spec_analysis(spec_dir):
 def test_build_spec_keeps_modules_update_check_needs(tmp_path):
     # urllib.request는 http.client·email을 쓴다. 제외하면 빌드는 성공하고 EXE만 시작하지 못한다.
     assert not {"http", "email", "urllib", "ssl", "socket"} & set(_spec_analysis(tmp_path)["excludes"])
+
+
+def _imported_top_modules(folder):
+    """폴더의 .py 파일이 절대 import하는 최상위 모듈 이름."""
+    names = set()
+    for path in sorted(folder.glob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names.add(node.module.split(".")[0])
+    return names
+
+
+def test_build_spec_keeps_every_module_the_app_imports(tmp_path):
+    # 속도 개선(2026-11-09)이 글자 따기 엔진에 concurrent.futures를 들였는데 build.spec이 concurrent를 빼서,
+    # 빌드는 성공하고 EXE의 글자 따기만 '인식 모듈 불러오기 실패'가 됐다(release의 격리 실행이 잡았다)
+    present_dir = tmp_path / "present"
+    (present_dir / "screen_text").mkdir(parents=True)
+    excludes = set(_spec_analysis(present_dir)["excludes"])
+    used = _imported_top_modules(ROOT / "screen_text") | _imported_top_modules(ROOT / "src")
+    assert not used & excludes, sorted(used & excludes)
 
 
 def test_build_spec_bundles_screen_text_only_when_folder_exists(tmp_path):

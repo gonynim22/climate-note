@@ -62,7 +62,7 @@
 | Qt 렌더 괄호 훑기 | 홑낫표 오판 0/1,488, 겹낫표 75~89% | `scripts/qt_bracket_sweep.py` 출력 | 12개 글꼴 10~40px 보통/굵게 |
 | 속도 | 차이 잡음 안 | `scripts/speed_stages.py` 출력(위 결정) | A4·빽빽한 쪽·FHD·4K(시안 20번), A4·4K(최종), 판독 해시 같음 |
 | 수동 확인(개발 PC) | 부분 | `output/screen_text_lab/manual-check-20261109/` | 사용자가 확인용 PDF를 소스 실행(별도 데이터 폴더)으로 읽어 맑은 고딕 오류를 찾음 → 회색 농도 판정 추가 |
-| `release` | 미실행 | | 다음 글자 따기 작업과 묶어 만든다(속도 작업과 같은 결정) |
+| `release`(1차) | 실패 → 수정 | `output/harness/20261109-211652-ae7af39e03` | 커밋 `84537f6`. 시험 4,335·빌드 통과, 격리 실행 `screen_text`가 빈 결과(EXE `error.log`: 인식 모듈 불러오기 실패 ModuleNotFoundError). 속도 작업(`d64fbbe`)이 들인 `concurrent.futures`를 `build.spec` excludes가 빼고 있었다. 이 작업의 코드 문제는 아니다. excludes에서 빼고 `tests/test_packaging.py`에 겹침 시험 |
 
 ## 미해결과 인계
 
