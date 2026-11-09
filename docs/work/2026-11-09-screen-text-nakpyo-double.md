@@ -8,7 +8,7 @@
 - 변경 대상: `screen_text/corner_brackets.py`, `tests/test_screen_text_corner_brackets.py`, `tests/test_screen_text_rules_fuzz.py`, 계약 문서 `docs/SCREEN_TEXT.md`·`AGENTS.md`, `docs/RELEASE_HISTORY.md`(v4.8 배포 뒤 수정 2).
 - 데이터 영향: 없음. DB·설정·Export·모델은 바꾸지 않는다.
 - 제외 범위: 언어 모델로 글자를 고치는 교정, 모델 재학습, 표 격자·공백 규칙.
-- 시작 시 사용자 변경: `docs/SCREEN_TEXT.md` 5~6행에 사용자가 일부러 커밋하지 않은 DDA 두 줄이 있다. 커밋할 때 그 두 줄은 빼고 올린다. 추적하지 않는 옛 `docs/work/*`·`motion/`은 원래 있던 것이다.
+- 시작 시 사용자 변경: `docs/SCREEN_TEXT.md` 5~6행에 사용자가 일부러 커밋하지 않은 두 줄이 있다. 커밋할 때 그 두 줄은 빼고 올린다. 추적하지 않는 옛 `docs/work/*`·`motion/`은 원래 있던 것이다.
 
 ## 완료 조건
 
