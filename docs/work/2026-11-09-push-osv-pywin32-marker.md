@@ -1,6 +1,6 @@
 # 작업 기록: push 보안 검사(OSV)의 pywin32 해석 실패 대응
 
-작성일: 2026-11-09 / 상태: 구현·검증 끝, push 전
+작성일: 2026-11-09 / 상태: 끝, GitLab·GitHub push 완료(`3f29e44`)
 
 ## 목표와 범위
 
@@ -14,7 +14,7 @@
 
 - [x] pywin32 줄에 `; sys_platform == "win32"`만 붙이고 버전은 그대로 둔다. Windows에서 `pip install -r requirements-lock.txt`가 설치하는 것은 같다.
 - [x] `doctor()`와 lock 시험이 표시 뒤를 버전으로 읽지 않는다. 표시가 빠지면 시험이 실패한다.
-- [ ] `full` 통과, 로컬 OSV 종료 코드 0, GitLab 보안 검사 통과 뒤 GitHub push.
+- [x] `full` 통과, 로컬 OSV 종료 코드 0, GitLab 보안 검사 통과 뒤 GitHub push.
 - [x] 필요한 수동 확인: 없음.
 
 ## 결정과 진행
@@ -36,10 +36,13 @@
 | `tools/verify.py doctor` | 통과 | `output/harness/20261109-222937-524cba8950` | |
 | 로컬 OSV(`--lockfile "requirements.txt:<파일>"`, 두 파일 각각) | 종료 코드 0 | 출력 | No issues found |
 | `full` | 통과 4,338개 | `output/harness/20261109-223207-a951944731` | 위 변경을 모두 넣은 작업 트리(9분 2초) |
+| 서버식 OSV(`git archive 3f29e44`를 푼 저장소 전체, `scan source -r`) | 종료 코드 0 | 출력 | lock 35개·`requirements.txt` 11개, No issues found |
+| GitLab push `git push origin 3f29e44:refs/heads/main` | 통과 | `output/harness/20261109-push-attempt/gitlab-3.log` | 보안 검사 5종(Gitleaks·Semgrep·OSV-Scanner·Trivy·Syft) PASS, 65초, `d64fbbe..3f29e44` |
+| GitHub push `git push github 3f29e44:refs/heads/main` | 통과 | `output/harness/20261109-push-attempt/github-1.log` | `d64fbbe..3f29e44`, 두 원격 `main` 모두 `3f29e44` |
 
 ## 미해결과 인계
 
 - 남은 문제: 없음. deps.dev가 고쳐진 뒤에도 표시는 맞는 표기라 그대로 두어도 된다(지울지는 그때 정한다).
 - 변경한 정본 문서: `AGENTS.md` 환경 드리프트 항목, [검증](../TESTING.md) 개발 하네스 절.
-- 다음 행동: `full` 뒤 커밋, GitLab push(보안 검사) 성공 뒤 GitHub push, 결과 기록.
-- 배포·커밋·push 여부: 사용자 승인으로 커밋·push(GitLab → GitHub, 커밋 지정).
+- 다음 행동: 없음.
+- 배포·커밋·push 여부: 사용자 승인으로 커밋하고 GitLab(보안 검사 통과) → GitHub 순서로 커밋을 지정해 push했다. 함께 올라간 것은 앞서 보류된 낫표·`concurrent.futures`·기록 커밋 6개와 작업 기록 문구 정리 커밋이다. EXE와 GitLab Release는 바꾸지 않았다.
