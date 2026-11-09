@@ -1,6 +1,6 @@
 # 작업 기록: 화면 글자 따기 남은 낫표 「 」와 겹낫표 『 』
 
-작성일: 2026-11-09 / 상태: 구현·검증·release 끝, 커밋 `84537f6`·`c5d532e`, push
+작성일: 2026-11-09 / 상태: 구현·검증·release 끝, 커밋 `84537f6`·`c5d532e`, 게시물 EXE 교체 끝, push 보류(서버 보안 검사 오류)
 
 ## 목표와 범위
 
@@ -71,4 +71,4 @@
 - 수동 확인: 업무 PC의 실제 한글·PDF 뷰어에서 `『 』`가 든 보고서 제목, 휴먼명조 본문의 `「 」`가 `『 』`로 바뀌지 않는지(새 EXE가 있어야 한다. 확인용 문서 `output/screen_text_lab/manual-check-20261109/겹낫표_확인.pdf`).
 - 변경한 정본 문서: [화면 글자 따기 계약](../SCREEN_TEXT.md)의 예외 (2)·낫표 복원 절(겹낫표, 닮은 글자·건너뛴 자리)·알려진 한계(측정), `AGENTS.md`의 낫표 문장, [릴리스 이력](../RELEASE_HISTORY.md) v4.8 배포 뒤 수정 2. 평가 도구 설명은 `output/screen_text_lab/analysis-20261106/README.txt` 끝 '낫표·겹낫표' 절.
 - 다음 행동: 사용자가 GitLab Release v4.8의 EXE를 위 2차 release 파일로 바꾼다(받은 사람 0명, 태그는 그대로). 업무 PC 수동 확인.
-- 배포·커밋·push 여부: 사용자 지시("AGENTS.md 업데이트, 커밋, 빌드, push까지")로 커밋·release까지 했다. GitLab push는 2026-11-09 밤 두 번 모두 서버 보안 검사의 OSV-Scanner FAIL(취약 목록은 비어 있음)로 거절됐다. 이 PC에서 재현해 보니 OSV가 하위 의존성을 풀 때 외부 DB(deps.dev)에서 `pywin32`(311·312 모두)를 풀지 못해 종료 코드 127로 끝났고, 해석을 끄면 0건, osv.dev에 고정 35개·최신판을 직접 물어도 0건이었다. 오늘 아침 push는 통과했고 의존성 파일은 바뀌지 않았다. 사용자 결정으로 우회(pywin32 줄에 Windows 표시 + 하네스·시험 파서 수정)는 하지 않고 외부 DB가 풀린 뒤 같은 커밋을 다시 push한다(GitHub는 GitLab 성공 뒤). 거절 기록은 `output/harness/20261109-push-attempt/`. Release 게시물 교체는 사용자가 한다.
+- 배포·커밋·push 여부: 사용자 지시("AGENTS.md 업데이트, 커밋, 빌드, push까지")로 커밋·release까지 했다. GitLab push는 2026-11-09 밤 두 번 모두 서버 보안 검사의 OSV-Scanner FAIL(취약 목록은 비어 있음)로 거절됐다. 이 PC에서 재현해 보니 OSV가 하위 의존성을 풀 때 외부 DB(deps.dev)에서 `pywin32`(311·312 모두)를 풀지 못해 종료 코드 127로 끝났고, 해석을 끄면 0건, osv.dev에 고정 35개·최신판을 직접 물어도 0건이었다. 오늘 아침 push는 통과했고 의존성 파일은 바뀌지 않았다. 사용자 결정으로 우회(pywin32 줄에 Windows 표시 + 하네스·시험 파서 수정)는 하지 않고 외부 DB가 풀린 뒤 같은 커밋을 다시 push한다(GitHub는 GitLab 성공 뒤). 거절 기록은 `output/harness/20261109-push-attempt/`. 사용자가 같은 날 GitLab Release v4.8의 첨부 `기후노트_v4.8.zip`을 이 EXE로 바꾸고 설명에 빌드 커밋 `c5d532e`와 SHA-256을 적었다(설명은 Release API로 확인했다. 첨부는 v4.7 것도 로그인 없이 받으면 404라 zip 안 EXE의 해시는 확인하지 못했고, 이 PC의 `dist/기후노트_v4.8.exe`는 새 EXE `0FD5D135…`다). 설명의 `c5d532e`는 push가 성공해야 GitLab에서 보인다. 교체 뒤 다시 본 로컬 OSV도 종료 코드 127이었다.
