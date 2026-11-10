@@ -103,6 +103,8 @@
 
 ## 8. 네트워크 계약
 
+> 통신 구현은 2026-11-10 설계로 바뀌었다(v4.9): `OpenerDirector`·`ssl` 대신 Windows 내장 WinHTTP(`src/winhttp_get.py`)를 쓴다. 주소·헤더·시간·크기·해석·실행 계약은 그대로다. [EXE에서 Python용 OpenSSL 빼기 설계](2026-11-10-openssl-free-exe-design.md)
+
 - 주소(고정, 입력으로 만들지 않음): `https://gitlab.aigov.go.kr/api/v4/projects/647/releases?per_page=1&order_by=released_at&sort=desc`
   - 2026-11-04 확인: 로그인 없이 200, 리디렉션 없음, JSON 배열 1개, `tag_name` = `v4.6`, `upcoming_release` = false, 약 4KB, 0.2초.
 - 요청: GET, 헤더는 `Accept: application/json`과 고정 User-Agent(예: `ClimateNote-UpdateCheck`)만. 쿠키·인증·사용자 데이터 없음. 시간 제한 10초. 응답은 최대 256KB까지만 읽고 넘으면 실패.

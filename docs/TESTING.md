@@ -57,11 +57,18 @@ EXE 내부 Qt DLL의 버전·해시를 검증 환경과 대조하고, 소스 렌
 |---|---|---|
 | `doctor` | OS·Python·lock·필수 파일·출력 쓰기 확인, 앱 import 없음 | 환경 준비/드리프트 진단 |
 | `quick` | 리소스·시작 경로·공휴일·실행기·핵심 DB/UI 소규모 회귀 | 일상 개발 + `--tests`로 관련 검사 추가 |
-| `data` | DB·암호화·건강 검사·백업·Import/Export·스티키 저장·메인 UI·스트레스 | 데이터 또는 저장/보기 전환 변경 |
+| `data` | DB·암호화·건강 검사·백업·Import/Export·스티키 저장·메인 UI·스트레스. 같은 묶음을 Python용 OpenSSL을 막은 프로세스로 한 번 더 돌린다(`pytest-no-openssl` 단계) | 데이터 또는 저장/보기 전환 변경 |
 | `full` | 전체 pytest 1회 | 공통 실행기·격리 변경, 기능 마무리 |
-| `release` | 공휴일 최신화(네트워크·`.env` 키 필요) → 전체 pytest 1회 → 새 EXE 빌드 → 격리 실행 6개 시나리오(신규·기존·차단·v17 업그레이드·v18 업그레이드·새 버전 확인) | 배포 산출물 검증 |
+| `release` | 공휴일 최신화(네트워크·`.env` 키 필요) → 전체 pytest 1회 → OpenSSL 없는 데이터 검사(`pytest-no-openssl`) → 새 EXE 빌드 → EXE 구성 검사(BINARY 출처·Qt DLL·앱 모듈·OpenSSL 파일과 버전 표시) → 격리 실행 시나리오(신규·기존·차단·v17 업그레이드·v18 업그레이드·새 버전 확인·화면 글자 따기) | 배포 산출물 검증 |
 
 `data`는 저장 계약 검사가 들어 있는 `test_ui.py`도 포함하므로 짧은 단위 테스트 묶음이 아니다.
+
+**OpenSSL 없는 데이터 검사**(v4.9): 배포 EXE에는 Python용 OpenSSL이 없어 `hashlib`·`hmac`을 Python 내장 구현이 맡는다.
+`tools/run_without_openssl.py`가 어떤 모듈보다 먼저 `_ssl`·`_hashlib`의 import를 막고 pytest를 띄우며(pytest가 먼저
+`hashlib`을 불러오므로 conftest에서 막으면 늦다), `data`·`release`가 `DATA_TESTS`를 이 방식으로 한 번 더 돌린다.
+`tests/test_openssl_free.py`는 열쇠 재료(`security._get_hardware_id` 등)와 백업 해시가 OpenSSL이 있는 환경에서
+적어 둔 값과 같은지 본다. 이 기대값은 고치지 않는다. 값이 달라지면 사용자가 기존 일정을 읽지 못한다.
+`ssl`을 쓰는 테스트(`test_fetch_data.py`, `test_winhttp_get.py` 등)는 이 묶음에 넣지 않는다.
 정확한 대상은 `tools/verify.py`의 `QUICK_TESTS`·`DATA_TESTS`가 정본이다.
 `quick --tests`는 기본 회귀를 유지하면서 `tests/` 안의 파일 또는 `파일::테스트`를 추가한다.
 대상이 없는 경우, 수집 오류, 0건 수집, 전부 skip은 통과가 아니다.
@@ -190,12 +197,18 @@ EXE는 시나리오마다 별도 AppData를 사용하고 `CLIMATENOTE_SKIP_START
 VC 런타임(`vcruntime140*`·`msvcp140*`)만 허용하고, EXE 안 Qt DLL은 검증 환경 원본과 바이트가 같아야 한다.
 어긋나면 종료 코드 1이며 결과는 `result.json`의 `bundle`과 `summary.md`의 `## EXE 구성`에 남는다.
 직전 EXE와의 바이트 동일·크기 차이는 Qt 업그레이드를 막지 않도록 자동 통과 조건으로 쓰지 않는다.
+v4.9부터 같은 자리에서 `openssl_check`가 이번 EXE에 Python용 OpenSSL(`libcrypto`·`libssl`·`_ssl`·`_hashlib`)과
+Qt의 `qopensslbackend.dll`이 없는지 TOC와 EXE 안 파일 이름으로 확인하고, EXE 안 모든 dll·pyd에서
+`OpenSSL <버전>` 표시를 ASCII와 UTF-16으로 찾는다. 표시는 `cryptography`의 `_rust.pyd`에만 있어야 하며,
+결과는 `result.json`의 `bundle.openssl`과 `summary.md`의 `OpenSSL:` 줄에 남는다.
+EXE 구성을 바꾼 작업은 `tools/exe_handoff_check.py --old <이전 배포 EXE> --new <이번 EXE>`로 같은 합성 데이터를
+이전 → 이번 → 이전 EXE 순으로 열어, 매번 데이터 불변과 건강 검사를 확인한다(`release`에는 넣지 않는다).
 
 1. 신규 설치: 빈 AppData → 응답하는 창 → 현재 schema·SQLite 무결성·32바이트 salt·유효한 일일 `.cnbak`·오류 로그 확인.
 2. 기존 데이터: 현재 저장 계약의 합성 일정(색 3개와 시각+알림·기간·반복 끝 날짜/건너뛴 날 세부 설정)·메모·닫힌/휴지통 스티키·D-Day·집중/세션·바로가기·설정 → 실행 전후 raw/복호화 내용 해시·ID·일정 세부 설정 값·salt 불변과 최초 보호백업 확인. seed에 세부 설정 일정이 빠지면 실패한다. 알림은 검사 중 울리지 않게 한 달 뒤로 두며, 열린 스티키는 창 크기 5mm 격자 저장 때문에 seed하지 않는다.
 3. 시작 차단: 합성 DB의 salt 손상 → 데이터 보호 오류창만 표시 → 원본 DB·salt·기존 보호백업 해시 불변 확인.
 4. 업그레이드(v4.1): `tests/fixtures/schema_v17.sql`로 만든 v17 합성 데이터 → 새 EXE 시작 → 모든 표의 기존 열 값 해시·salt 불변, 새 열 기본값, v18, `calendar_pre_v18_v17.db`가 원본과 같은지, 그리고 '기후노트 업데이트 안내' 창이 떴는지 확인. 다른 시나리오에서 이 창이 뜨면 실패다. v4.3에서는 보호백업 후 PIN 검증값 승격을 별도 확인한다. 새 검증값이 이전 PIN을 검증함을 확인한 뒤 `privacy_pin` 하나만 이전 값으로 정규화해 기존 열 해시를 대조하며, 마이그레이션 전 보호본은 정규화 없이 원본 전체를 대조한다.
-5. 새 버전 확인: 합성 데이터에서 `인터넷 접속`을 켜고 닫힌 포트(`HTTPS_PROXY=http://127.0.0.1:9`)를 준 EXE가 90초 안에 `error.log`에 `새 버전 확인 실패: connection`을 남긴다. 실패가 화면에 보이지 않는 기능이라 이 기록이 EXE에서 확인이 돈다는 근거다(인터넷 불필요). 실제 TLS는 인터넷 PC에서 `tools/smoke_release.py --exe <EXE> --run-dir <실행 폴더> --live-update-check`로 75초 동안 실패 기록이 없는지 본다(`release`에는 넣지 않는다).
+5. 새 버전 확인: 합성 데이터에서 `인터넷 접속`을 켜고 닫힌 포트(`HTTPS_PROXY=http://127.0.0.1:9`)를 준 EXE가 90초 안에 `error.log`에 `새 버전 확인 실패: connection`을 남긴다. 실패가 화면에 보이지 않는 기능이라 이 기록이 EXE에서 프록시 읽기와 WinHTTP 통신 층(`winhttp_get.py`)까지 돈다는 근거다(인터넷 불필요). 실제 TLS는 인터넷 PC에서 `tools/smoke_release.py --exe <EXE> --run-dir <실행 폴더> --live-update-check`로 105초(첫 확인 60초 + 요청 전체 상한 30초 + 마지막 읽기 10초 + 여유) 동안 실패 기록이 없는지 본다(`release`에는 넣지 않는다).
 
 **격리된 EXE 창이 잠시 표시된다.** 각 시나리오는 60초 안에 창 응답과 백업 상태를 확인한다.
 Windows Job Object에 대기 중인 launcher를 먼저 배정한 뒤 실행을 허용하고, 실패/중단 시에도
