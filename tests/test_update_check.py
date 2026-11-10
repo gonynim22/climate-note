@@ -107,6 +107,36 @@ def test_unexpected_transport_exception_is_logged_by_type_only(direct, caplog):
     assert "RuntimeError" in caplog.text and "secret detail" not in caplog.text
 
 
+@pytest.mark.parametrize(("outcome", "logged"), [
+    (WinHttpError(12030), "WinHTTP 12030"), (WinHttpError(12175), "WinHTTP 12175"),
+    (WinHttpError(12002, timed_out=True), "WinHTTP 12002"),
+    (OSError("C:/secret/winhttp.dll"), "OSError"), (TimeoutError("secret"), "TimeoutError")])
+def test_transport_failure_logs_its_code_or_type_only(direct, caplog, outcome, logged):
+    # 분류(connection·timeout)만으로는 원인을 가릴 수 없다(2026-11-10 실제 접속 9번 중 1번 실패를 못 가렸다).
+    # WinHTTP 오류 번호나 예외 종류 이름만 남기고, 주소·경로·메시지는 남기지 않는다.
+    with caplog.at_level(logging.ERROR, logger="app_error"):
+        check_latest(FakeFetch(outcome))
+    assert logged in caplog.text and "secret" not in caplog.text
+
+
+def test_refused_proxy_address_is_never_logged(monkeypatch, caplog):
+    def refused(host):
+        raise ValueError("http://user:pw@p.invalid:8080")
+
+    monkeypatch.setattr(update_check, "proxy_for", refused)
+    with caplog.at_level(logging.ERROR, logger="app_error"):
+        assert check_latest(FakeFetch(Response(200, OK_BODY))) == CheckResult(failure="connection")
+    assert "ValueError" in caplog.text and "user" not in caplog.text and "p.invalid" not in caplog.text
+
+
+@pytest.mark.parametrize("response", [Response(200, OK_BODY), Response(503, b""), Response(200, b"{")])
+def test_answers_from_the_server_log_nothing_here(direct, caplog, response):
+    # 서버가 답한 경우(성공·HTTP 오류·형식 오류)는 분류만으로 충분하다. 분류 줄은 ui_update_check가 남긴다.
+    with caplog.at_level(logging.ERROR, logger="app_error"):
+        check_latest(FakeFetch(response))
+    assert caplog.text == ""
+
+
 def test_default_transport_is_looked_up_at_call_time(direct, monkeypatch):
     fetch = FakeFetch(Response(200, OK_BODY))
     monkeypatch.setattr(update_check.winhttp_get, "https_get", fetch)

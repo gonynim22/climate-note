@@ -2,6 +2,7 @@
 
 - 보내는 것은 고정 주소의 GET뿐이다. 일정·메모·설정·PC 식별 정보를 보내지 않는다.
 - 어떤 실패도 예외로 내보내지 않고 분류해서 돌려준다. 사용자에게는 보이지 않는다.
+  서버에 닿지 못한 실패는 WinHTTP 오류 번호(또는 예외 종류 이름)만 app_error에 남긴다.
 - 통신은 winhttp_get(Windows 내장 WinHTTP)이 맡는다. 배포 EXE에는 Python용 OpenSSL이 없어 urllib로는
   HTTPS를 열 수 없다. urllib.request는 프록시 설정을 읽는 데만 쓴다(지금까지와 같은 방식으로 읽는다).
 - winhttp_get·urllib.request는 일부러 모듈 맨 위에서 import한다. EXE에서 모듈이 빠지면 시작 때 드러나야지,
@@ -96,11 +97,16 @@ def check_latest(fetch=None) -> CheckResult:
         response = client(RELEASES_URL, headers={"Accept": "application/json"}, user_agent=USER_AGENT,
                           timeout_seconds=TIMEOUT_SECONDS, max_bytes=MAX_RESPONSE_BYTES + 1,
                           proxy=proxy_for(_HOST))
+    # 서버에 닿지 못한 실패는 분류만으로 원인을 가릴 수 없어 WinHTTP 오류 번호나 예외 종류 이름을 함께 남긴다.
+    # 주소·경로·예외 메시지는 남기지 않는다(프록시 주소에 사용자 정보가 있을 수 있다).
     except winhttp_get.WinHttpError as exc:
+        _logger.error("새 버전 확인 통신 오류: WinHTTP %s", exc.code)
         return CheckResult(failure="timeout" if exc.timed_out else "connection")
-    except TimeoutError:
+    except TimeoutError as exc:
+        _logger.error("새 버전 확인 통신 오류: %s", type(exc).__name__)
         return CheckResult(failure="timeout")
-    except (OSError, ValueError):  # 인증서·연결 끊김·프록시 주소 오류·winhttp.dll을 열지 못함
+    except (OSError, ValueError) as exc:  # 프록시 주소 오류·winhttp.dll을 열지 못함
+        _logger.error("새 버전 확인 통신 오류: %s", type(exc).__name__)
         return CheckResult(failure="connection")
     except Exception as exc:  # 최후 수단: 통신 층(ctypes)의 예상 밖 예외도 내보내지 않는다(작업 스레드가 죽는다)
         _logger.error("새 버전 확인 통신 층 예외: %s", type(exc).__name__)
