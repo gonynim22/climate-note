@@ -725,3 +725,130 @@ def test_release_bundle_failure_has_exit_one_and_skips_smoke(runner, monkeypatch
     assert verify.execute("release") == 1
     assert steps == ["pytest", "pytest-no-openssl", "build"]  # smoke는 돌지 않는다
     assert "검증 환경 밖" in verify.read_json(runner / "result.json")["error"]
+
+
+WIDE_BANNER = "OpenSSL 3.5.4 30 Sep 2025".encode("utf-16-le")  # Qt 플러그인 안의 표시는 UTF-16이다
+
+
+def test_find_openssl_banners_reads_ascii_and_utf16():
+    assert verify.find_openssl_banners(b"\x00..OpenSSL 3.0.16 11 Feb 2025\x00") == ["OpenSSL 3.0.16"]
+    assert verify.find_openssl_banners(b"\x01\x02" + WIDE_BANNER + b"\x00\x00") == ["OpenSSL 3.5.4"]
+    assert verify.find_openssl_banners(b"OpenSSL 4.0.1 x" + WIDE_BANNER + b" OpenSSL 4.0.1") == \
+        ["OpenSSL 3.5.4", "OpenSSL 4.0.1"]
+    assert verify.find_openssl_banners(b"built with OpenSSL 1.1.1w") == ["OpenSSL 1.1.1w"]
+    assert verify.find_openssl_banners(b"OpenSSL backend, OpenSSL 3 only, openssl 1.2.3") == []
+
+
+@pytest.mark.parametrize("path", [
+    Path(sys.prefix) / "Lib/site-packages/PySide6/plugins/tls/qopensslbackend.dll",  # UTF-16 표시
+    Path(sys.prefix) / "Lib/site-packages/cryptography/hazmat/bindings/_rust.pyd",
+    Path(sys.base_prefix) / "DLLs/libcrypto-3.dll",
+    Path(sys.base_prefix) / "DLLs/_hashlib.pyd",
+], ids=lambda path: path.name)
+def test_find_openssl_banners_on_installed_binaries(path):
+    if not path.is_file():
+        pytest.skip(f"이 환경에 없는 파일: {path.name}")
+    found = verify.find_openssl_banners(path.read_bytes())
+    assert found and all(item.startswith("OpenSSL ") for item in found)
+
+
+def test_build_filter_names_all_match_the_release_pattern():
+    import build_app
+    assert all(verify.OPENSSL_FILE.match(name) for name in build_app.OPENSSL_FILE_NAMES)
+    assert verify.OPENSSL_FILE.match("libcrypto-3-x64.dll") and verify.OPENSSL_FILE.match("_ssl.cp313-win_amd64.pyd")
+    assert not verify.OPENSSL_FILE.match("qschannelbackend.dll") and not verify.OPENSSL_FILE.match("_sqlite3.pyd")
+
+
+RUST = r"cryptography\hazmat\bindings\_rust.pyd"
+CLEAN_BLOBS = {"python313.dll": b"plain", RUST: b"..OpenSSL 4.0.1 9 Jun 2026..", "base_library.zip": WIDE_BANNER,
+               r"PySide6\plugins\tls\qschannelbackend.dll": b"schannel"}
+
+
+def _openssl_case(tmp_path, monkeypatch, blobs, toc_entries=()):
+    toc = tmp_path / "Analysis-00.toc"
+    entries = [(name, "C:/src/" + name, "BINARY") for name in blobs] + list(toc_entries)
+    toc.write_text(repr(([("main", "main.py", "PYSOURCE")], entries, [("ssl", "x.py", "PYMODULE")])), encoding="utf-8")
+    monkeypatch.setattr(verify, "_embedded_archive", lambda _exe: (list(blobs), lambda name: blobs[name]))
+    return toc
+
+
+def test_openssl_check_accepts_exe_with_only_the_cryptography_copy(tmp_path, monkeypatch):
+    toc = _openssl_case(tmp_path, monkeypatch, CLEAN_BLOBS)
+    result = verify.openssl_check(toc, tmp_path / "app.exe")
+    assert result["files"] == [] and result["scanned"] == 3 and result["upx_packed"] == []  # zip은 보지 않는다
+    assert result["banners"] == [{"name": "cryptography/hazmat/bindings/_rust.pyd", "found": ["OpenSSL 4.0.1"]}]
+
+
+def test_openssl_check_rejects_openssl_file_in_toc(tmp_path, monkeypatch):
+    toc = _openssl_case(tmp_path, monkeypatch, CLEAN_BLOBS, [("_ssl.pyd", "C:/Python313/DLLs/_ssl.pyd", "EXTENSION")])
+    with pytest.raises(verify.VerificationFailure, match="OpenSSL 파일") as caught:
+        verify.openssl_check(toc, tmp_path / "app.exe")
+    assert "_ssl.pyd" in str(caught.value)
+
+
+def test_openssl_check_rejects_openssl_file_inside_exe(tmp_path, monkeypatch):
+    blobs = {**CLEAN_BLOBS, r"PySide6\plugins\tls\qopensslbackend.dll": b"plugin"}
+    toc = _openssl_case(tmp_path, monkeypatch, CLEAN_BLOBS)
+    monkeypatch.setattr(verify, "_embedded_archive", lambda _exe: (list(blobs), lambda name: blobs[name]))
+    with pytest.raises(verify.VerificationFailure, match="OpenSSL 파일") as caught:
+        verify.openssl_check(toc, tmp_path / "app.exe")
+    assert "qopensslbackend.dll" in str(caught.value)
+
+
+def test_openssl_check_rejects_banner_outside_allowed_file(tmp_path, monkeypatch):
+    blobs = {**CLEAN_BLOBS, r"PySide6\Qt6Network.dll": b"head" + WIDE_BANNER + b"tail"}
+    toc = _openssl_case(tmp_path, monkeypatch, blobs)
+    with pytest.raises(verify.VerificationFailure, match="버전 표시") as caught:
+        verify.openssl_check(toc, tmp_path / "app.exe")
+    assert "Qt6Network.dll" in str(caught.value) and "OpenSSL 3.5.4" in str(caught.value)
+
+
+def test_openssl_check_reports_upx_packed_binaries(tmp_path, monkeypatch):
+    blobs = {**CLEAN_BLOBS, "packed.dll": b"MZ" + b"\x00" * 100 + b"UPX!" + b"\x00" * 100}
+    result = verify.openssl_check(_openssl_case(tmp_path, monkeypatch, blobs), tmp_path / "app.exe")
+    assert result["upx_packed"] == ["packed.dll"]
+
+
+def _release_until_bundle(runner, monkeypatch, openssl):
+    """pytest·빌드는 통과로 기록하고 산출물 검사까지 간다. openssl은 openssl_check 자리의 함수다."""
+    steps = []
+
+    def step(name, _command, directory, _env, **kwargs):
+        steps.append(name)
+        record = {"name": name, "status": "passed", "returncode": 0, "log": f"{name}.log"}
+        kwargs["report"]["steps"].append(record)
+        if name.startswith("pytest"):
+            verify.atomic_text(directory / f"{name}.xml", "<testsuite><testcase name='ok'/></testsuite>")
+        if name == "build":
+            (directory / "build/build").mkdir(parents=True)
+            verify.atomic_text(directory / "build/build/Analysis-00.toc", "()")
+        return record
+
+    monkeypatch.setattr(verify, "run_step", step)
+    monkeypatch.setattr(verify, "artifact_metadata", lambda exe, _env: {"path": str(exe)})
+    monkeypatch.setattr(verify, "bundle_check", lambda _toc, _exe: {
+        "binary_entries": 1, "outside_environment": [], "qt_dlls": []})
+    monkeypatch.setattr(verify, "app_module_check", lambda _exe: {"expected": 1, "missing": []})
+    monkeypatch.setattr(verify, "openssl_check", openssl)
+    code = verify.execute("release")
+    return code, steps, verify.read_json(runner / "result.json")
+
+
+def test_release_records_openssl_check_before_smoke(runner, monkeypatch):
+    found = {"files": [], "scanned": 5, "upx_packed": [],
+             "banners": [{"name": "cryptography/hazmat/bindings/_rust.pyd", "found": ["OpenSSL 4.0.1"]}]}
+    _code, steps, report = _release_until_bundle(runner, monkeypatch, lambda _toc, _exe: found)
+    assert steps == ["pytest", "pytest-no-openssl", "build", "smoke"]
+    assert report["bundle"]["openssl"] == found
+    with open(runner / "summary.md", encoding="utf-8") as stream:
+        summary = stream.read()
+    assert "OpenSSL: Python용·Qt 연결 파일 없음" in summary and "_rust.pyd(OpenSSL 4.0.1)" in summary
+
+
+def test_release_openssl_failure_has_exit_one_and_skips_smoke(runner, monkeypatch):
+    def failed(_toc, _exe):
+        raise verify.VerificationFailure("EXE에 OpenSSL 파일 포함: ['libcrypto-3.dll']")
+
+    code, steps, report = _release_until_bundle(runner, monkeypatch, failed)
+    assert code == 1 and steps == ["pytest", "pytest-no-openssl", "build"]
+    assert "libcrypto-3.dll" in report["error"]

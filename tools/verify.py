@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import runpy
 import subprocess
 import sys
@@ -331,6 +332,12 @@ def save_report(run_dir, report):
                   f"- Qt DLL {len(bundle['qt_dlls'])}개: 검증 환경 원본과 바이트 동일"]
         if "app_modules" in bundle:
             lines.append(f"- src/ 앱 모듈 {bundle['app_modules']['expected']}개: 모두 EXE PYZ에 포함")
+        if "openssl" in bundle:
+            openssl = bundle["openssl"]
+            shown = ", ".join(f"{Path(item['name']).name}({', '.join(item['found'])})"
+                              for item in openssl["banners"]) or "없음"
+            lines.append(f"- OpenSSL: Python용·Qt 연결 파일 없음, 버전 표시 {shown}뿐 "
+                         f"(dll·pyd {openssl['scanned']}개 확인, UPX 압축 {len(openssl['upx_packed'])}개)")
     if report.get("root_dist"):
         lines += ["", "## 기존 dist 보존", ""]
         for observation in report["root_dist"]:
@@ -451,6 +458,73 @@ def bundle_check(toc_path, exe):
     if not qt:
         raise VerificationFailure("EXE에서 Qt DLL을 찾지 못했습니다.")
     return {"binary_entries": len(entries), "outside_environment": outside, "qt_dlls": qt}
+
+
+# 배포 EXE에 있으면 안 되는 OpenSSL 파일(파일 이름 기준). build_app.OPENSSL_FILE_NAMES보다 넓게 본다:
+# Git Bash의 libcrypto-3-x64.dll처럼 다른 경로로 섞여 든 것도 잡는다.
+OPENSSL_FILE = re.compile(
+    r"(?i)^(?:(?:libcrypto|libssl)[-\w.]*\.dll|_ssl\.[-\w.]*pyd|_hashlib\.[-\w.]*pyd|qopensslbackend\.dll)$")
+# OpenSSL 버전 표시를 가져도 되는 파일: 본문 암호화를 맡는 cryptography의 정적 사본뿐이다.
+OPENSSL_BANNER_ALLOWED = ("cryptography/hazmat/bindings/_rust.pyd",)
+_BANNER_ASCII = re.compile(rb"OpenSSL \d+\.\d+\.\d+[a-z]*")
+# Qt 플러그인은 같은 표시를 UTF-16으로 갖는다(ASCII로만 찾으면 놓친다).
+_BANNER_WIDE = re.compile(
+    rb"O\x00p\x00e\x00n\x00S\x00S\x00L\x00 \x00(?:\d\x00)+\.\x00(?:\d\x00)+\.\x00(?:\d\x00)+(?:[a-z]\x00)*")
+
+
+def find_openssl_banners(data):
+    """바이너리 안의 'OpenSSL 3.0.16' 같은 버전 표시를 ASCII와 UTF-16LE로 찾아 정렬해 돌려준다."""
+    found = {match.group().decode("ascii") for match in _BANNER_ASCII.finditer(data)}
+    found.update(match.group().decode("utf-16-le") for match in _BANNER_WIDE.finditer(data))
+    return sorted(found)
+
+
+def _toc_names(value):
+    """TOC의 (이름, 원본, 종류) 항목 이름. BINARY뿐 아니라 EXTENSION 등 모든 종류를 본다."""
+    if isinstance(value, (list, tuple)):
+        if len(value) == 3 and all(isinstance(item, str) for item in value):
+            yield value[0]
+        else:
+            for item in value:
+                yield from _toc_names(item)
+
+
+def _embedded_archive(exe):
+    # PyInstaller는 release 단계에서만 가져온다.
+    from PyInstaller.archive.readers import CArchiveReader
+    archive = CArchiveReader(str(exe))
+    return list(archive.toc), archive.extract
+
+
+def openssl_check(toc_path, exe):
+    """이번 EXE에 Python용 OpenSSL·Qt OpenSSL 연결 플러그인이 없고 버전 표시가 허용 파일에만 있는지 확인한다.
+
+    2026-11-10 바이너리 검사가 EXE의 OpenSSL을 지적했다. build.spec이 빼도 다른 경로로 다시
+    섞이면 빌드는 성공하므로, 묶음 목록(TOC)과 EXE 안 파일을 직접 본다.
+    """
+    with open(toc_path, encoding="utf-8") as stream:
+        listed = list(_toc_names(ast.literal_eval(stream.read())))
+    names, read = _embedded_archive(exe)
+    files = sorted({name.replace("\\", "/") for name in [*listed, *names]
+                    if OPENSSL_FILE.match(name.replace("\\", "/").rsplit("/", 1)[-1])})
+    if files:
+        raise VerificationFailure(f"EXE에 OpenSSL 파일 포함: {files}")
+    banners, packed, scanned = [], [], 0
+    for name in names:
+        posix = name.replace("\\", "/")
+        if not posix.lower().endswith((".dll", ".pyd")):
+            continue
+        data = read(name)
+        scanned += 1
+        if b"UPX!" in data[:4096]:
+            packed.append(posix)  # 압축된 파일은 글자를 볼 수 없다. 보고서에 남긴다
+        found = find_openssl_banners(data)
+        if found:
+            banners.append({"name": posix, "found": found})
+    unexpected = [item for item in banners if not item["name"].endswith(OPENSSL_BANNER_ALLOWED)]
+    if unexpected:
+        raise VerificationFailure(f"허용하지 않은 OpenSSL 버전 표시: {unexpected}")
+    return {"files": files, "scanned": scanned, "banners": banners, "upx_packed": packed}
 
 
 def _pyz_module_names(exe):
@@ -600,6 +674,7 @@ def execute(profile, extra=()):
                     raise VerificationFailure("이번 빌드의 Analysis TOC를 하나로 찾지 못했습니다.")
                 report["bundle"] = bundle_check(analysis[0], exe)
                 report["bundle"]["app_modules"] = app_module_check(exe)
+                report["bundle"]["openssl"] = openssl_check(analysis[0], exe)
                 save_report(run_dir, report)
                 print("격리된 EXE 창이 잠시 표시됩니다. 검사 후 전용 프로세스를 정리합니다.", flush=True)
                 step = run_step("smoke", [sys.executable, str(ROOT / "tools/smoke_release.py"),

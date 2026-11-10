@@ -274,16 +274,16 @@ def test_build_spec_excludes_python_openssl_modules(tmp_path):
 
 
 def test_without_openssl_drops_only_the_five_files():
-    keep = [("PySide6\plugins\tls\qschannelbackend.dll", "a", "BINARY"), ("python313.dll", "b", "BINARY"),
-            ("cryptography\hazmat\bindings\_rust.pyd", "c", "EXTENSION")]
-    drop = [("PySide6\plugins\tls\qopensslbackend.dll", "d", "BINARY"), ("LIBCRYPTO-3.DLL", "e", "BINARY"),
+    keep = [(r"PySide6\plugins\tls\qschannelbackend.dll", "a", "BINARY"), ("python313.dll", "b", "BINARY"),
+            (r"cryptography\hazmat\bindings\_rust.pyd", "c", "EXTENSION")]
+    drop = [(r"PySide6\plugins\tls\qopensslbackend.dll", "d", "BINARY"), ("LIBCRYPTO-3.DLL", "e", "BINARY"),
             ("libssl-3.dll", "f", "BINARY"), ("_ssl.pyd", "g", "EXTENSION"), ("lib/_hashlib.pyd", "h", "EXTENSION")]
     assert without_openssl(keep[:1] + drop + keep[1:]) == keep
 
 
 def test_build_spec_filters_openssl_binaries_before_packing(tmp_path):
     # qopensslbackend.dll은 모듈이 아니라 PySide6 훅이 모으는 플러그인이라 excludes로는 빠지지 않는다.
-    binaries = [("python313.dll", "b", "BINARY"), ("PySide6\plugins\tls\qopensslbackend.dll", "d", "BINARY")]
+    binaries = [("python313.dll", "b", "BINARY"), (r"PySide6\plugins\tls\qopensslbackend.dll", "d", "BINARY")]
     assert _spec_analysis(tmp_path, binaries=binaries)["exe_args"][2] == binaries[:1]
 
 

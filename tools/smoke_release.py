@@ -33,7 +33,7 @@ SCENARIOS = ("fresh", "existing", "blocked", "upgrade", "upgrade_v18", "update_c
 CLOSED_PROXY = "http://127.0.0.1:9"  # 닫힌 포트. 인터넷 없이 연결 실패가 보장된다
 UPDATE_CHECK_FAILED = "새 버전 확인 실패"
 UPDATE_CHECK_WAIT_SECONDS = 90  # 첫 확인이 창이 뜬 뒤 60초
-UPDATE_CHECK_LIVE_SECONDS = 75  # 첫 확인 60초 + 시간 제한 10초가 끝난 뒤까지 지켜본다
+UPDATE_CHECK_LIVE_SECONDS = 105  # 첫 확인 60초 + 요청 전체 상한 30초 + 마지막 읽기 10초가 끝난 뒤까지 지켜본다
 # 글자 따기: EXE가 모델을 불러 실제로 읽는지 본다. 빠진 모듈·모델은 빌드를 통과하고 고른 영역을 읽을 때만 드러난다.
 SCREEN_TEXT_SAMPLE = "2026년 기후변화 대응 추진계획 안내\n사업비 1,234,567천원 집행률 87.3%\n미세먼지 25㎍/㎥ 이하, 기온 3.5℃ 상승\nⅡ. 추진 현황"
 SCREEN_TEXT_MUST = ("기후변화", "1,234,567", "87.3%", "㎥", "℃", "Ⅱ.")
@@ -544,7 +544,8 @@ def protected_hashes(data_root):
 def update_check_scenario(exe, run_dir, *, live=False):
     """스위치를 켠 EXE가 실제로 새 버전을 확인하는지 error.log로 본다.
 
-    기본: 닫힌 포트를 프록시로 주면 약 60초 뒤 연결 실패가 기록돼야 한다(http·ssl 모듈까지 EXE에서 돈다는 근거).
+    기본: 닫힌 포트를 프록시로 주면 약 60초 뒤 연결 실패가 기록돼야 한다(프록시 읽기와 WinHTTP 통신 층까지
+    EXE에서 돈다는 근거. EXE에는 Python용 OpenSSL이 없다).
     live: 프록시를 건드리지 않고 기록되는 실패가 없어야 한다. 기본 시나리오와 함께 보면 TLS까지 성공했다는 근거다.
     """
     folder = run_dir / "smoke" / ("update_check_live" if live else "update_check")
