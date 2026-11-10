@@ -131,7 +131,7 @@ def test_low_score_scrap_beside_big_text_is_dropped(text):
     assert _fragment_boxes([BIG, (404, 60, 412, 80)], results) == {1}
 
 
-@pytest.mark.parametrize("text", ["-", ".", "ㅇ", "•", "□"])
+@pytest.mark.parametrize("text", ["-", ".", "ㅇ", "•", "□", "❍"])   # ❍는 모양으로 읽은 그림자 동그라미다
 def test_small_real_mark_stays(text):
     assert _fragment_boxes([BIG, (404, 60, 412, 80)], [("있도록", .99, 0), (text, .5, 0)]) == set()
 

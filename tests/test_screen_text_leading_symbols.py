@@ -573,3 +573,116 @@ def test_hangul_the_model_is_sure_of_stays_in_a_one_letter_box():
     assert symbols.apply_leading_symbols(image, boxes, [("음", 0.97), ("추진배경", 0.99)])[0] == ("음", 0.97, 0)
     # 기호만 든 상자를 모델이 한글로 잘못 읽을 때는 확신이 낮다(실측 0.17~0.60, '에' '이' '곳')
     assert symbols.apply_leading_symbols(image, boxes, [("에", 0.3), ("추진배경", 0.99)])[0][0] == "■"
+
+
+# 그림자 동그라미(❍): 사전에 없어 모델이 내지 못하고 고리 판정이 크기에 따라 ○ ㅇ 로 냈다(함평군 업무계획 PDF의 ❍ 875곳이 모두 ○).
+# 아래 표는 실제 화면에서 잰 회색 값(배경과의 차이 0~255)이다. 바깥 두 줄·두 열은 바탕이다.
+SHADOW_RING_PLAN_80 = [   # 함평군 업무계획 PDF 80%: 왼쪽 획보다 오른쪽 획(그림자)이 두껍고 진하다
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 26, 119, 175, 194, 189, 156, 75, 4, 0, 0, 0, 0],
+    [0, 0, 0, 2, 86, 186, 99, 24, 8, 53, 154, 242, 172, 25, 0, 0, 0],
+    [0, 0, 0, 73, 166, 26, 0, 0, 0, 0, 2, 94, 239, 176, 16, 0, 0],
+    [0, 0, 17, 160, 49, 0, 0, 0, 0, 0, 0, 3, 138, 246, 99, 0, 0],
+    [0, 0, 64, 141, 4, 0, 0, 0, 0, 0, 0, 0, 56, 234, 172, 6, 0],
+    [0, 0, 90, 114, 0, 0, 0, 0, 0, 0, 0, 0, 31, 217, 196, 18, 0],
+    [0, 0, 84, 120, 2, 0, 0, 0, 0, 0, 0, 0, 35, 222, 190, 15, 0],
+    [0, 0, 47, 155, 12, 0, 0, 0, 0, 0, 0, 0, 79, 242, 149, 3, 0],
+    [0, 0, 6, 139, 86, 0, 0, 0, 0, 0, 0, 18, 183, 234, 62, 0, 0],
+    [0, 0, 0, 32, 170, 77, 2, 0, 0, 0, 21, 163, 243, 117, 3, 0, 0],
+    [0, 0, 0, 0, 29, 155, 174, 114, 101, 141, 223, 221, 92, 3, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 30, 84, 103, 97, 62, 8, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+]
+SHADOW_RING_HWP = [       # 한글 창 12px(안티에일리어싱 없음): 왼쪽 획 1px, 오른쪽 2px
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 0],
+    [0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 0, 0, 0],
+    [0, 0, 255, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0],
+    [0, 0, 255, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0],
+    [0, 0, 255, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0],
+    [0, 0, 255, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0],
+    [0, 0, 255, 0, 0, 0, 0, 0, 0, 255, 255, 0, 0],
+    [0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 0, 0, 0],
+    [0, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+]
+EVEN_RING_GDI = [         # GDI 맑은 고딕 ○: 대칭인데 왼쪽 획이 두 열(56, 54)로 옅게 나뉘어 바깥 열이 글자 픽셀 문턱(76)에 못 미친다
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 25, 134, 238, 255, 255, 248, 161, 43, 0, 0, 0, 0, 0],
+    [0, 0, 0, 60, 231, 119, 32, 0, 0, 4, 66, 184, 128, 0, 0, 0, 0],
+    [0, 0, 34, 187, 11, 0, 0, 0, 0, 0, 0, 4, 134, 128, 0, 0, 0],
+    [0, 4, 140, 22, 0, 0, 0, 0, 0, 0, 0, 0, 4, 166, 22, 0, 0],
+    [0, 34, 102, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 89, 0, 0],
+    [0, 56, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 144, 0, 0],
+    [0, 56, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 144, 0, 0],
+    [0, 56, 54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 144, 0, 0],
+    [0, 34, 102, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 89, 0, 0],
+    [0, 0, 129, 22, 0, 0, 0, 0, 0, 0, 0, 0, 4, 166, 22, 0, 0],
+    [0, 0, 34, 187, 11, 0, 0, 0, 0, 0, 0, 4, 134, 89, 0, 0, 0],
+    [0, 0, 0, 60, 231, 119, 32, 0, 0, 4, 66, 184, 128, 0, 0, 0, 0],
+    [0, 0, 0, 0, 25, 134, 238, 255, 255, 248, 161, 43, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+]
+
+
+def measured(levels):
+    """화면에서 잰 회색 값을 bullet_line의 덮인 비율로."""
+    return np.asarray(levels, float) / 255
+
+
+def eccentric_ring(size, stroke, offset, sub=8):
+    """지름 size인 고리. 구멍을 왼쪽으로 offset만큼 옮겨 오른쪽 획이 그만큼 두껍다(그림자 동그라미 ❍의 모양)."""
+    yy, xx = (np.mgrid[0:size * sub, 0:size * sub] + .5) / sub
+    c = size / 2
+    outer = (yy - c) ** 2 + (xx - c) ** 2 <= c * c
+    hole = (yy - c) ** 2 + (xx - c + offset) ** 2 <= (c - stroke) ** 2
+    return (outer & ~hole).reshape(size, sub, size, sub).mean(axis=(1, 3))
+
+
+def shadow_square(size=13, stroke=1, shadow=2):
+    """그림자 네모(❏): 속이 빈 네모의 오른쪽과 아래에 그림자가 붙는다."""
+    cover = np.zeros((size + shadow, size + shadow))
+    cover[:stroke, :size] = cover[size - stroke:size, :size] = 1
+    cover[:size, :stroke] = cover[:size, size - stroke:size] = 1
+    cover[shadow:size + shadow, size:size + shadow] = 1
+    cover[size:size + shadow, shadow:size + shadow] = 1
+    return cover
+
+
+@pytest.mark.parametrize("levels", [SHADOW_RING_PLAN_80, SHADOW_RING_HWP])
+def test_ring_with_heavier_right_side_is_shadowed_circle(levels):
+    """오른쪽 그림자가 보이는 고리는 ❍다. 모양이 분명해 확인 필요로 표시하지 않는다."""
+    image, left, end = bullet_line(measured(levels))
+    assert symbols.leading_symbol(image, 0, outside_box(image, left, end))[0] == "❍"
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("사업내용", 0.9)]) == [("❍ 사업내용", 0.9, 0)]
+
+
+@pytest.mark.parametrize("size, stroke, offset", [(10, 2, .8), (18, 3, 1.2)])   # 크기로는 ㅇ(줄 글자 높이의 0.5배)과 ○(0.9배)가 될 고리
+def test_shadowed_circle_does_not_depend_on_size(size, stroke, offset):
+    image, left, end = bullet_line(eccentric_ring(size, stroke, offset))
+    assert symbols.apply_leading_symbols(image, [(0, 0, end, HEIGHT)], [("O 사업내용", 0.9)]) == [("❍ 사업내용", 0.9, 0)]   # 상자 안의 O로 읽혔다
+
+
+def test_shadowed_circle_alone_in_its_box():
+    """위치 찾기가 기호만 따로 상자로 자르면 모델이 읽은 글자('0', 0.47)를 ❍로 바꾼다."""
+    image, left, end = bullet_line(measured(SHADOW_RING_PLAN_80))
+    boxes = [(2, 0, left - 4, HEIGHT), (left, 0, end, HEIGHT)]
+    assert symbols.apply_leading_symbols(image, boxes, [("0", 0.47), ("사업내용", 0.97)]) == [("❍", 0.47, 0), ("사업내용", 0.97, 0)]
+
+
+def test_even_ring_whose_faint_edge_is_cut_stays_a_ring():
+    """대칭인 고리도 옅은 바깥 열이 글자 픽셀 문턱에 잘리면 덩어리 안만 볼 때 오른쪽이 2배 무거워 보인다. 둘레까지 재면 고르다."""
+    image, left, end = bullet_line(measured(EVEN_RING_GDI))
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("사업내용", 0.9)]) == [("ㅇ 사업내용", 0.9, 1)]
+
+
+def test_shadowed_square_is_not_a_shadowed_circle():
+    """그림자 네모(❏)도 오른쪽이 무겁지만 꼭짓점이 찬다. ❍로 바꾸지 않고 지금처럼 고리로 내어 확인 필요로 둔다."""
+    image, left, end = bullet_line(shadow_square())
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("사업내용", 0.9)]) == [("○ 사업내용", 0.9, 1)]

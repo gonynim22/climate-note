@@ -1,9 +1,10 @@
-"""줄 맨 앞 글머리 기호(■ □ ● ◆ ◇ ㅇ ○ • -)를 모양으로 알아본다. Qt를 쓰지 않고 numpy만 쓴다.
+"""줄 맨 앞 글머리 기호(■ □ ● ◆ ◇ ㅇ ○ ❍ • -)를 모양으로 알아본다. Qt를 쓰지 않고 numpy만 쓴다.
 
 인식 모델은 공문서의 글머리 기호를 거의 읽지 못한다(실제 공문서 PDF에서 ■ 94%·□ 100%·ㅇ 55% 누락). 줄(인식 상자)
 맨 앞의 글자 픽셀 덩어리가 글자보다 작고 뒤 글자와 떨어져 있으면 모양(속이 찬 정사각/속이 빈 정사각/마름모/
 고리/작은 둥근 점/짧은 막대)으로 분류한다. 화면에 있는 모양을 읽을 뿐 글자를 추정하지 않는다. 고리는 ㅇ ◦ ○ o 를 모양으로 다
-구별할 수 없어 크기에 따라 'ㅇ'이나 '○'로 내되 확인 필요로 표시한다. 줄 가운데서 모델이 건너뛴 체크박스(□ ■)도
+구별할 수 없어 크기에 따라 'ㅇ'이나 '○'로 내되 확인 필요로 표시한다. 오른쪽 그림자가 진한 고리는 그림자 동그라미 '❍'다.
+줄 가운데서 모델이 건너뛴 체크박스(□ ■)도
 같은 모양 분류로 찾는다. 계약은 docs/SCREEN_TEXT.md를 따른다.
 """
 import threading
@@ -55,6 +56,7 @@ DOT_MIN_FILL = 0.6         # 둥근 점은 글자 픽셀로 보면 꼭짓점이 
 DOT_MIDDLE = (0.3, 0.7)    # 줄 위(0)~아래(1)에서 점 가운데의 자리. 마침표(0.9)와 위 점을 거른다
 CHECKBOX_MIN_HEIGHT = 0.6  # 줄 안 체크박스는 줄 글자 높이의 이 비율 이상(실측 0.79~0.93. ㄱ ㄷ 왼쪽 획은 0.71 이하이고 뒤 글자에 붙는다)
 CHECKBOX_MIN_PX = 6        # 이보다 작으면 마침표·가운뎃점이 네모로 보이는 크기다
+SHADOW_RATIO = 1.6         # 그림자 동그라미 ❍ 는 오른쪽 획이 그림자만큼 진하다(가운데 행 띠의 오른쪽/왼쪽 진하기 합. 실측 ❍ 2.0 이상, ○ ㅇ ◯ 1.29 이하)
 MODEL_SURE = 0.8           # 한 글자 상자를 모델이 이만큼 확신해 한글로 읽었으면 기호로 바꾸지 않는다(실측 기호를 한글로 잘못 읽은 상자 0.17~0.60, 스캔에서 번진 진짜 글자 0.93~1.00)
 FILLED = "■"
 FILLED_CIRCLE = "●"
@@ -63,6 +65,7 @@ HOLLOW_SQUARE = "□"
 DIAMOND = "◇"
 RING = "ㅇ"
 BIG_RING = "○"
+SHADOW_RING = "❍"          # 사전에 없어 모델이 내지 못하고 고리 판정이 ○ ㅇ 로 냈다. 그림자 모양이 분명해 확인 필요로 표시하지 않는다
 RINGS = frozenset((RING, BIG_RING))   # 모양으로 ㅇ ◦ ○ o 를 다 가를 수 없어 확인 필요로 표시한다
 DASH = "-"
 DOT = "•"
@@ -183,7 +186,7 @@ def _blobs(ink, reference_height=0, limit=4, thin=None, level=None):
         blob_h, blob_w = blob.shape
         outline = blob if thin is None else thin[:, a:b + 1][occupied[0]:occupied[-1] + 1]
         shade = blob if level is None else level[:, a:b + 1][occupied[0]:occupied[-1] + 1]
-        blobs.append(_Blob(blob, outline, shade, width=blob_w, height=blob_h, relative_height=blob_h / height, line_height=height,
+        blobs.append(_Blob(blob, outline, shade, level, width=blob_w, height=blob_h, relative_height=blob_h / height, line_height=height,
                            left=int(a), right=int(b), top=int(occupied[0]), bottom=int(occupied[-1]),
                            middle=((occupied[0] + occupied[-1]) / 2 - rows[0]) / max(1, rows[-1] - rows[0]),
                            gap=int(runs[k + 1][0] - b - 1) if k + 1 < len(runs) else 10 ** 6))
@@ -196,14 +199,19 @@ class _Blob(dict):
     줄 안 체크박스 찾기는 덩어리 대부분을 크기만 보고 거른다. 모든 덩어리의 모양을 미리 재던 것이 상자마다 수백 번이었다(2026-11-09).
     """
 
-    def __init__(self, blob, outline, shade, **sizes):
+    def __init__(self, blob, outline, shade, level=None, **sizes):
         super().__init__(sizes)
-        self._blob, self._outline, self._shade = blob, outline, shade
+        self._blob, self._outline, self._shade, self._level = blob, outline, shade, level
 
     def __missing__(self, key):
         if "fill" in self:
             raise KeyError(key)
         self.update(_shape_features(self._blob, self._outline, self._shade))
+        if self._level is None:   # 둘레의 진하기를 모르면 덩어리 안만 본다
+            level, top, left = self._shade, 0, 0
+        else:
+            level, top, left = self._level, self["top"], self["left"]
+        self["shadow"] = _shadow_ratio(level, top, top + self["height"] - 1, left, left + self["width"] - 1, self["gap"])
         return dict.__getitem__(self, key)
 
 
@@ -235,6 +243,23 @@ def _convex(shade):
     starts_in_rows = on & ~np.pad(on, ((0, 0), (1, 0)))[:, :-1]
     starts_in_columns = on & ~np.pad(on, ((1, 0), (0, 0)))[:-1]
     return bool(starts_in_rows.sum(axis=1).max(initial=0) <= 1 and starts_in_columns.sum(axis=0).max(initial=0) <= 1)
+
+
+def _shadow_ratio(level, top, bottom, left, right, gap):
+    """고리의 그림자 비: 가운데 행 띠(높이 0.3~0.7)에서 오른쪽 절반 진하기 합 / 왼쪽 절반 합.
+
+    그림자 동그라미(❍)는 오른쪽 획이 그림자만큼 두꺼워 2 이상이고 ○ ㅇ ◯ 는 1 안팎이다. 덩어리 둘레 1px까지 본다(옅은
+    가장자리 열이 글자 픽셀 문턱에 잘려 대칭인 고리도 한쪽이 가벼워 보였다). 오른쪽은 뒤 글자와의 틈 안에서만 넓힌다.
+    """
+    height = bottom - top + 1
+    first = top + int(round(.3 * height))
+    last = max(first + 1, top + int(round(.7 * height)))
+    a = max(0, left - 1)
+    b = min(level.shape[1] - 1, right + min(1, max(0, gap - 1)))
+    band = level[first:last, a:b + 1].astype(np.float32)
+    centers = np.arange(a, b + 1) + .5
+    middle = (left + right + 1) / 2
+    return float(band[:, centers > middle].sum()) / max(float(band[:, centers < middle].sum()), 1e-3)
 
 
 def _shape_features(blob, outline, shade):
@@ -320,6 +345,8 @@ def _classify(blob, loose=False):
             return None
         if blob["corners"] <= DIAMOND_CORNERS and relative >= .5 and blob["top_span"] <= DIAMOND_TOP:
             return DIAMOND
+        if blob["tips"] == 0 and blob["shadow"] >= SHADOW_RATIO:   # 꼭짓점이 빈 동그라미의 오른쪽 그림자. 크기와 상관없이 ❍ 다
+            return SHADOW_RING          # (그림자 네모 ❏ 는 꼭짓점이 찬다)
         return BIG_RING if relative >= BIG_RING_RATIO else RING
     return None
 
