@@ -19,6 +19,9 @@ def main(argv):
     for name in BLOCKED:
         sys.modules[name] = None  # None이면 import가 ImportError로 끝난다
     os.environ["CLIMATENOTE_NO_OPENSSL"] = "1"
+    # `python -m pytest`와 같은 경로로 맞춘다: 스크립트 폴더(tools/) 대신 프로젝트 루트.
+    # 루트의 main·screen_text와 `from tools import verify`를 쓰는 테스트가 그대로 수집돼야 한다.
+    sys.path[0] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     import hashlib
     if "openssl" in hashlib.sha256.__name__ or hasattr(hashlib, "pbkdf2_hmac"):

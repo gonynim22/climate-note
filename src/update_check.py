@@ -2,20 +2,23 @@
 
 - 보내는 것은 고정 주소의 GET뿐이다. 일정·메모·설정·PC 식별 정보를 보내지 않는다.
 - 어떤 실패도 예외로 내보내지 않고 분류해서 돌려준다. 사용자에게는 보이지 않는다.
-- urllib.request·ssl은 일부러 모듈 맨 위에서 import한다. EXE에서 모듈이 빠지면 시작 때 드러나야지,
-  조용한 확인 실패로 묻히면 안 된다(build.spec의 excludes에 http·email을 넣으면 안 된다).
+- 통신은 winhttp_get(Windows 내장 WinHTTP)이 맡는다. 배포 EXE에는 Python용 OpenSSL이 없어 urllib로는
+  HTTPS를 열 수 없다. urllib.request는 프록시 설정을 읽는 데만 쓴다(지금까지와 같은 방식으로 읽는다).
+- winhttp_get·urllib.request는 일부러 모듈 맨 위에서 import한다. EXE에서 모듈이 빠지면 시작 때 드러나야지,
+  조용한 확인 실패로 묻히면 안 된다(build.spec의 excludes에 http·email·ctypes를 넣으면 안 된다).
 """
 
 from dataclasses import dataclass
-import http.client
 import json
 import re
-import ssl
-import urllib.error
+import urllib.parse
 import urllib.request
+
+import winhttp_get
 
 RELEASES_URL = ("https://gitlab.aigov.go.kr/api/v4/projects/647/releases"
                 "?per_page=1&order_by=released_at&sort=desc")  # 리디렉션 없는 주소(permalink는 3xx라 쓰지 않는다)
+_HOST = urllib.parse.urlsplit(RELEASES_URL).hostname
 USER_AGENT = "ClimateNote-UpdateCheck"
 TIMEOUT_SECONDS = 10
 MAX_RESPONSE_BYTES = 256 * 1024
@@ -64,41 +67,40 @@ def read_result(body: bytes) -> CheckResult:
     return CheckResult(latest_tag=tag) if parse_version(tag) is not None else CheckResult(failure="format")
 
 
-def https_only_opener() -> urllib.request.OpenerDirector:
-    """HTTPS 프록시만 등록하고 나머지 URL 형식은 거부한다. 리디렉션 처리기를 넣지 않아 3xx는 실패다.
+def proxy_for(host: str) -> str | None:
+    """이 호스트에 쓸 HTTPS 프록시를 '호스트:포트'로 돌려준다. 없거나 예외 대상이면 None.
 
-    no_proxy는 ProxyHandler의 기존 proxy_bypass 경로에서 그대로 적용된다.
-    fetch_data.py와 같은 구성이지만 그 파일은 EXE에 들어가지 않아 공유하지 않는다.
+    읽는 방식은 urllib과 같다(환경 변수 → Windows 인터넷 설정, no_proxy·예외 목록 적용).
+    자동 구성 스크립트(PAC)와 프록시 인증은 지원하지 않는다. 주소에 사용자 정보가 있으면 ValueError다.
     """
-    proxies = {scheme: address for scheme, address in urllib.request.getproxies().items()
-               if scheme == "https"}
-    opener = urllib.request.OpenerDirector()
-    for handler in (urllib.request.ProxyHandler(proxies),
-                    urllib.request.UnknownHandler(),
-                    urllib.request.HTTPSHandler(context=ssl.create_default_context()),
-                    urllib.request.HTTPDefaultErrorHandler(),
-                    urllib.request.HTTPErrorProcessor()):
-        opener.add_handler(handler)
-    return opener
+    address = urllib.request.getproxies().get("https")
+    if not address or urllib.request.proxy_bypass(host):
+        return None
+    parts = urllib.parse.urlsplit(address if "//" in address else "//" + address)
+    if parts.username is not None or parts.password is not None or not parts.hostname:
+        raise ValueError("쓸 수 없는 프록시 주소입니다.")
+    name = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    return f"{name}:{parts.port}" if parts.port else name  # 잘못된 포트는 parts.port가 ValueError를 낸다
 
 
-def check_latest(opener=None) -> CheckResult:
-    """고정 주소를 한 번 읽는다. 작업 스레드에서 호출된다."""
-    request = urllib.request.Request(
-        RELEASES_URL, headers={"Accept": "application/json", "User-Agent": USER_AGENT})
+def check_latest(fetch=None) -> CheckResult:
+    """고정 주소를 한 번 읽는다. 작업 스레드에서 호출된다.
+
+    fetch는 winhttp_get.https_get과 같은 모양이다(시험용). 없으면 부를 때 winhttp_get.https_get을 찾는다.
+    """
     try:
-        client = opener if opener is not None else https_only_opener()
-        with client.open(request, timeout=TIMEOUT_SECONDS) as response:
-            body = response.read(MAX_RESPONSE_BYTES + 1)
-    except urllib.error.HTTPError as exc:  # 3xx도 여기로 온다(리디렉션을 따르지 않는다)
-        exc.close()
-        return CheckResult(failure=f"http-{exc.code}")
-    except urllib.error.URLError as exc:
-        return CheckResult(failure="timeout" if isinstance(exc.reason, TimeoutError) else "connection")
+        client = fetch if fetch is not None else winhttp_get.https_get
+        response = client(RELEASES_URL, headers={"Accept": "application/json"}, user_agent=USER_AGENT,
+                          timeout_seconds=TIMEOUT_SECONDS, max_bytes=MAX_RESPONSE_BYTES + 1,
+                          proxy=proxy_for(_HOST))
+    except winhttp_get.WinHttpError as exc:
+        return CheckResult(failure="timeout" if exc.timed_out else "connection")
     except TimeoutError:
         return CheckResult(failure="timeout")
-    except (OSError, http.client.HTTPException, ValueError):  # 인증서·연결 끊김·프록시 주소 오류
+    except (OSError, ValueError):  # 인증서·연결 끊김·프록시 주소 오류·winhttp.dll을 열지 못함
         return CheckResult(failure="connection")
-    if len(body) > MAX_RESPONSE_BYTES:
+    if not 200 <= response.status <= 299:  # 3xx도 여기다(리디렉션을 따르지 않는다)
+        return CheckResult(failure=f"http-{response.status}")
+    if len(response.body) > MAX_RESPONSE_BYTES:
         return CheckResult(failure="format")
-    return read_result(body)
+    return read_result(response.body)

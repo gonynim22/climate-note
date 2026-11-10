@@ -5,6 +5,7 @@
 환경에서 뽑았고, 같은 시험을 OpenSSL을 막은 프로세스(tools/run_without_openssl.py)에서도 돌린다.
 """
 import hashlib
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -55,6 +56,13 @@ def test_openssl_is_really_blocked_in_the_no_openssl_run():
         import ssl  # noqa: F401
 
 
+def test_root_level_modules_resolve_like_python_m_pytest():
+    # `python -m pytest`는 프로젝트 루트를 경로에 넣는다. 막은 실행기도 같아야 main·screen_text를 쓰는
+    # 데이터 검사(test_startup_path·test_ui 등)가 수집된다(2026-11-10 data 실행에서 수집 오류 3건).
+    assert importlib.util.find_spec("main") is not None
+    assert importlib.util.find_spec("tools.verify") is not None
+
+
 def test_runner_blocks_openssl_before_pytest_starts(tmp_path):
     if os.environ.get("CLIMATENOTE_NO_OPENSSL") == "1":
         pytest.skip("막은 실행 안에서 다시 띄우지 않는다")
@@ -63,4 +71,4 @@ def test_runner_blocks_openssl_before_pytest_starts(tmp_path):
          "-p", "no:cacheprovider", "--basetemp", str(tmp_path / "inner")],
         cwd=ROOT, capture_output=True, encoding="utf-8", timeout=180)
     assert done.returncode == 0, done.stdout + done.stderr
-    assert "4 passed, 1 skipped" in done.stdout
+    assert "5 passed, 1 skipped" in done.stdout

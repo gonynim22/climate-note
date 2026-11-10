@@ -19,7 +19,7 @@ from update_check import CheckResult
 
 @pytest.fixture(autouse=True)
 def no_network(app_dir, monkeypatch):  # 키를 켠 테스트의 예약이 울려도 나가지 않게 한다
-    monkeypatch.setattr(update_check, "check_latest", lambda opener=None: CheckResult())
+    monkeypatch.setattr(update_check, "check_latest", lambda fetch=None: CheckResult())
 
 
 @pytest.fixture

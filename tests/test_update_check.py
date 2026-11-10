@@ -1,36 +1,34 @@
-"""새 버전 확인의 판정·요청: 실제 네트워크 없이 가짜 opener와 가짜 전송으로 검사한다."""
-import http.client
-import io
+"""새 버전 확인의 판정·요청: 실제 네트워크 없이 가짜 통신 층으로 검사한다."""
 import json
-import ssl
 import urllib.request
-import urllib.response
 from pathlib import Path
-from urllib.error import HTTPError, URLError
 
 import pytest
 
 import update_check
-from update_check import (
-    RELEASES_URL, CheckResult, check_latest, https_only_opener, is_newer, parse_version, read_result,
-)
+from update_check import RELEASES_URL, CheckResult, check_latest, is_newer, parse_version, proxy_for, read_result
+from winhttp_get import Response, WinHttpError
 
 OK_BODY = json.dumps([{"tag_name": "v4.7", "upcoming_release": False}]).encode()
 
 
-class FakeOpener:
-    def __init__(self, body=b"", error=None):
-        self.body, self.error, self.requests = body, error, []
+class FakeFetch:
+    """winhttp_get.https_get 자리. 호출 인자를 기록하고 정해 둔 응답을 돌려주거나 예외를 낸다."""
 
-    def open(self, request, timeout=None):
-        self.requests.append((request, timeout))
-        if self.error is not None:
-            raise self.error
-        return io.BytesIO(self.body)
+    def __init__(self, outcome=None):
+        self.outcome, self.calls = outcome, []
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        if isinstance(self.outcome, BaseException):
+            raise self.outcome
+        return self.outcome
 
 
-def _http_error(code):
-    return HTTPError(RELEASES_URL, code, "x", {}, io.BytesIO())
+@pytest.fixture
+def direct(monkeypatch):
+    """프록시 없는 PC."""
+    monkeypatch.setattr(update_check, "proxy_for", lambda host: None)
 
 
 @pytest.mark.parametrize(("older", "newer"), [
@@ -63,62 +61,82 @@ def test_bad_body_is_format_failure(body):
     assert read_result(body) == CheckResult(failure="format")
 
 
-def test_request_carries_only_fixed_headers():
-    opener = FakeOpener(OK_BODY)
-    assert check_latest(opener) == CheckResult(latest_tag="v4.7")
-    request, timeout = opener.requests[0]
-    assert request.full_url == RELEASES_URL and request.get_method() == "GET" and request.data is None
-    assert dict(request.header_items()) == {"Accept": "application/json", "User-agent": "ClimateNote-UpdateCheck"}
-    assert timeout == 10
+def test_request_carries_only_fixed_values(direct):
+    fetch = FakeFetch(Response(200, OK_BODY))
+    assert check_latest(fetch) == CheckResult(latest_tag="v4.7")
+    assert fetch.calls == [((RELEASES_URL,), dict(
+        headers={"Accept": "application/json"}, user_agent="ClimateNote-UpdateCheck",
+        timeout_seconds=10, max_bytes=256 * 1024 + 1, proxy=None))]
 
 
-def test_response_size_limit():
+def test_proxy_of_the_fixed_host_is_passed_to_the_transport(monkeypatch):
+    hosts = []
+    monkeypatch.setattr(update_check, "proxy_for", lambda host: hosts.append(host) or "p.invalid:8080")
+    fetch = FakeFetch(Response(200, OK_BODY))
+    assert check_latest(fetch) == CheckResult(latest_tag="v4.7")
+    assert hosts == ["gitlab.aigov.go.kr"] and fetch.calls[0][1]["proxy"] == "p.invalid:8080"
+
+
+def test_response_size_limit(direct):
     limit = 256 * 1024
-    assert check_latest(FakeOpener(OK_BODY + b" " * (limit - len(OK_BODY)))) == CheckResult(latest_tag="v4.7")
-    assert check_latest(FakeOpener(OK_BODY + b" " * (limit + 1 - len(OK_BODY)))) == CheckResult(failure="format")
+    assert check_latest(FakeFetch(Response(200, OK_BODY + b" " * (limit - len(OK_BODY))))) == \
+        CheckResult(latest_tag="v4.7")
+    assert check_latest(FakeFetch(Response(200, OK_BODY + b" " * (limit + 1 - len(OK_BODY))))) == \
+        CheckResult(failure="format")
 
 
-@pytest.mark.parametrize(("error", "failure"), [
-    (_http_error(302), "http-302"), (_http_error(404), "http-404"), (_http_error(503), "http-503"),
-    (TimeoutError(), "timeout"), (URLError(TimeoutError()), "timeout"), (URLError("refused"), "connection"),
-    (ssl.SSLCertVerificationError("x"), "connection"), (http.client.RemoteDisconnected("x"), "connection"),
-    (http.client.IncompleteRead(b""), "connection"), (ValueError("proxy URL with no authority"), "connection")])
-def test_every_failure_is_classified_not_raised(error, failure):
-    assert check_latest(FakeOpener(error=error)) == CheckResult(failure=failure)
+@pytest.mark.parametrize(("outcome", "failure"), [
+    (Response(302, b""), "http-302"), (Response(404, b""), "http-404"),
+    (Response(407, b""), "http-407"), (Response(503, b""), "http-503"),
+    (Response(199, OK_BODY), "http-199"), (Response(300, OK_BODY), "http-300"),
+    (Response(204, b""), "format"),
+    (WinHttpError(12002, timed_out=True), "timeout"), (TimeoutError(), "timeout"),
+    (WinHttpError(12029), "connection"), (WinHttpError(12175), "connection"),
+    (OSError("winhttp.dll"), "connection"), (ValueError("bad"), "connection")])
+def test_every_outcome_is_classified_not_raised(direct, outcome, failure):
+    assert check_latest(FakeFetch(outcome)) == CheckResult(failure=failure)
 
 
-def test_opener_failure_is_classified_not_raised(monkeypatch):
-    def broken():
-        raise ssl.SSLError("인증서 저장소를 읽지 못함")
-
-    monkeypatch.setattr(update_check, "https_only_opener", broken)
-    assert check_latest() == CheckResult(failure="connection")
-
-
-def test_opener_has_no_redirect_and_only_https_proxy(monkeypatch):
-    monkeypatch.setattr(urllib.request, "getproxies",
-                        lambda: {"https": "http://proxy.invalid:8080", "http": "http://proxy.invalid:8080"})
-    opener = https_only_opener()
-    assert set(opener.handle_open) == {"https", "unknown"}
-    assert not any(isinstance(handler, urllib.request.HTTPRedirectHandler) for handler in opener.handlers)
+def test_default_transport_is_looked_up_at_call_time(direct, monkeypatch):
+    fetch = FakeFetch(Response(200, OK_BODY))
+    monkeypatch.setattr(update_check.winhttp_get, "https_get", fetch)
+    assert check_latest() == CheckResult(latest_tag="v4.7")
+    assert len(fetch.calls) == 1
 
 
-def test_redirect_is_not_followed(monkeypatch):
-    monkeypatch.setattr(urllib.request, "getproxies", lambda: {})
-    calls = []
-
-    def transport(handler, request):
-        calls.append(request.full_url)
-        response = urllib.response.addinfourl(
-            io.BytesIO(b""), {"Location": "https://other.invalid/"}, request.full_url, 302)
-        response.msg = "Found"
-        return response
-
-    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", transport)
-    assert check_latest() == CheckResult(failure="http-302")
-    assert calls == [RELEASES_URL]
+@pytest.mark.parametrize(("proxies", "bypass", "expected"), [
+    ({}, False, None), ({"http": "http://p.invalid:8080"}, False, None),
+    ({"https": "http://p.invalid:8080"}, False, "p.invalid:8080"),
+    ({"https": "p.invalid:8080"}, False, "p.invalid:8080"),
+    ({"https": "https://p.invalid:8080/"}, False, "p.invalid:8080"),
+    ({"https": "http://p.invalid"}, False, "p.invalid"),
+    ({"https": "http://p.invalid:8080"}, True, None)])
+def test_proxy_is_read_the_way_urllib_reads_it(monkeypatch, proxies, bypass, expected):
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: proxies)
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: bypass)
+    assert proxy_for("gitlab.aigov.go.kr") == expected
 
 
-def test_module_has_no_qt_or_db():
+@pytest.mark.parametrize("address", ["http://user:pw@p.invalid:8080", "http://user@p.invalid:8080",
+                                     "http://:8080", "http://", "http://p.invalid:port"])
+def test_unusable_proxy_address_is_refused(monkeypatch, address):
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"https": address})
+    monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: False)
+    with pytest.raises(ValueError):
+        proxy_for("gitlab.aigov.go.kr")
+
+
+def test_refused_proxy_means_connection_failure_without_a_request(monkeypatch):
+    def refused(host):
+        raise ValueError("프록시 주소에 사용자 정보가 있음")
+
+    monkeypatch.setattr(update_check, "proxy_for", refused)
+    fetch = FakeFetch(Response(200, OK_BODY))
+    assert check_latest(fetch) == CheckResult(failure="connection")
+    assert fetch.calls == []
+
+
+def test_module_has_no_qt_db_or_openssl():
     source = Path(update_check.__file__).read_text(encoding="utf-8")
-    assert "PySide6" not in source and "import database" not in source
+    for forbidden in ("PySide6", "import database", "import ssl", "http.client", "OpenerDirector"):
+        assert forbidden not in source

@@ -22,7 +22,7 @@ def server(app_dir, monkeypatch):
     """check_latest를 바꾼다. answers를 차례로 돌려주고, gate를 걸면 그동안 응답을 붙잡는다."""
     state = SimpleNamespace(answers=[CheckResult(latest_tag="v4.7")], calls=0, gate=None)
 
-    def fake(opener=None):
+    def fake(fetch=None):
         state.calls += 1
         if state.gate is not None:
             state.gate.wait(5)
@@ -60,10 +60,10 @@ def _hold_request(qtbot, controller, server):
 
 @pytest.mark.parametrize("value", [None, "yes"])
 def test_off_means_no_request_at_all(qtbot, app_dir, monkeypatch, value):
-    def forbidden():
+    def forbidden(*_args, **_kwargs):
         raise AssertionError("꺼진 PC에서 요청을 만들었다")
 
-    monkeypatch.setattr(update_check, "https_only_opener", forbidden)
+    monkeypatch.setattr(update_check.winhttp_get, "https_get", forbidden)  # 통신 층이 한 번도 불리지 않는다
     if value is not None:
         db.save_setting(db.SETTING_INTERNET_ACCESS, value)
     controller, signals = _controller()
@@ -240,7 +240,7 @@ def test_stop_drops_late_result(qtbot, server):
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_dead_worker_counts_as_failure(qtbot, app_dir, monkeypatch):
-    def broken(opener=None):
+    def broken(fetch=None):
         raise RuntimeError("작업 스레드가 죽었다")
 
     monkeypatch.setattr(update_check, "check_latest", broken)

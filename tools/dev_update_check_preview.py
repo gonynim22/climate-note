@@ -67,7 +67,7 @@ def main(argv=None) -> int:
     if args.reuse is None:
         theme_preview.seed_synthetic_data(db, args.scale, args.date or date.today())
     db.save_setting(db.SETTING_INTERNET_ACCESS, "1")
-    update_check.check_latest = lambda opener=None: update_check.CheckResult(latest_tag=args.latest)
+    update_check.check_latest = lambda fetch=None: update_check.CheckResult(latest_tag=args.latest)
     ui_update_check.FIRST_CHECK_DELAY_MS = 1000
     sys.argv = [str(MAIN_SCRIPT)]
     entry["main"]()
