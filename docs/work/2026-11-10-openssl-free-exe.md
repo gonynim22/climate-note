@@ -1,6 +1,6 @@
 # 작업 기록: EXE에서 Python용 OpenSSL 빼기
 
-작성일: 2026-11-10 / 상태: 구현·자동 검증 완료, 수동 확인과 push 대기
+작성일: 2026-11-10 / 상태: 구현 완료. 최종 검토 수정(`11a85ea`) 뒤의 release·교대 실행·실제 TLS 재확인이 남았다(아래 '최종 검토 뒤'). 수동 확인과 push 대기
 
 ## 목표와 범위
 
@@ -64,6 +64,29 @@ release 2차의 EXE(개발 중간 빌드, 배포 EXE 아님): `기후노트_v4.9
 
 현재 입력에 대한 실제 결과만 기입한다.
 
+### 최종 검토 뒤(2026-11-10 밤)
+
+별도 검토자(새 컨텍스트)가 전체 변경을 읽었다. Critical 없음, `database.py`·`security.py` 무변경과 데이터 안전 성립을 확인받았다. 고친 것(`11a85ea`, 각각 실패하는 테스트를 먼저 썼다):
+
+- 요청 전체 상한이 응답 머리줄 단계에서 지켜지지 않았다(머리줄을 0.3초마다 1바이트씩 흘리는 서버에서 서버가 끊을 때까지 150초, 검토자 재현). 상한 시각에 감시 타이머가 요청 핸들을 닫는다.
+- `winhttp.dll`을 이름만으로 불러 EXE 폴더를 System32보다 먼저 찾았다. System32에서만 불러온다.
+- `OSError`·`ValueError` 밖의 예외가 `check_latest()` 밖으로 나갈 수 있었다. `connection`으로 분류하고 종류 이름만 기록한다.
+- release의 새 버전 확인 장면이 닫힌 포트의 `connection`을 기대해, `winhttp.dll`을 못 여는 고장과 구별하지 못했다. 터널 요청에 407로 답하는 로컬 프록시로 바꿔 `http-407` 기록과 프록시가 받은 터널 요청으로 판정한다.
+- `test_crypto_compat.py`(과거 암호문을 읽는 고정 벡터)를 OpenSSL을 막은 데이터 검사에 넣었다(설계 8절).
+- `.gitattributes`에 남은 지운 고지 파일 줄을 뺐다.
+
+| 명령/범위 | 상태 | 실행 ID / 결과 경로 | 유의사항 |
+|---|---|---|---|
+| 수정 관련 pytest 묶음(통신 층·새 버전 확인·하네스·고지·smoke) | 통과 | 직접 실행 | 230 통과·1 건너뜀, 92 통과 |
+| 고친 통신 층으로 실제 확인 한 번 | 통과 | 직접 실행 | 200, 최신 `v4.8`, 0.25초 |
+| `verify.py release` (PowerShell) 3차 | **미실행(중단)** | `20261110-210726-809b40c1fd` | 시스템 메모리 부족으로 하네스 밖에서 중단됐다. 명령의 실패가 아니다. 결과 없음 |
+| v4.8 EXE 교대 실행(수정 뒤 EXE) | 미실행 | | release 3차 뒤에 한다 |
+| 실제 TLS(`--live-update-check`, 수정 뒤 EXE) | 미실행 | | release 3차 뒤에 한다 |
+
+위 표의 release 2차·교대 실행·실제 TLS 증거는 수정 전 커밋(`ca1c8e1`)의 것이다. `11a85ea`가 `src/winhttp_get.py`·`src/update_check.py`·`tools/`를 바꿨으므로 현재 코드의 통과 근거로 쓰지 않는다. 데이터 쪽 코드는 바뀌지 않았다.
+
+미룬 작은 지적(검토자 Minor, 고치지 않음): 프록시 값의 드문 모양(socks 스킴 등) 거부, `without_openssl`의 `-x64` 변형 이름, UPX 압축 파일을 실패로 볼지, 테스트의 포트 9 고정, 1ms 미만 시간 제한, 헤더 길이 계산, 실행기 종료 코드 3의 원인 문구, 정적 테스트 둘, 교대 실행 도구 설명 한 줄.
+
 ## 미해결과 인계
 
 - 남은 문제 / 수동 확인:
@@ -72,5 +95,5 @@ release 2차의 EXE(개발 중간 빌드, 배포 EXE 아님): `기후노트_v4.9
   - Windows가 인증서 확인을 위해 스스로 하는 통신이 막힌 망에서는 `connection`·`timeout`이 남을 수 있다.
   - 재검사 도구의 판정은 돌려 봐야 안다. `cryptography` 안의 OpenSSL이 새로 지적되면 `cryptography` 버전 올리기(lock 갱신·전체 재검증·EXE 재빌드)로 대응한다.
 - 변경한 정본 문서: `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/CODING_STANDARDS.md`, `docs/TESTING.md`, `docs/superpowers/specs/2026-11-04-update-check-design.md`, `docs/RELEASE_HISTORY.md`.
-- 다음 행동: v4.9를 마무리할 때 최종 `release`로 배포 EXE를 만들고 재검사에 낸다.
+- 다음 행동: (1) PowerShell `release`를 다시 돌린다 → (2) 그 EXE로 `tools/exe_handoff_check.py --old dist\기후노트_v4.8.exe --new <실행 폴더>\dist\기후노트_v4.9.exe` → (3) `tools/smoke_release.py --exe … --run-dir … --live-update-check` → (4) 이 표와 릴리스 이력의 중간 빌드 값을 새 결과로 고친다. 그 뒤 v4.9를 마무리할 때 최종 `release`로 배포 EXE를 만들고 재검사에 낸다.
 - 배포·커밋·push 여부: 작업별 로컬 커밋. push는 하지 않았다(사용자 승인 필요).
