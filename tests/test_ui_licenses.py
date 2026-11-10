@@ -179,3 +179,15 @@ def test_license_layout_and_scroll_in_small_work_area(qtbot, tmp_path, area):
     output.mkdir(parents=True, exist_ok=True)
     assert dlg.grab().save(str(output / f"license-{area.width()}x{area.height()}.png"))
     qtbot.mouseClick(dlg.close_button, Qt.LeftButton)
+
+
+def test_openssl_notice_covers_only_the_copy_inside_cryptography():
+    # 배포 EXE에는 Python용 OpenSSL(3.0.16)이 없다. 고지에는 cryptography 안의 사본만 남긴다.
+    entries = {entry["id"]: entry
+               for entry in json.loads((ROOT / "licenses/components.json").read_text(encoding="utf-8"))}
+    assert entries["openssl"]["version"] == "4.0.1"
+    assert entries["openssl"]["files"] == ["licenses/OpenSSL-LICENSE.txt", "licenses/OpenSSL-4.0.1-AUTHORS.txt"]
+    assert entries["python"]["version"] == "3.13.5"  # Python 자체의 고지는 그대로다
+    for name in ("components.json", "NATIVE-NOTICE.txt", "ORIGINS.json"):
+        assert "3.0.16" not in (ROOT / "licenses" / name).read_text(encoding="utf-8")
+    assert not (ROOT / "licenses/OpenSSL-3.0.16-AUTHORS.txt").exists()

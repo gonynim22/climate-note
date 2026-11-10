@@ -236,16 +236,14 @@
   {
     "id": "openssl",
     "name": "OpenSSL",
-    "version": "3.0.16 / 4.0.1",
+    "version": "4.0.1",
     "license": "Apache-2.0",
-    "description": "CPython의 동적 DLL과 cryptography 내부의 정적 구성은 버전이 다릅니다.",
+    "description": "cryptography 내부에 정적으로 포함된 구성입니다.",
     "sources": [
-      "https://github.com/openssl/openssl/tree/openssl-3.0.16",
       "https://github.com/openssl/openssl/tree/openssl-4.0.1"
     ],
     "files": [
       "licenses/OpenSSL-LICENSE.txt",
-      "licenses/OpenSSL-3.0.16-AUTHORS.txt",
       "licenses/OpenSSL-4.0.1-AUTHORS.txt"
     ]
   },

@@ -61,13 +61,8 @@
   },
   {
     "file": "licenses/OpenSSL-LICENSE.txt",
-    "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.16/LICENSE.txt (identical to openssl-4.0.1)",
+    "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-4.0.1/LICENSE.txt",
     "sha256": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a"
-  },
-  {
-    "file": "licenses/OpenSSL-3.0.16-AUTHORS.txt",
-    "source": "https://raw.githubusercontent.com/openssl/openssl/openssl-3.0.16/AUTHORS.md",
-    "sha256": "5076ca441daef7fb35e904c2ac070880c7b3d58300a5a6aecac41e8f525f4412"
   },
   {
     "file": "licenses/OpenSSL-4.0.1-AUTHORS.txt",
