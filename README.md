@@ -2,7 +2,7 @@
 
 <div align="center">
   <br>
-  <img src="readme/badge-version.svg" alt="버전 v4.8">
+  <img src="readme/badge-version.svg" alt="버전 v4.9">
   <img src="readme/badge-windows.svg" alt="Windows 10 · 11">
   <img src="readme/badge-offline.svg" alt="네트워크 오프라인 전용">
   <img src="readme/badge-license.svg" alt="라이선스 GPL-3.0">
