@@ -18,10 +18,12 @@ import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
 import re
+import threading
 import time
 import urllib.parse
 
 TOTAL_TIMEOUT_FACTOR = 3  # 요청 하나의 전체 상한 = timeout_seconds × 3 (조금씩 끝없이 오는 응답을 끊는다)
+LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800  # winhttp.dll을 System32에서만 찾는다(EXE 옆에 놓인 같은 이름을 불러오지 않는다)
 
 WINHTTP_ACCESS_TYPE_NO_PROXY = 1
 WINHTTP_ACCESS_TYPE_NAMED_PROXY = 3
@@ -78,7 +80,7 @@ def _library():
     """인자·반환 형식을 선언한 winhttp.dll. 열지 못하면 OSError다."""
     global _loaded
     if _loaded is None:
-        library = ctypes.WinDLL("winhttp", use_last_error=True)
+        library = ctypes.WinDLL("winhttp", use_last_error=True, winmode=LOAD_LIBRARY_SEARCH_SYSTEM32)
         for name, (arguments, result) in _SIGNATURES.items():
             function = getattr(library, name)
             function.argtypes, function.restype = arguments, result  # 64비트에서 핸들이 잘리지 않게 한다
@@ -142,7 +144,25 @@ def _get(host: str, port: int, path: str, *, secure: bool, headers: dict[str, st
         if time.monotonic() > deadline:
             raise WinHttpError(ERROR_WINHTTP_TIMEOUT, timed_out=True)
 
-    session = connection = request = None
+    # 호출 사이에서 시각만 보면 상한이 지켜지지 않는다: 응답 머리줄을 조금씩 흘리는 서버는 받기 호출 하나를
+    # 붙잡아 둔다. 상한 시각에 감시 타이머가 요청 핸들을 닫으면 붙잡힌 호출이 실패로 돌아온다.
+    session = connection = request = watchdog = None
+    closed, guard, expired = set(), threading.Lock(), threading.Event()
+
+    def close_once(handle):
+        with guard:  # 감시 타이머와 정리 경로가 같은 핸들을 두 번 닫지 않게 한다
+            if handle in closed:
+                return
+            closed.add(handle)
+        _close_handle(handle)
+
+    def expire():
+        expired.set()
+        close_once(request)
+
+    def failure():
+        return WinHttpError(ERROR_WINHTTP_TIMEOUT, timed_out=True) if expired.is_set() else _failure()
+
     try:
         access = WINHTTP_ACCESS_TYPE_NAMED_PROXY if proxy else WINHTTP_ACCESS_TYPE_NO_PROXY
         session = winhttp.WinHttpOpen(user_agent, access, proxy or None, None, 0)
@@ -160,37 +180,42 @@ def _get(host: str, port: int, path: str, *, secure: bool, headers: dict[str, st
                                              WINHTTP_FLAG_SECURE if secure else 0)
         if not request:
             raise _failure()
+        watchdog = threading.Timer(max(0.0, deadline - time.monotonic()), expire)
+        watchdog.daemon = True
+        watchdog.start()
         single_request = WINHTTP_DISABLE_COOKIES | WINHTTP_DISABLE_REDIRECTS | WINHTTP_DISABLE_AUTHENTICATION
         if not _set_dword_option(request, WINHTTP_OPTION_DISABLE_FEATURE, single_request):
-            raise _failure()
+            raise failure()
         within_deadline()
         if not winhttp.WinHttpSendRequest(request, lines or None, len(lines), None, 0, 0, 0):
-            raise _failure()
+            raise failure()
         within_deadline()
         if not winhttp.WinHttpReceiveResponse(request, None):
-            raise _failure()
+            raise failure()
         status, size = wintypes.DWORD(), wintypes.DWORD(ctypes.sizeof(wintypes.DWORD))
         if not winhttp.WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, None,
                                            ctypes.byref(status), ctypes.byref(size), None):
-            raise _failure()
+            raise failure()
         chunks, total = [], 0
         while total < max_bytes:
             within_deadline()
             available = wintypes.DWORD()
             if not winhttp.WinHttpQueryDataAvailable(request, ctypes.byref(available)):
-                raise _failure()
+                raise failure()
             if not available.value:
                 break
             wanted = min(available.value, max_bytes - total)
             buffer, read = ctypes.create_string_buffer(wanted), wintypes.DWORD()
             if not winhttp.WinHttpReadData(request, buffer, wanted, ctypes.byref(read)):
-                raise _failure()
+                raise failure()
             if not read.value:
                 break
             chunks.append(buffer.raw[:read.value])
             total += read.value
         return Response(status.value, b"".join(chunks))
     finally:
+        if watchdog is not None:
+            watchdog.cancel()
         for handle in (request, connection, session):
             if handle:
-                _close_handle(handle)
+                close_once(handle)

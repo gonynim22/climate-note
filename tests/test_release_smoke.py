@@ -3,12 +3,14 @@
 from contextlib import closing, contextmanager
 from ctypes import wintypes as W
 import copy
+import http.client
 import os
 import sqlite3
 import subprocess
 import sys
 import time
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -197,8 +199,11 @@ def test_enable_internet_access_writes_only_that_key():
     assert schedules == sorted(before["ids"]["schedules"])
 
 
-def _fake_launch(monkeypatch, log_text=""):
-    """EXE 없이 시나리오 흐름만 돌린다. 합성 폴더 만들기·실행을 가짜로 바꾼다."""
+def _fake_launch(monkeypatch, log_text="", tunnel=None):
+    """EXE 없이 시나리오 흐름만 돌린다. 합성 폴더 만들기·실행을 가짜로 바꾼다.
+
+    tunnel을 주면 EXE 대신 HTTPS_PROXY의 프록시에 그 대상으로 터널(CONNECT)을 요청한다.
+    """
     def data_step(action, data_root, result_path):
         if action == "enable_internet_access" and log_text:
             folder = data_root / "MyDesktopCalendar"
@@ -211,6 +216,11 @@ def _fake_launch(monkeypatch, log_text=""):
     @contextmanager
     def managed_launch(command, env, log_path):
         launches.append(env)
+        if tunnel is not None:
+            connection = http.client.HTTPConnection(env["HTTPS_PROXY"].removeprefix("http://"), timeout=5)
+            connection.request("CONNECT", tunnel)
+            assert connection.getresponse().status == 407
+            connection.close()
         yield None, SimpleNamespace(poll=lambda: None, returncode=None)
 
     monkeypatch.setattr(smoke, "data_step", data_step)
@@ -225,17 +235,38 @@ def test_update_check_scenario_detects_missing_log(monkeypatch):
         smoke.update_check_scenario("x.exe", verify.create_run_dir())
 
 
-def test_update_check_scenario_uses_closed_proxy_and_passes_on_log(monkeypatch):
-    launches = _fake_launch(monkeypatch, "새 버전 확인 실패: connection\n")
-    assert smoke.update_check_scenario("x.exe", verify.create_run_dir())["status"] == "passed"
-    assert launches[0]["HTTPS_PROXY"] == "http://127.0.0.1:9" and "NO_PROXY" not in launches[0]
+def test_update_check_tunnel_is_the_apps_fixed_host():
+    import update_check
+    assert smoke.UPDATE_CHECK_TUNNEL == urlsplit(update_check.RELEASES_URL).hostname + ":443"
+
+
+def test_update_check_scenario_passes_when_exe_reaches_the_local_proxy(monkeypatch):
+    launches = _fake_launch(monkeypatch, "새 버전 확인 실패: http-407\n", tunnel=smoke.UPDATE_CHECK_TUNNEL)
+    result = smoke.update_check_scenario("x.exe", verify.create_run_dir())
+    assert result["status"] == "passed" and result["proxy_requests"] == [smoke.UPDATE_CHECK_TUNNEL]
+    assert launches[0]["HTTPS_PROXY"].startswith("http://127.0.0.1:") and "NO_PROXY" not in launches[0]
+
+
+def test_update_check_scenario_fails_when_proxy_was_never_asked(monkeypatch):
+    # 기록만 있고 프록시가 터널 요청을 받지 못했다면 통신 층이 실제로 나간 것이 아니다.
+    _fake_launch(monkeypatch, "새 버전 확인 실패: http-407\n")
+    with pytest.raises(RuntimeError, match="터널"):
+        smoke.update_check_scenario("x.exe", verify.create_run_dir())
+
+
+def test_update_check_scenario_does_not_accept_a_bare_connection_failure(monkeypatch):
+    # winhttp.dll을 못 열거나 ctypes 호출이 깨져도 'connection'이 남는다. 그것을 통과로 보지 않는다.
+    _fake_launch(monkeypatch, "새 버전 확인 실패: connection\n")
+    monkeypatch.setattr(smoke, "UPDATE_CHECK_WAIT_SECONDS", 0)
+    with pytest.raises(TimeoutError, match="http-407"):
+        smoke.update_check_scenario("x.exe", verify.create_run_dir())
 
 
 def test_live_scenario_fails_on_logged_failure(monkeypatch):
     launches = _fake_launch(monkeypatch, "새 버전 확인 실패: http-503\n")
     with pytest.raises(RuntimeError, match="http-503"):
         smoke.update_check_scenario("x.exe", verify.create_run_dir(), live=True)
-    assert launches[0].get("HTTPS_PROXY") != "http://127.0.0.1:9"
+    assert launches[0].get("HTTPS_PROXY") == os.environ.get("HTTPS_PROXY")  # 실제 확인은 프록시를 건드리지 않는다
 
 
 def test_live_scenario_passes_when_nothing_is_logged(monkeypatch):

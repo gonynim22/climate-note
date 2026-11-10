@@ -43,7 +43,7 @@ DATA_TESTS = tuple(f"tests/test_{name}.py" for name in (
     "schedule_rules", "schedule_storage",
     "database", "security", "data_safety", "edge_cases", "stress",
     "startup_path", "ui", "ui_sticky", "ui_sticky_panel", "ui_data_lifecycle", "widget_limits",
-    "openssl_free",
+    "openssl_free", "crypto_compat",
 ))
 MANUAL_CHECKS = (
     "정상 종료 직전 스티키 저장 및 실제 설정/휴지통 동작",

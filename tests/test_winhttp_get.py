@@ -9,6 +9,7 @@ import ssl
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cryptography import x509
@@ -44,6 +45,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._reply(200, b"late")
         elif self.path == "/drip":
             self._drip()
+        elif self.path == "/dripheaders":
+            self._drip_headers()
         else:
             self._reply(404, b"")
 
@@ -72,6 +75,18 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             for _ in range(34):  # 0.3초마다 1바이트, 약 10초
                 self.wfile.write(b"x")
+                self.wfile.flush()
+                time.sleep(0.3)
+        except OSError:
+            pass
+        self.close_connection = True
+
+
+    def _drip_headers(self):
+        # 응답 머리줄을 0.3초마다 1바이트씩 약 24초 동안 보낸다. 받기 호출 하나가 끝나지 않는 서버다.
+        try:
+            for byte in b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nX-Pad: " + b"a" * 40:
+                self.wfile.write(bytes([byte]))
                 self.wfile.flush()
                 time.sleep(0.3)
         except OSError:
@@ -152,6 +167,16 @@ def test_dripping_body_hits_total_deadline(server):
     started = time.monotonic()
     with pytest.raises(WinHttpError) as caught:
         _get(server, "/drip", timeout_seconds=1)
+    assert caught.value.timed_out is True
+    assert time.monotonic() - started < 6
+
+
+def test_dripping_headers_hit_total_deadline(server):
+    # 전체 상한은 WinHTTP 호출 사이에서만 보면 지켜지지 않는다: 머리줄을 흘리는 서버는 받기 호출 하나를
+    # 붙잡아 둔다(2026-11-10 검토에서 재현, 서버가 끊을 때까지 150초). 상한 시각에 요청을 끊어야 한다.
+    started = time.monotonic()
+    with pytest.raises(WinHttpError) as caught:
+        _get(server, "/dripheaders", timeout_seconds=1)
     assert caught.value.timed_out is True
     assert time.monotonic() - started < 6
 
@@ -294,6 +319,24 @@ def test_missing_dll_is_oserror(monkeypatch):
     monkeypatch.setattr(winhttp_get, "_library", missing)
     with pytest.raises(OSError):
         winhttp_get._get("127.0.0.1", 9, "/ok", secure=False, **ARGS)
+
+
+def test_dll_is_loaded_from_system32_only(monkeypatch):
+    # 이름만 주면 EXE가 있는 폴더를 System32보다 먼저 찾는다. 옆에 놓인 가짜 winhttp.dll을 불러오지 않게 한다.
+    calls = []
+
+    class FakeLibrary:
+        def __getattr__(self, _name):
+            return SimpleNamespace()
+
+    def fake_windll(name, **kwargs):
+        calls.append((name, kwargs))
+        return FakeLibrary()
+
+    monkeypatch.setattr(winhttp_get, "_loaded", None)
+    monkeypatch.setattr(winhttp_get.ctypes, "WinDLL", fake_windll)
+    winhttp_get._library()
+    assert calls == [("winhttp", {"use_last_error": True, "winmode": 0x800})]  # LOAD_LIBRARY_SEARCH_SYSTEM32
 
 
 def test_source_never_relaxes_certificate_checks():

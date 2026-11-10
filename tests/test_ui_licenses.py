@@ -191,3 +191,4 @@ def test_openssl_notice_covers_only_the_copy_inside_cryptography():
     for name in ("components.json", "NATIVE-NOTICE.txt", "ORIGINS.json"):
         assert "3.0.16" not in (ROOT / "licenses" / name).read_text(encoding="utf-8")
     assert not (ROOT / "licenses/OpenSSL-3.0.16-AUTHORS.txt").exists()
+    assert "OpenSSL-3.0.16" not in (ROOT / ".gitattributes").read_text(encoding="utf-8")

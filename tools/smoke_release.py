@@ -6,17 +6,19 @@ Job handle이 닫히면 그 launcher와 자식 EXE만 종료된다. 앱 모듈 i
 """
 
 import argparse
-from contextlib import closing, contextmanager
+from contextlib import ExitStack, closing, contextmanager
 import ctypes
 from ctypes import wintypes as W
 from datetime import date, timedelta
 import hashlib
+import http.server
 import json
 import os
 from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 
 if __package__:
@@ -30,7 +32,10 @@ UPGRADE_NOTICE_TITLE = "기후노트 업데이트 안내"
 NOTICE_SETTLE_SECONDS = 2.0  # 안내창 지연(0.8초)보다 넉넉히 더 지켜보는 시간
 SCENARIOS = ("fresh", "existing", "blocked", "upgrade", "upgrade_v18", "update_check", "screen_text")
 # 새 버전 확인: 실패가 화면에 보이지 않는 기능이라 EXE에서 안 돌아도 로그로만 알 수 있다.
-CLOSED_PROXY = "http://127.0.0.1:9"  # 닫힌 포트. 인터넷 없이 연결 실패가 보장된다
+# 로컬 프록시가 터널 요청(CONNECT)에 407로 답한다. EXE가 프록시를 읽고 WinHTTP로 실제로 나가야만
+# 'http-407'이 남는다(winhttp.dll을 못 열거나 ctypes 호출이 깨지면 'connection'이라 구별된다). 인터넷은 쓰지 않는다.
+UPDATE_CHECK_TUNNEL = "gitlab.aigov.go.kr:443"  # 앱 고정 주소(update_check.RELEASES_URL)의 호스트. 테스트가 대조한다
+UPDATE_CHECK_REFUSED = "http-407"
 UPDATE_CHECK_FAILED = "새 버전 확인 실패"
 UPDATE_CHECK_WAIT_SECONDS = 90  # 첫 확인이 창이 뜬 뒤 60초
 UPDATE_CHECK_LIVE_SECONDS = 105  # 첫 확인 60초 + 요청 전체 상한 30초 + 마지막 읽기 10초가 끝난 뒤까지 지켜본다
@@ -541,11 +546,44 @@ def protected_hashes(data_root):
     return {path.relative_to(folder).as_posix(): file_hash(path) for path in paths if path.is_file()}
 
 
+class _RefusingProxy(http.server.BaseHTTPRequestHandler):
+    """HTTPS 터널 요청(CONNECT)을 기록하고 407로 거절한다. 어디에도 연결하지 않는다."""
+
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *_args):
+        pass
+
+    def do_CONNECT(self):
+        self.server.seen.append(self.path)
+        self.send_response(407)
+        self.send_header("Proxy-Authenticate", 'Basic realm="smoke"')
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+
+@contextmanager
+def refusing_proxy():
+    """이 검사 프로세스 안의 로컬 프록시(127.0.0.1의 빈 포트). 받은 터널 대상은 server.seen에 쌓인다."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _RefusingProxy)
+    server.daemon_threads = True
+    server.seen = []
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def update_check_scenario(exe, run_dir, *, live=False):
     """스위치를 켠 EXE가 실제로 새 버전을 확인하는지 error.log로 본다.
 
-    기본: 닫힌 포트를 프록시로 주면 약 60초 뒤 연결 실패가 기록돼야 한다(프록시 읽기와 WinHTTP 통신 층까지
-    EXE에서 돈다는 근거. EXE에는 Python용 OpenSSL이 없다).
+    기본: 터널 요청에 407로 답하는 로컬 프록시를 주면 약 60초 뒤 'http-407'이 기록되고, 프록시는 앱의
+    고정 호스트로 가는 터널 요청을 받아야 한다(프록시 읽기와 WinHTTP 통신 층이 EXE에서 실제로 왕복한다는
+    근거. EXE에는 Python용 OpenSSL이 없다). 통신 층이 EXE에서 깨지면 'connection'이 남아 실패한다.
     live: 프록시를 건드리지 않고 기록되는 실패가 없어야 한다. 기본 시나리오와 함께 보면 TLS까지 성공했다는 근거다.
     """
     folder = run_dir / "smoke" / ("update_check_live" if live else "update_check")
@@ -555,26 +593,33 @@ def update_check_scenario(exe, run_dir, *, live=False):
     data_step("seed", data_root, folder / "before.json")
     data_step("enable_internet_access", data_root, folder / "enabled.json")
     env = data_env(data_root)
-    if not live:
-        env["HTTPS_PROXY"] = CLOSED_PROXY
-        env.pop("NO_PROXY", None)
-    marker = UPDATE_CHECK_FAILED if live else f"{UPDATE_CHECK_FAILED}: connection"
+    marker = UPDATE_CHECK_FAILED if live else f"{UPDATE_CHECK_FAILED}: {UPDATE_CHECK_REFUSED}"
     log = data_root / "MyDesktopCalendar" / "error.log"
     command = [sys.executable, str(Path(__file__).resolve()), "_launch", str(exe)]
-    found = ""
-    with managed_launch(command, env, folder / "exe.log") as (_job, process):
-        deadline = time.monotonic() + (UPDATE_CHECK_LIVE_SECONDS if live else UPDATE_CHECK_WAIT_SECONDS)
-        while not found and time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeError(f"update_check: 시간 전에 EXE 종료 ({process.returncode})")
-            found = next((line for line in (log.read_text(encoding="utf-8").splitlines() if log.is_file() else [])
-                          if marker in line), "")
-            time.sleep(0.2)
+    found, requests = "", []
+    with ExitStack() as stack:
+        proxy = None
+        if not live:
+            proxy = stack.enter_context(refusing_proxy())
+            env["HTTPS_PROXY"] = f"http://127.0.0.1:{proxy.server_address[1]}"
+            env.pop("NO_PROXY", None)
+        with managed_launch(command, env, folder / "exe.log") as (_job, process):
+            deadline = time.monotonic() + (UPDATE_CHECK_LIVE_SECONDS if live else UPDATE_CHECK_WAIT_SECONDS)
+            while not found and time.monotonic() < deadline:
+                if process.poll() is not None:
+                    raise RuntimeError(f"update_check: 시간 전에 EXE 종료 ({process.returncode})")
+                found = next((line for line in (log.read_text(encoding="utf-8").splitlines() if log.is_file() else [])
+                              if marker in line), "")
+                time.sleep(0.2)
+        if proxy is not None:
+            requests = list(proxy.seen)
     if live and found:
         raise RuntimeError(f"update_check: 실제 확인 실패 기록: {found}")
     if not live and not found:
         raise TimeoutError(f"update_check: {marker} 기록이 없습니다.")
-    return {"status": "passed", "live": live, "log_line": found}
+    if not live and UPDATE_CHECK_TUNNEL not in requests:
+        raise RuntimeError(f"update_check: 프록시가 {UPDATE_CHECK_TUNNEL} 터널 요청을 받지 못했습니다: {requests}")
+    return {"status": "passed", "live": live, "log_line": found, "proxy_requests": requests}
 
 
 def _uia(script, action, name, pid):

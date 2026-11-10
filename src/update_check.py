@@ -10,11 +10,14 @@
 
 from dataclasses import dataclass
 import json
+import logging
 import re
 import urllib.parse
 import urllib.request
 
 import winhttp_get
+
+_logger = logging.getLogger("app_error")  # ERROR 수준 로거라 .error()로 쓴다. 예외 종류 이름만 남긴다
 
 RELEASES_URL = ("https://gitlab.aigov.go.kr/api/v4/projects/647/releases"
                 "?per_page=1&order_by=released_at&sort=desc")  # 리디렉션 없는 주소(permalink는 3xx라 쓰지 않는다)
@@ -98,6 +101,9 @@ def check_latest(fetch=None) -> CheckResult:
     except TimeoutError:
         return CheckResult(failure="timeout")
     except (OSError, ValueError):  # 인증서·연결 끊김·프록시 주소 오류·winhttp.dll을 열지 못함
+        return CheckResult(failure="connection")
+    except Exception as exc:  # 최후 수단: 통신 층(ctypes)의 예상 밖 예외도 내보내지 않는다(작업 스레드가 죽는다)
+        _logger.error("새 버전 확인 통신 층 예외: %s", type(exc).__name__)
         return CheckResult(failure="connection")
     if not 200 <= response.status <= 299:  # 3xx도 여기다(리디렉션을 따르지 않는다)
         return CheckResult(failure=f"http-{response.status}")

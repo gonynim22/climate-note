@@ -256,6 +256,8 @@ def test_profiles_select_expected_scope(tmp_path):
 
 def test_data_tests_include_openssl_free_vectors():
     assert "tests/test_openssl_free.py" in verify.DATA_TESTS
+    # 과거에 만든 암호문을 제품 경로로 읽는 고정 벡터도 OpenSSL을 막은 실행에 든다(설계 8절).
+    assert "tests/test_crypto_compat.py" in verify.DATA_TESTS
 
 
 def test_no_openssl_command_runs_data_tests_through_the_blocking_runner(tmp_path):

@@ -1,5 +1,7 @@
 """새 버전 확인의 판정·요청: 실제 네트워크 없이 가짜 통신 층으로 검사한다."""
+import ctypes
 import json
+import logging
 import urllib.request
 from pathlib import Path
 
@@ -92,9 +94,17 @@ def test_response_size_limit(direct):
     (Response(204, b""), "format"),
     (WinHttpError(12002, timed_out=True), "timeout"), (TimeoutError(), "timeout"),
     (WinHttpError(12029), "connection"), (WinHttpError(12175), "connection"),
-    (OSError("winhttp.dll"), "connection"), (ValueError("bad"), "connection")])
+    (OSError("winhttp.dll"), "connection"), (ValueError("bad"), "connection"),
+    # 통신 층의 어떤 예외도 밖으로 나가지 않는다(나가면 작업 스레드가 죽고 worker로만 남는다).
+    (ctypes.ArgumentError("argument 2"), "connection"), (RuntimeError("unexpected"), "connection")])
 def test_every_outcome_is_classified_not_raised(direct, outcome, failure):
     assert check_latest(FakeFetch(outcome)) == CheckResult(failure=failure)
+
+
+def test_unexpected_transport_exception_is_logged_by_type_only(direct, caplog):
+    with caplog.at_level(logging.ERROR, logger="app_error"):
+        assert check_latest(FakeFetch(RuntimeError("secret detail"))) == CheckResult(failure="connection")
+    assert "RuntimeError" in caplog.text and "secret detail" not in caplog.text
 
 
 def test_default_transport_is_looked_up_at_call_time(direct, monkeypatch):
