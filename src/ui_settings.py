@@ -14,8 +14,12 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog, QLineEdit, QApplication,
     QPushButton, QFrame, QLabel, QSizePolicy,
 )
-from PySide6.QtCore import Qt, QUrl, Signal, QSignalBlocker, QSize, QPoint
-from PySide6.QtGui import QDesktopServices, QColor, QPainter, QPen, QPixmap, QIcon
+from PySide6.QtCore import (
+    Qt, QUrl, Signal, QSignalBlocker, QSize, QPoint, QEvent, QRectF, QRegularExpression,
+)
+from PySide6.QtGui import (
+    QDesktopServices, QColor, QPainter, QPen, QPixmap, QIcon, QRegularExpressionValidator,
+)
 
 from qfluentwidgets import (
     PushButton, LineEdit, BodyLabel,
@@ -424,6 +428,142 @@ class _PathLabel(QLabel):
         super().setText(text)
 
 
+class OpacityValueField(QWidget):
+    """투명도 값 칸 'NN%'(v4.9). 두 번 누르거나 Enter·F2를 누르면 숫자 입력칸이 된다(사용자 요청 2026-11-10).
+
+    슬라이더가 짧아 한 칸씩 맞추기 어려운 것을 보완한다. 확정은 Enter·포커스 이동이고, 30 미만은 30,
+    100 초과는 100으로 맞춘다. 비었으면 이전 값을 둔다. Esc는 입력 전 값으로 돌아간다. 확정 값은
+    `committed`로 내보내고 슬라이더가 저장·적용을 맡는다.
+    """
+    committed = Signal(int)
+    WIDTH = 38  # 13px 굵은 '100%'(35px)가 잘리지 않는 폭
+
+    def __init__(self, value: int, accessible_name: str, parent=None):
+        super().__init__(parent)
+        self._value = int(value)
+        self.setFixedWidth(self.WIDTH)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setCursor(Qt.IBeamCursor)
+        self.setToolTip("두 번 눌러 직접 입력")
+        self.setAccessibleName(accessible_name)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        # 값은 제 슬라이더 쪽(왼쪽)에 붙인다. 오른쪽에 붙이면 다음 묶음 이름에 더 가까워 보인다.
+        self.label = QLabel(self._text(), self)
+        self.label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.label.setStyleSheet(
+            "font-size: 13px; color: #3A3E48; font-weight: 600; background: transparent;"
+            "padding-left: 2px;")
+        self.edit = QLineEdit(self)
+        self.edit.setVisible(False)
+        self.edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.edit.setAccessibleName(accessible_name)
+        # 숫자 세 자리까지와 끝의 %만 받는다(%는 지워도 다시 붙인다). 11px은 '100%'가 38px 칸의
+        # 글자 영역(테두리·QLineEdit 안쪽 여백·커서를 뺀 폭)에 다 들어가는 크기다.
+        self.edit.setValidator(QRegularExpressionValidator(QRegularExpression(r"\d{0,3}%?"), self.edit))
+        self.edit.setStyleSheet(
+            "QLineEdit{font-size:11px;font-weight:600;color:#1A1A1E;background:#FFFFFF;"
+            f"border:1px solid {ACCENT};border-radius:4px;padding:0px;}}")
+        self.edit.textEdited.connect(self._keep_percent)
+        self.edit.cursorPositionChanged.connect(self._keep_cursor_before_percent)
+        self.edit.installEventFilter(self)
+        layout.addWidget(self.label)
+        layout.addWidget(self.edit)
+
+    def _text(self) -> str:
+        return f"{self._value}%"
+
+    def text(self) -> str:
+        return self.label.text()
+
+    def value(self) -> int:
+        return self._value
+
+    def setValue(self, value: int) -> None:
+        self._value = int(value)
+        self.label.setText(self._text())
+
+    def is_editing(self) -> bool:
+        return not self.edit.isHidden()
+
+    def start_edit(self) -> None:
+        if self.is_editing():
+            return
+        self.edit.setText(self._text())
+        self.label.hide()
+        self.edit.show()
+        self.edit.setFocus(Qt.OtherFocusReason)
+        self.edit.selectAll()
+
+    def _keep_percent(self, text: str) -> None:
+        if not text.endswith("%"):
+            position = self.edit.cursorPosition()
+            self.edit.setText(text + "%")
+            self.edit.setCursorPosition(min(position, len(text)))
+
+    def _keep_cursor_before_percent(self, _old: int, new: int) -> None:
+        text = self.edit.text()
+        if text.endswith("%") and new == len(text) and not self.edit.hasSelectedText():
+            self.edit.setCursorPosition(len(text) - 1)
+
+    def _finish(self, commit: bool, *, refocus: bool = True) -> None:
+        if not self.is_editing():
+            return
+        digits = self.edit.text().rstrip("%").strip()
+        self.edit.hide()  # 숨기며 생기는 포커스 이동이 다시 확정하지 않도록 먼저 숨긴다.
+        self.label.show()
+        if refocus:
+            self.setFocus(Qt.OtherFocusReason)
+        if commit and digits:
+            value = max(db.MIN_APP_OPACITY, min(100, int(digits)))
+            self.setValue(value)
+            self.committed.emit(value)
+
+    def eventFilter(self, obj, event):
+        if obj is self.edit:
+            if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape:
+                self._finish(False)
+                return True
+            if event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self._finish(True)
+                return True
+            if event.type() == QEvent.FocusOut and event.reason() != Qt.PopupFocusReason:
+                # 입력칸 자체 메뉴(붙여넣기 등)로 빠지는 포커스는 입력 중이라 그대로 둔다.
+                # 잠금처럼 창이 비활성화되며 빠지는 포커스는 확정하지 않고 취소한다(잠금 뒤 늦은 쓰기 없음).
+                self._finish(self.isEnabled(), refocus=False)
+        return super().eventFilter(obj, event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.start_edit()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event):
+        if not self.is_editing() and event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_F2):
+            self.start_edit()
+            return
+        super().keyPressEvent(event)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.hasFocus() and not self.is_editing():
+            # 키보드로 왔을 때 어디에 있는지 보인다(Enter·F2로 입력).
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor(ACCENT), 1))
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+
+
 class SettingsWindow(QWidget):
     """설정 창 (시안 A)"""
     reset_succeeded = Signal()
@@ -436,13 +576,14 @@ class SettingsWindow(QWidget):
                  on_keep_changed=None, on_schedule_colors_changed=None,
                  on_prepare_data_change=None, on_before_reset=None,
                  on_monitor_selected=None, on_holiday_theme_changed=None,
-                 on_internet_access_changed=None):
+                 on_internet_access_changed=None, on_grid_lines_changed=None):
         super().__init__(parent)
         self.on_reset_callback = on_reset_callback
         self.on_import_callback = on_import_callback
         self.on_quit_callback = on_quit_callback
         self.on_lunar_changed = on_lunar_changed
         self.on_holiday_theme_changed = on_holiday_theme_changed
+        self.on_grid_lines_changed = on_grid_lines_changed
         self.on_internet_access_changed = on_internet_access_changed
         self.on_law_search_changed = on_law_search_changed
         self.on_position_changed = on_position_changed
@@ -512,11 +653,12 @@ class SettingsWindow(QWidget):
 
     def _add_row(self, body: QVBoxLayout, label: str, control: QWidget,
                  label_width: int = 116, divider: bool = True,
-                 row_height: int = 36) -> QWidget:
+                 row_height: int = 36, fill: bool = False) -> QWidget:
         """라벨-좌(고정폭) / 컨트롤-우(우측 정렬) 행. divider=True면 하단 1px 구분선 추가.
 
         row_height는 행의 최소 높이다. 800x560 무스크롤 창에 공휴일 테마·인터넷 접속 행 자리를 만들려고
-        양쪽 열 모두 36을 쓴다.
+        양쪽 열 모두 36을 쓴다. label_width=0이면 라벨 글자 폭만 쓴다. fill=True면 컨트롤이 라벨 뒤
+        남은 폭을 모두 차지한다(한 행에 스위치 둘을 나눠 둘 때).
         """
         row = QWidget(self)
         row.setObjectName("settingsRow")
@@ -528,10 +670,14 @@ class SettingsWindow(QWidget):
         lbl.setObjectName("rowLabel")
         lbl.setStyleSheet(
             "#rowLabel{font-size:13px;font-weight:500;color:%s;background:transparent;}" % LABEL_COLOR)
-        lbl.setFixedWidth(label_width)
+        if label_width:
+            lbl.setFixedWidth(label_width)
         h.addWidget(lbl, 0, Qt.AlignVCenter)
-        h.addStretch(1)
-        h.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
+        if fill:
+            h.addWidget(control, 1)
+        else:
+            h.addStretch(1)
+            h.addWidget(control, 0, Qt.AlignRight | Qt.AlignVCenter)
         body.addWidget(row)
         if divider:
             line = QFrame(self)
@@ -540,6 +686,31 @@ class SettingsWindow(QWidget):
             line.setStyleSheet("#rowDivider{background:%s;border:none;}" % ROW_DIVIDER)
             body.addWidget(line)
         return row
+
+    def _opacity_group(self, layout: QHBoxLayout, text: str, object_name: str, accessible_name: str,
+                       value: int, handler, *, tooltip: str = "") -> tuple:
+        """투명도 한 묶음 [12px 이름][56px 슬라이더][38px 값 칸]. 슬라이더가 저장·적용을 맡는다."""
+        label = QLabel(text, self)
+        label.setObjectName("opacityGroupLabel")
+        label.setStyleSheet(
+            "#opacityGroupLabel{font-size:12px;color:%s;background:transparent;}" % LABEL_COLOR)
+        slider = Slider(Qt.Horizontal, self)
+        slider.setObjectName(object_name)
+        slider.setAccessibleName(accessible_name)
+        slider.setRange(db.MIN_APP_OPACITY, 100)
+        slider.setFixedWidth(56)  # 손잡이 22px을 빼면 실제 이동 34px라 값 칸 직접 입력으로 보완한다
+        slider.setValue(value)
+        if tooltip:
+            label.setToolTip(tooltip)
+            slider.setToolTip(tooltip)
+        field = OpacityValueField(value, accessible_name, self)
+        field.committed.connect(slider.setValue)
+        slider.valueChanged.connect(handler)
+        layout.addWidget(label)
+        layout.addSpacing(4)
+        layout.addWidget(slider)
+        layout.addWidget(field)
+        return slider, field
 
     def _make_switch(self, checked: bool, handler) -> SwitchButton:
         """텍스트 없는 시안 A 토글(블루 on은 전역 테마색에서 적용)."""
@@ -672,30 +843,22 @@ class SettingsWindow(QWidget):
             disp_body, "화면 위치", pos_grid_frame, row_height=36)
         self._position_row.setMinimumHeight(60)
 
-        # 전체 투명도
+        # 투명도(v4.9 두 갈래 B안): 한 줄에 [캘린더 슬라이더 값]과 [스티키 슬라이더 값]. 행 높이 36px 그대로.
+        # 패널 안쪽 폭(343px)에서 라벨 52px+간격 12px을 빼면 278px이 남는다(묶음 134px×2+사이 10px).
         opacity_control = QWidget(self)
         opacity_row = QHBoxLayout(opacity_control)
         opacity_row.setContentsMargins(0, 0, 0, 0)
-        opacity_row.setSpacing(8)
-        self.opacity_slider = Slider(Qt.Horizontal, self)
-        self.opacity_slider.setObjectName("opacitySlider")
-        self.opacity_slider.setRange(db.MIN_APP_OPACITY, 100)
-        self.opacity_slider.setFixedWidth(150)
-        try:
-            opacity = int(db.get_setting(db.SETTING_APP_OPACITY, db.DEFAULT_APP_OPACITY))
-        except (TypeError, ValueError):
-            opacity = 100
-        opacity = max(db.MIN_APP_OPACITY, min(100, opacity))
-        self.opacity_slider.setValue(opacity)
-        self.opacity_value_label = BodyLabel(f"{opacity}%", self)
-        self.opacity_value_label.setStyleSheet(
-            "font-size: 13px; color: #3A3E48; font-weight: 600;")
-        self.opacity_value_label.setFixedWidth(38)
-        self.opacity_value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.opacity_slider.valueChanged.connect(self._on_opacity_changed)
-        opacity_row.addWidget(self.opacity_slider)
-        opacity_row.addWidget(self.opacity_value_label)
-        self._add_row(disp_body, "전체 투명도", opacity_control, row_height=36)
+        opacity_row.setSpacing(0)
+        self.opacity_slider, self.opacity_value_label = self._opacity_group(
+            opacity_row, "캘린더", "opacitySlider", "캘린더 투명도",
+            db.opacity_percent(db.get_setting(db.SETTING_APP_OPACITY, db.DEFAULT_APP_OPACITY)),
+            self._on_opacity_changed)
+        opacity_row.addSpacing(10)
+        self.widget_opacity_slider, self.widget_opacity_value_label = self._opacity_group(
+            opacity_row, "스티키", "widgetOpacitySlider", "스티키·D-Day·집중 위젯 투명도",
+            db.opacity_percent(db.get_widget_opacity()), self._on_widget_opacity_changed,
+            tooltip="스티키·D-Day·집중 위젯")
+        self._add_row(disp_body, "투명도", opacity_control, label_width=52, row_height=36)
 
         # 캘린더 크기 (일러스트 picker)
         self.scale_picker = CalendarSizePicker(
@@ -708,13 +871,33 @@ class SettingsWindow(QWidget):
             db.get_setting(db.SETTING_SHOW_LUNAR, "0") == "1", self._on_lunar_toggled)
         self._add_row(disp_body, "음력 및 공휴일", self.lunar_switch, row_height=36)
 
-        # 공휴일 테마 (섹션 마지막 행). 키가 없으면 켜짐.
+        # 공휴일 테마 · 칸 구분선 (섹션 마지막 행). 빈 행이 없어 한 행을 반으로 나눈다(사용자 결정
+        # 2026-11-10): [공휴일 테마 스위치] … [칸 구분선 글자 · 스위치]. 공휴일 테마는 키가 없으면 켜짐,
+        # 칸 구분선은 키가 없으면 꺼짐이다.
         self.holiday_theme_switch = self._make_switch(
             db.get_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1") == "1",
             self._on_holiday_theme_toggled)
         self.holiday_theme_switch.setToolTip("공휴일 3일 전부터 캘린더와 위젯에 그날 분위기를 입힙니다.")
-        self._add_row(
-            disp_body, "공휴일 테마", self.holiday_theme_switch, divider=False, row_height=36)
+        self.grid_lines_switch = self._make_switch(
+            db.get_setting(db.SETTING_CALENDAR_GRID_LINES, "0") == "1", self._on_grid_lines_toggled)
+        self.grid_lines_switch.setToolTip("캘린더 날짜 칸 사이에 가는 선을 긋습니다.")
+        theme_control = QWidget(self)
+        theme_row = QHBoxLayout(theme_control)
+        theme_row.setContentsMargins(0, 0, 0, 0)
+        theme_row.setSpacing(0)
+        theme_row.addWidget(self.holiday_theme_switch, 0, Qt.AlignVCenter)
+        theme_row.addStretch(1)
+        grid_label = QLabel("칸 구분선", self)
+        grid_label.setObjectName("inlineRowLabel")  # 행 라벨(rowLabel) 목록에는 넣지 않는다
+        grid_label.setStyleSheet(
+            "#inlineRowLabel{font-size:13px;font-weight:500;color:%s;background:transparent;}"
+            % LABEL_COLOR)
+        grid_label.setToolTip(self.grid_lines_switch.toolTip())
+        theme_row.addWidget(grid_label, 0, Qt.AlignVCenter)
+        theme_row.addSpacing(12)
+        theme_row.addWidget(self.grid_lines_switch, 0, Qt.AlignVCenter)
+        self._add_row(disp_body, "공휴일 테마", theme_control, label_width=0,
+                      divider=False, row_height=36, fill=True)
 
         left_layout.addWidget(disp_panel)
 
@@ -932,9 +1115,18 @@ class SettingsWindow(QWidget):
         outer.addWidget(footer_bar)
 
     def _on_opacity_changed(self, value: int):
+        """캘린더 값. 위젯 키가 없으면 바꾸기 전 값을 위젯 키로 먼저 남겨 위젯은 그대로 둔다."""
         value = max(db.MIN_APP_OPACITY, min(100, int(value)))
-        db.save_setting(db.SETTING_APP_OPACITY, str(value))
-        self.opacity_value_label.setText(f"{value}%")
+        db.save_calendar_opacity(str(value))
+        self.opacity_value_label.setValue(value)
+        if self.on_opacity_changed:
+            self.on_opacity_changed()
+
+    def _on_widget_opacity_changed(self, value: int):
+        """스티키·D-Day·집중 위젯 값."""
+        value = max(db.MIN_APP_OPACITY, min(100, int(value)))
+        db.save_setting(db.SETTING_WIDGET_OPACITY, str(value))
+        self.widget_opacity_value_label.setValue(value)
         if self.on_opacity_changed:
             self.on_opacity_changed()
 
@@ -1230,6 +1422,12 @@ class SettingsWindow(QWidget):
             InfoBar.info(title="음력 및 공휴일 표시", content="달력에 음력과 공휴일이 표시됩니다.", parent=self)
         else:
             InfoBar.info(title="설정 변경", content="음력 및 공휴일 표시가 비활성화되었습니다.", parent=self)
+
+    def _on_grid_lines_toggled(self, checked: bool):
+        """날짜 칸 구분선 스위치. 키 하나만 쓰고 InfoBar를 띄우지 않는다."""
+        db.save_setting(db.SETTING_CALENDAR_GRID_LINES, "1" if checked else "0")
+        if self.on_grid_lines_changed:
+            self.on_grid_lines_changed()
 
     def _on_holiday_theme_toggled(self, checked: bool):
         """공휴일 테마 스위치: 키 하나만 저장하고 화면 갱신은 콜백에 맡긴다(알림 없음)."""

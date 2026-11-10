@@ -38,6 +38,8 @@ SETTING_USE_PRIVACY_LOCK = "use_privacy_lock"
 SETTING_SHOW_LUNAR = "show_lunar"
 # v4.6 공휴일 테마(화면 전용). 값 "1"/"0", 키가 없으면 켜짐으로 본다. 마이그레이션에 넣지 않는다.
 SETTING_HOLIDAY_THEME_ENABLED = "holiday_theme_enabled"
+# v4.9 날짜 칸 구분선(화면 전용). 값 "1"/"0", 키가 없으면 꺼짐이다. 마이그레이션에 넣지 않고 Export에 실린다.
+SETTING_CALENDAR_GRID_LINES = "calendar_grid_lines_enabled"
 SETTING_SHOW_LAW_SEARCH = "show_law_search"
 SETTING_CALENDAR_X = "calendar_x"
 SETTING_CALENDAR_Y = "calendar_y"
@@ -46,7 +48,10 @@ SETTING_TARGET_SCREEN = "target_screen"
 SETTING_CALENDAR_SCREEN = "calendar_screen"  # 화면 식별 정보와 저장 당시 작업 영역 원점
 SETTING_SHOW_SIDEBAR = "show_sidebar"
 SETTING_APP_FONT = "app_font"
-SETTING_APP_OPACITY = "app_opacity"          # 전체 창 투명도 "30"~"100" (v3.0)
+SETTING_APP_OPACITY = "app_opacity"          # 캘린더(메인 창) 투명도 "30"~"100" (v3.0, v4.9부터 위젯은 아래 키)
+# v4.9 떠 있는 스티키·D-Day·집중 위젯 투명도 "30"~"100". 키가 없으면 app_opacity를 따른다.
+# 마이그레이션에 넣지 않고 Export/Import에는 다른 설정처럼 실린다.
+SETTING_WIDGET_OPACITY = "widget_opacity"
 SETTING_CALENDAR_SCALE = "calendar_scale"    # compact / medium / large (v3.0)
 SETTING_KEEP_ON_SHOW_DESKTOP = "keep_on_show_desktop"  # Win+D/모두최소화에도 유지 "1"/"0"
 SETTING_CALENDAR_POSITION_MODE = "calendar_position_mode"  # corner / free (v3.3)
@@ -2301,6 +2306,44 @@ def save_settings(values: dict[str, str]) -> None:
             "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
             values.items(),
         )
+        conn.commit()
+
+
+def opacity_percent(value) -> int:
+    """투명도 설정 문자열을 30~100 정수로 읽는다. 숫자가 아니면 100(불투명)이다."""
+    try:
+        percent = int(str(value).strip())
+    except (TypeError, ValueError):
+        return 100
+    return max(MIN_APP_OPACITY, min(100, percent))
+
+
+def get_widget_opacity() -> str:
+    """스티키·D-Day·집중 위젯 투명도(v4.9). 키가 없으면 캘린더 값(app_opacity)을 따른다."""
+    value = get_setting(SETTING_WIDGET_OPACITY, None)
+    if value is None:
+        return get_setting(SETTING_APP_OPACITY, DEFAULT_APP_OPACITY)
+    return value
+
+
+def save_calendar_opacity(value: str) -> None:
+    """캘린더(메인 창) 투명도를 저장한다(v4.9 두 갈래).
+
+    위젯 키가 아직 없으면 바꾸기 전 캘린더 값(화면에 보이던 값)을 같은 트랜잭션에서 위젯 키로 먼저
+    남긴다. 키가 없을 때 캘린더 값을 따르던 위젯이 캘린더와 함께 바뀌지 않게 하기 위해서다.
+    """
+    with _connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        has_widget = conn.execute(
+            "SELECT 1 FROM app_settings WHERE key = ?", (SETTING_WIDGET_OPACITY,)).fetchone()
+        if has_widget is None:
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?", (SETTING_APP_OPACITY,)).fetchone()
+            shown = opacity_percent(row["value"] if row else DEFAULT_APP_OPACITY)
+            conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
+                         (SETTING_WIDGET_OPACITY, str(shown)))
+        conn.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)",
+                     (SETTING_APP_OPACITY, value))
         conn.commit()
 
 

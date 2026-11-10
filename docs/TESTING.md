@@ -1,5 +1,12 @@
 # Testing & Security Audit Reference
 
+## v4.9 추가 검증 계약 (사용자 의견 묶음: 편집 색·투명도·구분선)
+
+- 편집 색은 `test_ui_schedule_list.py`(순환 규칙, 세 크기 순환·저장값=3슬롯·표시색, 원 클릭에도 입력 포커스·편집 유지, Esc 함께 취소, 팔레트 밖 색 보존, 반복 전체·이 날만 수정의 한 원, 색 점 자리·줄 높이 불변, 잠금·트레이 중 무시, 키보드 Tab·Space·Enter, 편집 줄이 목록 폭을 넘지 않음)다. 편집 줄 폭은 같은 파일의 1.25·1.5배 하위 프로세스 검사가 다시 본다(1.5배 크게에서만 1px 넘쳐 요약 줄이 가려진 사례). 포커스는 `focusWidget()`으로 본다.
+- 투명도는 `test_database.py`(키가 없을 때 따르기, 첫 캘린더 변경이 위젯 키를 남김, 숫자 읽기, Export 왕복, 위젯 키 없는 이전 파일)와 `test_ui.py`(나눠 적용, 실제 스티키·D-Day·집중 창, 크게 미니 패널, 값 칸 두 번 누르기·Enter·F2·Esc·포커스 이동 확정·30~100 맞춤·숫자 아닌 입력, 한 줄 36px 배치와 '100%'가 잘리지 않는 글자 영역)다.
+- 구분선은 `test_ui_calendar_grid_lines.py`(키가 없으면 v4.8 모양, 틈에만 선·바깥 틀 없음·빈 칸 사이도 이어짐, 고른 날·오늘·공휴일 테마 채움 2px 안쪽, 세로 화면 열 너비, 막대가 칩 시작선에 맞고 선 위를 지남, 그리기 경로의 DB 쓰기 없음, 설정 행과 즉시 반영, 가져오기 뒤 반영, 장치 1픽셀 선, 1.25·1.5배 하위 프로세스)와 `test_database.py` 왕복이다. 배율이 1이 아니면 채움 가장자리 화소가 부드럽게 섞이므로 밝기 248 이상을 바탕으로 본다.
+- quick·data에는 일정 편집·구분선 화면 검사가 없으므로 `quick --tests <파일>`로 돌리고, 여러 화면 모듈을 함께 바꿨으므로 마무리는 `full`이다. 실제 EXE의 세 크기·125/150%·혼합 DPI·한글 입력 중 색 원 누르기·구버전 EXE와 번갈아 실행은 [작업 기록](work/2026-11-10-ui-feedback-bundle.md)의 수동 확인이다.
+
 ## v4.6 추가 검증 계약 (공휴일 테마)
 
 - 테스트 파일: 판정 `test_holiday_theme.py`(실제 `holidays.py`와 합성 표, 설계 테스트 벡터 전부), 장식 정의 `test_holiday_decor.py`(순수: keyframes 끝값·위상·13키 표·참조 SVG 존재/고아 없음·Tiny 금지어·viewBox), 화면 `test_ui_holiday_theme_calendar.py`(머리줄·오늘 칸·공휴일 칸·인사말·자정/트레이/가져오기/초기화 재판정)·`test_ui_holiday_theme_widgets.py`(D-Day·스티키 표시 전용 색)·`test_ui_holiday_theme_focus.py`(바탕·모자 13종×배율 1.0/1.25/1.5)·`test_ui_holiday_decor.py`(레이어·기준점·장애물 비겹침·움직임 가입/정지 조건·스티커·중간/크게 빈 곳 재배치(삼일절 깃발 6개·개천절 구름·추석 억새·어린이날 풍선·연등 9개·추석 보름달)와 세 크기 모든 조각 그려짐(기본 크기는 작은 배치, 조각마다 불투명 픽셀 확인)·캐시 상한), 설정 `test_ui_settings_holiday_theme.py`(행 36/40px·800×560 무압축·`QT_SCALE_FACTOR` 1.25/1.5 하위 프로세스), 스위치 키의 Export/Import 왕복은 `test_database.py`다. quick·data에는 이 파일들이 없으므로 관련 변경은 `quick --tests <파일>`, 여러 화면 모듈을 건드리면 `full`로 확인한다.

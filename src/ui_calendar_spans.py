@@ -44,6 +44,10 @@ class CalendarSpanOverlay(QWidget):
         self.setVisible(visible and bool(self._bars))
         self._sync_geometry()
 
+    def clear(self) -> None:
+        """칸을 새로 만들기 전에 옛 칸 참조를 놓는다(지워질 칸을 그리지 않는다)."""
+        self.set_bars([], [], font_px=self._font_px, visible=False)
+
     def bars(self) -> list[SpanBar]:
         return list(self._bars)
 

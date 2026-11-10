@@ -938,6 +938,36 @@ class TestSettings:
     def test_missing_key_returns_default(self, app_dir):
         assert db.get_setting("nonexistent", "기본값") == "기본값"
 
+    def test_widget_opacity_follows_calendar_until_saved(self, app_dir):
+        """v4.9 투명도 두 갈래: 위젯 키가 없으면 캘린더 값(app_opacity)을 따른다. 마이그레이션은 키를 넣지 않는다."""
+        assert db.get_setting(db.SETTING_WIDGET_OPACITY, "missing") == "missing"
+        db.save_setting(db.SETTING_APP_OPACITY, "70")
+        assert db.get_widget_opacity() == "70"
+        db.save_setting(db.SETTING_WIDGET_OPACITY, "40")
+        assert db.get_widget_opacity() == "40"
+        assert db.get_setting(db.SETTING_APP_OPACITY) == "70"
+
+    def test_first_calendar_change_keeps_widgets_at_previous_value(self, app_dir):
+        db.save_setting(db.SETTING_APP_OPACITY, "80")
+        db.save_calendar_opacity("60")
+        assert db.get_setting(db.SETTING_APP_OPACITY) == "60"
+        assert db.get_setting(db.SETTING_WIDGET_OPACITY) == "80"  # 바꾸기 전 값으로 먼저 남긴다
+        db.save_calendar_opacity("50")  # 위젯 키가 생긴 뒤에는 건드리지 않는다
+        assert db.get_setting(db.SETTING_APP_OPACITY) == "50"
+        assert db.get_setting(db.SETTING_WIDGET_OPACITY) == "80"
+
+    def test_first_calendar_change_pins_widgets_to_shown_value(self, app_dir):
+        db.save_setting(db.SETTING_APP_OPACITY, "abc")  # 읽을 수 없는 값은 화면에서 100%였다
+        db.save_calendar_opacity("60")
+        assert db.get_setting(db.SETTING_WIDGET_OPACITY) == "100"
+
+    @pytest.mark.parametrize("value,expected", [
+        ("100", 100), ("30", 30), ("55", 55), ("0", 30), ("200", 100),
+        ("abc", 100), ("", 100), ("  70 ", 70), (None, 100),
+    ])
+    def test_opacity_percent_clamps_and_parses(self, value, expected):
+        assert db.opacity_percent(value) == expected
+
     def test_all_setting_constants_writable(self, app_dir):
         for key in [
             db.SETTING_PRIVACY_PIN, db.SETTING_DESKTOP_MODE,
@@ -1575,6 +1605,43 @@ class TestExportImport:
         assert db.get_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1") == "1"
         db.import_all_data(exported)
         assert db.get_setting(db.SETTING_HOLIDAY_THEME_ENABLED, "1") == "0"
+
+    def test_grid_lines_switch_exports_and_roundtrips(self, app_dir):
+        """v4.9 날짜 칸 구분선 스위치: 키가 없으면 꺼짐, 마이그레이션은 키를 넣지 않고 Export/Import에 실린다."""
+        assert db.get_setting(db.SETTING_CALENDAR_GRID_LINES, "missing") == "missing"
+        assert db.SETTING_CALENDAR_GRID_LINES not in json.loads(db.export_all_data())["settings"]
+        db.save_setting(db.SETTING_CALENDAR_GRID_LINES, "1")
+        exported = db.export_all_data()
+        assert json.loads(exported)["settings"][db.SETTING_CALENDAR_GRID_LINES] == "1"
+        db.reset_database()
+        assert db.get_setting(db.SETTING_CALENDAR_GRID_LINES, "missing") == "missing"
+        db.import_all_data(exported)
+        assert db.get_setting(db.SETTING_CALENDAR_GRID_LINES) == "1"
+
+    def test_widget_opacity_exports_and_roundtrips(self, app_dir):
+        """v4.9 위젯 투명도 키도 다른 설정처럼 Export/Import에 실린다."""
+        assert db.SETTING_WIDGET_OPACITY not in json.loads(db.export_all_data())["settings"]
+        db.save_setting(db.SETTING_APP_OPACITY, "90")
+        db.save_setting(db.SETTING_WIDGET_OPACITY, "45")
+        exported = db.export_all_data()
+        assert json.loads(exported)["settings"][db.SETTING_WIDGET_OPACITY] == "45"
+        db.reset_database()
+        assert db.get_setting(db.SETTING_WIDGET_OPACITY, "missing") == "missing"
+        db.import_all_data(exported)
+        assert (db.get_setting(db.SETTING_APP_OPACITY), db.get_widget_opacity()) == ("90", "45")
+
+    def test_import_of_file_without_widget_opacity(self, app_dir):
+        """이전 Export 파일(위젯 키 없음): 키가 없던 PC는 가져온 캘린더 값을 따르고, 키가 있던 PC는 그 값을 지킨다."""
+        db.save_setting(db.SETTING_APP_OPACITY, "65")
+        old_file = db.export_all_data()
+        assert db.SETTING_WIDGET_OPACITY not in json.loads(old_file)["settings"]
+        db.reset_database()
+        db.import_all_data(old_file)
+        assert db.get_setting(db.SETTING_WIDGET_OPACITY, "missing") == "missing"
+        assert db.get_widget_opacity() == "65"
+        db.save_setting(db.SETTING_WIDGET_OPACITY, "40")
+        db.import_all_data(old_file)
+        assert (db.get_setting(db.SETTING_APP_OPACITY), db.get_widget_opacity()) == ("65", "40")
 
     def test_import_without_settings_section_no_error(self, app_dir):
         old_json = json.dumps({

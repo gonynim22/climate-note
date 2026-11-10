@@ -5,9 +5,10 @@ from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call
-from PySide6.QtCore import Qt, QPoint, QRect
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QApplication, QDialog, QLabel, QWidget
+from PySide6.QtCore import Qt, QEvent, QPoint, QRect
+from PySide6.QtGui import QColor, QFocusEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QStyle, QStyleOptionFrame, QWidget
 
 import database as db
 import ui_main
@@ -506,8 +507,13 @@ def test_opacity_factor_clamps_and_parses(value, expected):
     assert ui_main._opacity_factor(value) == pytest.approx(expected)
 
 
-def test_apply_app_opacity_broadcasts_to_all_registries(monkeypatch):
-    monkeypatch.setattr(ui_main.db, "get_setting", lambda *args, **kwargs: "75")
+@pytest.mark.parametrize("widget_value,expected_widget", [("40", 0.40), (None, 0.75)])
+def test_apply_app_opacity_splits_calendar_and_widget_values(monkeypatch, widget_value, expected_widget):
+    """v4.9: 캘린더 값은 메인 창에, 위젯 값(없으면 캘린더 값)은 떠 있는 스티키·D-Day·집중 창에 준다."""
+    values = {db.SETTING_APP_OPACITY: "75"}
+    if widget_value is not None:
+        values[db.SETTING_WIDGET_OPACITY] = widget_value
+    monkeypatch.setattr(ui_main.db, "get_setting", lambda key, default="": values.get(key, default))
     sticky = {1: MagicMock(), 2: MagicMock()}
     dday = {1: MagicMock()}
     focus = {1: MagicMock()}
@@ -518,11 +524,202 @@ def test_apply_app_opacity_broadcasts_to_all_registries(monkeypatch):
         setWindowOpacity=MagicMock(),
     )
     fake._get_app_opacity = ui_main.MainCalendarWindow._get_app_opacity.__get__(fake)
+    fake._get_widget_opacity = ui_main.MainCalendarWindow._get_widget_opacity.__get__(fake)
     ui_main.MainCalendarWindow._apply_app_opacity(fake)
     fake.setWindowOpacity.assert_called_once_with(0.75)
     for registry in (sticky, dday, focus):
         for window in registry.values():
-            window.setWindowOpacity.assert_called_once_with(0.75)
+            window.setWindowOpacity.assert_called_once_with(expected_widget)
+
+
+def _open_three_widgets():
+    db.save_setting(db.SETTING_KEEP_ON_SHOW_DESKTOP, "0")
+    db.create_sticky_note(note_type="memo", x=100, y=100)
+    db.create_dday_widget("마감", "2030-01-01")
+    db.create_focus_widget("목표", "25/5")
+
+
+def _floating(win):
+    return [*win._sticky_windows.values(), *win._dday_windows.values(), *win._focus_windows.values()]
+
+
+@pytest.mark.parametrize("widget_value,expected", [("50", 0.5), (None, 0.8)])
+def test_calendar_and_widget_opacity_reach_their_own_windows(qtbot, app_dir, widget_value, expected):
+    db.save_setting(db.SETTING_APP_OPACITY, "80")
+    if widget_value is not None:
+        db.save_setting(db.SETTING_WIDGET_OPACITY, widget_value)
+    _open_three_widgets()
+    win = MainCalendarWindow()
+    qtbot.addWidget(win)
+    floating = _floating(win)
+    assert len(floating) == 3
+    assert win.windowOpacity() == pytest.approx(0.8, abs=0.01)
+    assert [w.windowOpacity() for w in floating] == [pytest.approx(expected, abs=0.01)] * 3
+    late = QWidget()  # 실행 중에 새로 여는 위젯도 위젯 값으로 열린다
+    qtbot.addWidget(late)
+    win._register_floating_widget(late)
+    assert late.windowOpacity() == pytest.approx(expected, abs=0.01)
+
+
+def test_calendar_slider_first_change_leaves_widgets_alone(qtbot, app_dir):
+    db.save_setting(db.SETTING_APP_OPACITY, "90")
+    _open_three_widgets()
+    win = MainCalendarWindow()
+    qtbot.addWidget(win)
+    settings = SettingsWindow(on_opacity_changed=win._apply_app_opacity)
+    qtbot.addWidget(settings)
+    assert settings.widget_opacity_slider.value() == 90  # 키가 없으면 캘린더 값을 보인다
+    settings.opacity_slider.setValue(60)
+    assert win.windowOpacity() == pytest.approx(0.6, abs=0.01)
+    assert [w.windowOpacity() for w in _floating(win)] == [pytest.approx(0.9, abs=0.01)] * 3
+    assert db.get_setting(db.SETTING_WIDGET_OPACITY) == "90"
+    settings.widget_opacity_slider.setValue(40)
+    assert win.windowOpacity() == pytest.approx(0.6, abs=0.01)
+    assert [w.windowOpacity() for w in _floating(win)] == [pytest.approx(0.4, abs=0.01)] * 3
+    assert (db.get_setting(db.SETTING_APP_OPACITY), db.get_setting(db.SETTING_WIDGET_OPACITY)) == ("60", "40")
+    assert settings.widget_opacity_value_label.text() == "40%"
+
+
+def test_large_mini_panels_follow_calendar_value(qtbot, app_dir):
+    db.save_setting(db.SETTING_CALENDAR_SCALE, "large")
+    db.save_setting(db.SETTING_APP_OPACITY, "80")
+    db.save_setting(db.SETTING_WIDGET_OPACITY, "50")
+    _open_three_widgets()
+    win = MainCalendarWindow()
+    qtbot.addWidget(win)
+    win.show()
+    qtbot.waitExposed(win)
+    panel = win._dday_side_panel
+    assert panel is not None and panel.isVisible() and panel.window() is win  # 같은 창이라 캘린더 값
+    assert panel.window().windowOpacity() == pytest.approx(0.8, abs=0.01)
+    hidden = next(iter(win._dday_windows.values()))
+    assert not hidden.isVisible()
+    assert hidden.windowOpacity() == pytest.approx(0.5, abs=0.01)  # 돌아올 때 위젯 값 그대로
+
+
+def _active_settings(qtbot, **kw):
+    """보이는 설정창. 포커스 검사는 OS 활성 창과 무관한 focusWidget()으로 한다."""
+    win = SettingsWindow(**kw)
+    qtbot.addWidget(win)
+    win.show()
+    win.activateWindow()
+    QTest.qWaitForWindowExposed(win)
+    return win
+
+
+@pytest.mark.parametrize("typed,expected", [
+    ("45", 45), ("5", 30), ("150", 100), ("", 80), ("ab", 80),
+])
+def test_opacity_value_double_click_input_commits_with_enter(qtbot, app_dir, typed, expected):
+    db.save_setting(db.SETTING_WIDGET_OPACITY, "80")
+    calls = []
+    win = _active_settings(qtbot, on_opacity_changed=lambda: calls.append(1))
+    field = win.widget_opacity_value_label
+    assert field.toolTip() == "두 번 눌러 직접 입력"
+    assert field.cursor().shape() == Qt.IBeamCursor
+    qtbot.mouseDClick(field, Qt.LeftButton)
+    assert field.edit.isVisible() and win.focusWidget() is field.edit
+    assert field.edit.selectedText() == "80%"  # 글자가 모두 선택된다
+    if typed:
+        qtbot.keyClicks(field.edit, typed)
+    else:
+        qtbot.keyClick(field.edit, Qt.Key_Backspace)
+    assert field.edit.text().endswith("%")  # 뒤의 %는 고정
+    qtbot.keyClick(field.edit, Qt.Key_Return)
+    assert not field.edit.isVisible()
+    assert win.widget_opacity_slider.value() == expected
+    assert field.text() == f"{expected}%"
+    assert db.get_setting(db.SETTING_WIDGET_OPACITY) == str(expected)
+    assert calls == ([1] if expected != 80 else [])
+
+
+def test_opacity_value_escape_cancels_and_focus_move_commits(qtbot, app_dir):
+    db.save_setting(db.SETTING_APP_OPACITY, "70")
+    win = _active_settings(qtbot)
+    field = win.opacity_value_label
+    qtbot.mouseDClick(field, Qt.LeftButton)
+    qtbot.keyClicks(field.edit, "40")
+    qtbot.keyClick(field.edit, Qt.Key_Escape)
+    assert not field.edit.isVisible() and field.text() == "70%"
+    assert win.opacity_slider.value() == 70
+    assert db.get_setting(db.SETTING_APP_OPACITY) == "70"
+    qtbot.mouseDClick(field, Qt.LeftButton)
+    qtbot.keyClicks(field.edit, "55")
+    # 포커스 이동도 확정이다. 다른 앱을 쓰는 중이면 Windows가 창 활성화를 막아 setFocus()가 포커스
+    # 이벤트를 보내지 않으므로(2026-11-10 data 실행), 포커스가 빠질 때 받는 이벤트를 직접 보낸다.
+    QApplication.sendEvent(field.edit, QFocusEvent(QEvent.FocusOut, Qt.TabFocusReason))
+    QApplication.processEvents()
+    assert not field.edit.isVisible()
+    assert win.opacity_slider.value() == 55
+    assert db.get_setting(db.SETTING_APP_OPACITY) == "55"
+
+
+def test_opacity_value_context_menu_keeps_input_open(qtbot, app_dir):
+    """입력칸 자체 메뉴(붙여넣기 등)를 열며 포커스가 빠져도 입력은 이어진다."""
+    db.save_setting(db.SETTING_APP_OPACITY, "70")
+    win = _active_settings(qtbot)
+    field = win.opacity_value_label
+    qtbot.mouseDClick(field, Qt.LeftButton)
+    qtbot.keyClicks(field.edit, "45")
+    QApplication.sendEvent(field.edit, QFocusEvent(QEvent.FocusOut, Qt.PopupFocusReason))
+    assert field.edit.isVisible()
+    assert db.get_setting(db.SETTING_APP_OPACITY) == "70"
+    qtbot.keyClick(field.edit, Qt.Key_Return)
+    assert db.get_setting(db.SETTING_APP_OPACITY) == "45"
+
+
+def test_opacity_value_input_cancels_when_window_is_disabled(qtbot, app_dir):
+    """잠금은 설정창을 비활성화한다. 그때 빠지는 포커스로 확정하지 않는다(잠금 뒤 늦은 쓰기 없음)."""
+    db.save_setting(db.SETTING_APP_OPACITY, "70")
+    calls = []
+    win = _active_settings(qtbot, on_opacity_changed=lambda: calls.append(1))
+    field = win.opacity_value_label
+    qtbot.mouseDClick(field, Qt.LeftButton)
+    qtbot.keyClicks(field.edit, "40")
+    win.setEnabled(False)
+    QApplication.sendEvent(field.edit, QFocusEvent(QEvent.FocusOut, Qt.OtherFocusReason))
+    assert not field.edit.isVisible() and field.text() == "70%"
+    assert db.get_setting(db.SETTING_APP_OPACITY) == "70"
+    assert calls == [] and win.opacity_slider.value() == 70
+
+
+@pytest.mark.parametrize("key", [Qt.Key_F2, Qt.Key_Return])
+def test_opacity_value_keyboard_opens_input(qtbot, app_dir, key):
+    win = _active_settings(qtbot)
+    field = win.opacity_value_label
+    field.setFocus()
+    qtbot.keyClick(field, key)
+    assert field.edit.isVisible() and win.focusWidget() is field.edit
+
+
+def test_opacity_row_keeps_two_groups_in_one_36px_row(qtbot, app_dir):
+    db.save_setting(db.SETTING_APP_OPACITY, "100")
+    db.save_setting(db.SETTING_WIDGET_OPACITY, "100")
+    win = _active_settings(qtbot)
+    rows = [r for r in win.findChildren(QWidget, "settingsRow") if r.isAncestorOf(win.opacity_slider)]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.isAncestorOf(win.widget_opacity_slider)
+    assert row.minimumHeight() == 36 and row.height() == 36
+    label = row.findChild(QWidget, "rowLabel")
+    assert label.text() == "투명도" and label.width() == 52
+    sticky_label = next(w for w in row.findChildren(QLabel) if w.text() == "스티키")
+    assert sticky_label.toolTip() == "스티키·D-Day·집중 위젯"
+    for field in (win.opacity_value_label, win.widget_opacity_value_label):
+        rect = QRect(field.mapTo(row, QPoint(0, 0)), field.size())
+        assert row.rect().contains(rect)
+        assert field.text() == "100%"
+        assert field.label.fontMetrics().horizontalAdvance("100%") <= field.label.contentsRect().width()
+        field.start_edit()  # 입력 중에도 '100%'가 칸 안에 다 보인다
+        edit = field.edit
+        option = QStyleOptionFrame()
+        edit.initStyleOption(option)
+        text_area = edit.style().subElementRect(QStyle.SE_LineEditContents, option, edit)
+        # QLineEdit은 글자 영역 양옆에 2px씩 더 비우고 끝에 커서 1px을 둔다.
+        assert edit.fontMetrics().horizontalAdvance("100%") + 2 * 2 + 1 <= text_area.width()
+        qtbot.keyClick(edit, Qt.Key_Escape)
+    assert win.layout().minimumSize().width() <= 800
+    assert win.layout().minimumSize().height() <= 560
 
 
 def test_main_window_position_to_corner_uses_negative_target_screen(qtbot, app_dir, qapp, monkeypatch):

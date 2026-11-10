@@ -1,11 +1,11 @@
-"""일정 본문의 선두 이모지를 편집하는 공용 선택 도우미."""
+"""일정 본문의 선두 이모지를 편집하는 공용 선택 도우미와 일정 인라인 편집기(색 원 포함)."""
 import logging
 
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication, QGridLayout, QHBoxLayout, QLineEdit, QPushButton,
-    QVBoxLayout, QWidget,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 
 import schedule_rules as rules
@@ -24,6 +24,60 @@ SCHEDULE_EMOJIS = (
     ("📝", "작성"), ("📄", "문서"), ("📊", "보고"), ("🎯", "목표"),
     ("📚", "교육"), ("🚗", "출장"), ("🏠", "재택"), ("🎉", "행사"),
 )
+
+
+COLOR_BUTTON_TOOLTIP = "누를 때마다 다음 색"
+
+
+def next_schedule_color(current, slots):
+    """3슬롯 순서(1→2→3→1)로 다음 저장색. 팔레트 밖 색(가져온 사용자 색)은 1번 슬롯부터 시작한다.
+
+    슬롯은 대소문자를 가리지 않고 비교한다(`database.schedule_display_color`와 같은 규칙).
+    """
+    keys = [str(slot).upper() for slot in slots]
+    key = str(current or "").strip().upper()
+    if key in keys:
+        return slots[(keys.index(key) + 1) % len(slots)]
+    return slots[0]
+
+
+class SmoothCircleButton(QPushButton):
+    """일정 색 원(지름은 부르는 쪽이 정한다). 입력줄과 인라인 편집기가 같은 모양을 쓴다."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._bg_color = QColor("white")
+        self._is_hovered = False
+        self.setCursor(Qt.PointingHandCursor)
+
+    def set_color(self, hex_color: str):
+        self._bg_color = QColor(hex_color)
+        self.update()
+
+    def enterEvent(self, event):
+        self._is_hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._is_hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QBrush(self._bg_color))
+        pen = QPen(QColor("black"))
+        if self._is_hovered:
+            pen.setWidth(2)
+            margin = 1.0
+        else:
+            pen.setWidth(1)
+            margin = 0.5
+        painter.setPen(pen)
+        rect = QRectF(self.rect())
+        painter.drawEllipse(rect.adjusted(margin, margin, -margin, -margin))
 
 
 def schedule_emoji_prefix(text: str) -> str:
@@ -215,20 +269,31 @@ class ScheduleEmojiButton(QPushButton):
 
 
 class ScheduleInlineEditor(QWidget):
-    """[스마일][시계][본문] 한 줄 + 세부 설정 요약 한 줄. 두 팝업까지 하나의 편집 영역이다."""
+    """[스마일][시계][본문] 한 줄 + 세부 설정 요약 한 줄. 두 팝업까지 하나의 편집 영역이다.
+
+    색 원(`color_button`, B안 2026-11-10)도 편집 영역이다. 편집기가 만들지만 화면에서는 행이
+    줄 앞 색 점 자리에 놓는다. 누를 때마다 3슬롯 순서로 다음 색이 되고 설정 표시색으로 보인다.
+    """
     finish_requested = Signal(bool)
     summary_changed = Signal()
 
     def __init__(self, content: str, can_edit, parent=None, *,
                  options: ScheduleOptions | None = None, start: str = "", occurrence: str = "",
-                 occurrence_only=False, color=None, palette=()):
+                 occurrence_only=False, color=None, palette=(), color_names=None):
         super().__init__(parent)
         self._active = True
         self._can_edit = can_edit
         self._occurrence_only = occurrence_only
         self._color = color
+        palette = tuple(palette)  # (저장 슬롯, 표시색) 쌍. zip도 받으므로 한 번만 읽는다.
+        self._color_slots = tuple(slot for slot, _display in palette)
+        self._display_by_slot = {str(slot).upper(): display for slot, display in palette}
+        self._color_names = {str(key).upper(): name for key, name in (color_names or {}).items()}
         self.edit = QLineEdit(content, self)
         self.edit.setAttribute(Qt.WA_InputMethodEnabled, True)
+        # 입력칸은 남는 폭을 다 쓰되 줄에 폭을 요구하지 않는다. 요구하면 줄 앞 색 원(22px)까지
+        # 더해 편집 줄이 목록보다 넓어지고, 가로 스크롤바가 보이는 높이를 줄여 요약 줄을 가린다.
+        self.edit.setSizePolicy(QSizePolicy.Ignored, self.edit.sizePolicy().verticalPolicy())
         self.edit.setStyleSheet(
             "background:#FFFFFF;border:1px solid #0078D4;"
             "border-radius:3px;padding:1px 4px;"
@@ -239,6 +304,9 @@ class ScheduleInlineEditor(QWidget):
         self.options_button.set_context(start, occurrence)
         self.options_button.set_options(options or ScheduleOptions())
         self.summary_label = ElidedLabel("", self)
+        # 요약은 그릴 때 말줄임한다(전체 문장은 툴팁). 전체 글자 폭을 요구하면 반복 일정의 긴 요약이
+        # 중간·크게 목록(287px)보다 넓어져 가로 스크롤이 생겼다(v4.9 이전부터, 2026-11-10 확인).
+        self.summary_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.summary_label.setObjectName("scheduleEditorSummary")
         self.summary_label.setStyleSheet("color:#5B6577;font-size:11px;background:transparent;")
         column = QVBoxLayout(self)
@@ -251,27 +319,33 @@ class ScheduleInlineEditor(QWidget):
         row.addWidget(self.options_button)
         row.addWidget(self.edit, 1)
         column.addLayout(row)
-        self.color_buttons = {}
-        if color is not None:
-            colors = QHBoxLayout()
-            colors.setSpacing(4)
-            for slot, display in palette:
-                button = QPushButton(self)
-                button.setFixedSize(22, 22)
-                button.setCheckable(True)
-                button.setChecked(slot == color)
-                button.setAccessibleName(f"일정 색상 {len(self.color_buttons) + 1}")
-                button.setToolTip(button.accessibleName())
-                button.setStyleSheet(
-                    f"QPushButton{{background:{display};border:2px solid transparent;border-radius:11px;}}"
-                    "QPushButton:checked{border-color:#1E3A8A;} QPushButton:focus{border-color:#EAB308;}")
-                button.clicked.connect(lambda checked=False, value=slot: self._select_color(value))
-                button.installEventFilter(self)
-                self.color_buttons[slot] = button
-                colors.addWidget(button)
-            colors.addStretch(1)
-            column.addLayout(colors)
         column.addWidget(self.summary_label)
+        self.color_button = None
+        self.color_slot = None
+        if color is not None and self._color_slots:
+            # 원은 작은 자리(color_slot)에 담아 편집기 레이아웃 밖에 둔다. 부르는 쪽이 줄 앞 색 점
+            # 자리에 놓기 전까지 숨긴다. 위 여백은 원을 26px 입력칸 줄 가운데에 맞춘다.
+            self.color_slot = QWidget(self)
+            self.color_slot.setVisible(False)
+            # 원은 클릭 포커스를 받지 않는다. 그러면 Qt가 부모를 거슬러 올라가 클릭 포커스를 줄
+            # 위젯을 찾는데(일정 목록이 받아 편집이 끝난다), 이 자리가 먼저 받아 입력칸에 넘긴다.
+            self.color_slot.setFocusPolicy(Qt.ClickFocus)
+            self.color_slot.setFocusProxy(self.edit)
+            self.color_slot.setFixedWidth(SCHEDULE_CONTROL_DIAMETER)
+            slot_layout = QVBoxLayout(self.color_slot)
+            slot_layout.setContentsMargins(
+                0, max(0, (self.emoji_button.height() - SCHEDULE_CONTROL_DIAMETER) // 2), 0, 0)
+            slot_layout.setSpacing(0)
+            self.color_button = SmoothCircleButton(self.color_slot)
+            self.color_button.setFixedSize(SCHEDULE_CONTROL_DIAMETER, SCHEDULE_CONTROL_DIAMETER)
+            # 마우스로 눌러도 글자 입력 포커스를 가져가지 않는다. 키보드는 Tab으로 와서 Space.
+            self.color_button.setFocusPolicy(Qt.TabFocus)
+            self.color_button.setToolTip(COLOR_BUTTON_TOOLTIP)
+            self.color_button.clicked.connect(self._cycle_color)
+            self.color_button.installEventFilter(self)
+            slot_layout.addWidget(self.color_button)
+            slot_layout.addStretch(1)
+            self._sync_color_button()
         self._focus_timer = QTimer(self)
         self._focus_timer.setSingleShot(True)
         self._focus_timer.timeout.connect(self._check_focus)
@@ -288,14 +362,21 @@ class ScheduleInlineEditor(QWidget):
         return self.options_button.options()
 
     def color(self):
+        """저장할 색(3슬롯 원래 값, 누르지 않은 팔레트 밖 색은 그대로)."""
         return self._color
 
-    def _select_color(self, color):
-        if not self.can_edit():
+    def _cycle_color(self):
+        if self.color_button is None or not self.can_edit():
             return
-        self._color = color
-        for slot, button in self.color_buttons.items():
-            button.setChecked(slot == color)
+        self._color = next_schedule_color(self._color, self._color_slots)
+        self._sync_color_button()
+
+    def _sync_color_button(self):
+        # 슬롯이면 설정의 표시색, 팔레트 밖 색이면 그 색 그대로 보인다.
+        display = self._display_by_slot.get(str(self._color or "").strip().upper(), self._color)
+        self.color_button.set_color(display)
+        name = self._color_names.get(str(display).strip().upper(), "사용자 지정 색")
+        self.color_button.setAccessibleName(f"일정 색상 {name} — {COLOR_BUTTON_TOOLTIP}")
 
     def _sync_summary(self) -> None:
         options = self.options()
@@ -326,6 +407,10 @@ class ScheduleInlineEditor(QWidget):
         elif event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape:
             self.finish_requested.emit(False)
             return True
+        elif (event.type() == QEvent.KeyPress and obj is self.color_button
+              and event.key() in (Qt.Key_Return, Qt.Key_Enter)):
+            self.finish_requested.emit(True)  # 색 원에서도 Enter는 입력칸과 같이 저장이다.
+            return True
         return super().eventFilter(obj, event)
 
     def _check_focus(self) -> None:
@@ -333,7 +418,9 @@ class ScheduleInlineEditor(QWidget):
                 or self.options_button._popup is not None):
             return
         focused = QApplication.focusWidget()
-        if focused is not None and (focused is self or self.isAncestorOf(focused)):
+        # 색 원은 행 앞에 놓여 편집기의 자손이 아니므로 따로 본다.
+        if focused is not None and (focused is self or self.isAncestorOf(focused)
+                                    or focused is self.color_button):
             return
         self.finish_requested.emit(True)
 

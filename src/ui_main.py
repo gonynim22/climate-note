@@ -44,12 +44,7 @@ def _snap_px_for_screen(screen) -> int:
 
 def _opacity_factor(value: str) -> float:
     """설정 문자열을 setWindowOpacity용 0.30~1.00 배율로 변환."""
-    try:
-        pct = int(str(value).strip())
-    except (ValueError, TypeError):
-        pct = 100
-    pct = max(db.MIN_APP_OPACITY, min(100, pct))
-    return pct / 100.0
+    return db.opacity_percent(value) / 100.0
 
 
 def _detach_from_layout(widget) -> None:
@@ -414,7 +409,8 @@ from qfluentwidgets import (
 from ui_sticky import STICKY_COLORS, WIDGET_WIDTH, DDAY_HEIGHT
 from ui_search import SearchWindow
 from ui_schedule_emoji import (
-    SCHEDULE_CONTROL_DIAMETER, ScheduleEmojiButton, ScheduleInlineEditor,
+    SCHEDULE_CONTROL_DIAMETER, ScheduleEmojiButton, ScheduleInlineEditor, SmoothCircleButton,
+    next_schedule_color,
 )
 import schedule_rules as rules
 from schedule_rules import ScheduleOptions
@@ -422,6 +418,7 @@ from ui_schedule_options import (
     ElidePaintMixin, ScheduleOptionsButton, ScheduleOptionsPills, icon_pixmap,
 )
 from ui_calendar_spans import CalendarSpanOverlay, SpanBar
+from ui_calendar_grid import LINES_SPACING, PLAIN_SPACING, CalendarGridLines
 from ui_schedule_alarm import ScheduleAlarmCard, ScheduleAlarmScheduler
 from ui_update import UpdateDot, UpdateGuideDialog, UpdateToast, show_update_guide
 from ui_update_check import UpdateCheckController
@@ -463,47 +460,6 @@ def header_section_qss(background: str) -> str:
                 border-top-right-radius: 0px;
             }}
         """
-
-
-class SmoothCircleButton(QPushButton):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._bg_color = QColor("white")
-        self._is_hovered = False
-        self.setCursor(Qt.PointingHandCursor)
-
-    def set_color(self, hex_color: str):
-        self._bg_color = QColor(hex_color)
-        self.update()
-
-    def enterEvent(self, event):
-        self._is_hovered = True
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._is_hovered = False
-        self.update()
-        super().leaveEvent(event)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        painter.setBrush(QBrush(self._bg_color))
-        pen = QPen(QColor("black"))
-        
-        if self._is_hovered:
-            pen.setWidth(2)
-            margin = 1.0
-        else:
-            pen.setWidth(1)
-            margin = 0.5
-            
-        painter.setPen(pen)
-        
-        rect = QRectF(self.rect())
-        painter.drawEllipse(rect.adjusted(margin, margin, -margin, -margin))
 
 
 class _EnterClickButton(QPushButton):
@@ -664,12 +620,14 @@ class CalendarDayButton(QWidget):
                  weekday_col: int = -1, count: int = 0, mode: str = "compact",
                  parent=None, *, calendar_scale: str = "compact",
                  today_color: str = NAVY, theme_tint: str | None = None,
-                 theme_accent: str | None = None):
+                 theme_accent: str | None = None, grid_lines: bool = False):
         super().__init__(parent)
         self.setObjectName("calendarDayButton")
         self.target_date = target_date
         self._callback = None
         self._is_today = is_today
+        # 날짜 칸 구분선(v4.9)을 켜면 채움을 선에서 2px 안쪽·모서리 5px로 그린다(표시 전용).
+        self._grid_lines = grid_lines
         # 공휴일 테마(표시 전용): 오늘 색, 오늘이 아닌 테마 공휴일 칸의 바탕·점 색
         self._today_color = today_color
         self._theme_tint = theme_tint if not is_today else None
@@ -796,7 +754,9 @@ class CalendarDayButton(QWidget):
         self._selected = selected
         base_color = "#1a1a1a"
         count_color = "#9aa0a6"
-        bg_style = "border-radius: 6px;"
+        # 구분선을 켜면 채움(오늘·고른 날·공휴일 테마 바탕)이 선에 붙은 각진 덩어리가 되지 않게
+        # 2px 안쪽에 그린다. QSS margin은 배경만 줄이고 칸 안 배치는 그대로 둔다.
+        bg_style = "border-radius: 5px; margin: 2px;" if self._grid_lines else "border-radius: 6px;"
 
         if self._weekday_col == 0:
             base_color = "#D32F2F"
@@ -1765,17 +1725,21 @@ class MainCalendarWindow(QWidget):
             self.setUpdatesEnabled(True)
         self.update()
 
-    # ─── 전체 투명도 ─────────────────────────────────────────────
+    # ─── 투명도(v4.9 두 갈래: 캘린더 / 위젯) ─────────────────────────
     def _get_app_opacity(self) -> float:
+        """캘린더 값: 메인 창 전체(크게의 오른쪽 미니 패널도 같은 창이라 이 값을 따른다)."""
         return _opacity_factor(
             db.get_setting(db.SETTING_APP_OPACITY, db.DEFAULT_APP_OPACITY)
         )
 
-    def _apply_app_opacity(self, factor: float | None = None) -> None:
-        """메인창과 열린 플로팅 위젯에 투명도를 일괄 적용."""
-        if factor is None:
-            factor = self._get_app_opacity()
-        self.setWindowOpacity(factor)
+    def _get_widget_opacity(self) -> float:
+        """위젯 값: 떠 있는 스티키·D-Day·집중 창. 키가 없으면 캘린더 값을 따른다."""
+        return _opacity_factor(db.get_widget_opacity())
+
+    def _apply_app_opacity(self) -> None:
+        """메인 창에는 캘린더 값을, 열린 플로팅 위젯에는 위젯 값을 적용한다."""
+        self.setWindowOpacity(self._get_app_opacity())
+        factor = self._get_widget_opacity()
         for registry in (self._sticky_windows, self._dday_windows, self._focus_windows):
             for win in registry.values():
                 win.setWindowOpacity(factor)
@@ -1786,8 +1750,8 @@ class MainCalendarWindow(QWidget):
         ) == "1"
 
     def _register_floating_widget(self, win, factor: float | None = None) -> None:
-        """새 플로팅 위젯 공통 등록: 투명도 적용 + Win+D 유지 가드 + 현재 공휴일 테마."""
-        win.setWindowOpacity(self._get_app_opacity() if factor is None else factor)
+        """새 플로팅 위젯 공통 등록: 위젯 투명도 적용 + Win+D 유지 가드 + 현재 공휴일 테마."""
+        win.setWindowOpacity(self._get_widget_opacity() if factor is None else factor)
         self._show_desktop_keeper.guard(win)
         self._dress_floating_widget(win)
 
@@ -2135,12 +2099,14 @@ class MainCalendarWindow(QWidget):
 
         # ── 달력 그리드 ──
         self.calendar_grid = QGridLayout()
-        self.calendar_grid.setSpacing(2)
+        self.calendar_grid.setSpacing(PLAIN_SPACING)  # 구분선을 켜면 _refresh_calendar가 1px로 줄인다
         for col in range(7):
             self.calendar_grid.setColumnStretch(col, 1)
         calendar_layout.addLayout(self.calendar_grid)
         self._calendar_section = calendar_section
         self._grid_cells = []  # 주마다 7칸(빈칸 포함)
+        # 칸 사이 구분선(v4.9, 설정 스위치)은 칸·여러 날 막대보다 아래 층이다.
+        self._grid_lines_overlay = CalendarGridLines(calendar_section)
         self._span_overlay = CalendarSpanOverlay(calendar_section, self.calendar_grid)
 
         # ── 구분선 ──
@@ -2481,7 +2447,8 @@ class MainCalendarWindow(QWidget):
     def _build_weekday_header(self, parent_layout: QVBoxLayout):
         weekdays = ["일", "월", "화", "수", "목", "금", "토"]
         header_layout = QGridLayout()
-        header_layout.setSpacing(2)
+        header_layout.setSpacing(PLAIN_SPACING)  # 날짜 격자와 같은 틈이라야 열이 맞는다
+        self._weekday_grid = header_layout
         self._weekday_labels = []
         for col, day in enumerate(weekdays):
             header_layout.setColumnStretch(col, 1)
@@ -2621,7 +2588,11 @@ class MainCalendarWindow(QWidget):
         short_year = self._current_year % 100
         self.month_label.setText(f"{short_year}년 {self._current_month}월")
 
-        # 그리드 초기화
+        # 그리드 초기화. 막대·구분선 오버레이는 칸을 지우기 전, DB를 읽기 전에 먼저 비운다. 아래 설정·월
+        # 조회가 실패해 일찍 끝나도 그리기가 지워진 옛 칸을 건드리지 않는다(건드리면 다시 그릴 때마다 오류).
+        self._span_overlay.clear()
+        self._grid_lines_overlay.clear()
+        self._grid_cells = []
         while self.calendar_grid.count():
             item = self.calendar_grid.takeAt(0)
             if item.widget():
@@ -2637,11 +2608,11 @@ class MainCalendarWindow(QWidget):
         calendar_scale = self._current_calendar_scale()
         cell_mode = "expanded" if calendar_scale != "compact" else "compact"
         self._style_weekday_header(calendar_scale)
-        self._grid_cells = []
-        # 칸을 새로 만드는 중이다. 막대 오버레이가 삭제될 옛 칸을 쥐지 않게 먼저 비운다
-        # (아래 월 조회가 실패해 일찍 끝나도 그리기가 죽은 칸을 건드리지 않는다).
-        self._span_overlay.set_bars(
-            [], [], font_px=13 if calendar_scale == "large" else 10, visible=False)
+        # 날짜 칸 구분선(v4.9, 표시 전용): 켜면 칸 틈을 1px로 줄이고 그 틈에 선을 긋는다. 키가 없으면 꺼짐.
+        grid_lines = db.get_setting(db.SETTING_CALENDAR_GRID_LINES, "0") == "1"
+        spacing = LINES_SPACING if grid_lines else PLAIN_SPACING
+        self.calendar_grid.setSpacing(spacing)
+        self._weekday_grid.setSpacing(spacing)
 
         # 달력 계산 (일요일 시작)
         cal = calendar.Calendar(firstweekday=6).monthdayscalendar(
@@ -2676,7 +2647,7 @@ class MainCalendarWindow(QWidget):
                     actual_day, is_today, [], is_current, target_date,
                     is_holiday, col_idx, 0, cell_mode, self,
                     calendar_scale=calendar_scale, today_color=today_color,
-                    theme_tint=theme_tint, theme_accent=theme_accent,
+                    theme_tint=theme_tint, theme_accent=theme_accent, grid_lines=grid_lines,
                 )
                 cell.layout_changed.connect(self._span_overlay.update)
                 self._grid_cells[row_idx].append(cell)
@@ -2688,6 +2659,7 @@ class MainCalendarWindow(QWidget):
 
                 self.calendar_grid.addWidget(cell, row_idx, col_idx)
 
+        self._grid_lines_overlay.set_cells(self._grid_cells, visible=grid_lines)
         self._refresh_month_data()
 
         # 선택된 날짜 정보 갱신 (루프 완료 후)
@@ -2883,6 +2855,7 @@ class MainCalendarWindow(QWidget):
             f"color: {display_color}; font-size: 14px; background: transparent;"
         )
         row_layout.addWidget(color_dot)
+        row_widget.schedule_color_dot = color_dot  # 편집 중에는 이 자리에 색 원을 둔다
 
         row_widget.schedule_time_label = None
         if show_time_column:
@@ -3210,22 +3183,39 @@ class MainCalendarWindow(QWidget):
             period_label.hide()
 
         # 반복 일정을 고치면 시리즈 전체가 바뀐다. 기준 날짜는 시리즈의 시작 날짜다.
+        # 색은 일반·반복 전체·이 날만 수정 모두 줄 앞 색 원 하나로 고친다(B안 2026-11-10).
         editor = ScheduleInlineEditor(
             old_text, self._schedule_emoji_allowed, row_widget,
             options=old_options, start=series_start, occurrence=occurrence,
-            occurrence_only=occurrence_only, color=old_color if series_id else None,
+            occurrence_only=occurrence_only, color=old_color,
             palette=zip(db.SCHEDULE_COLOR_SLOTS, db.get_schedule_palette()),
+            color_names=dict(db.SCHEDULE_COLOR_OPTIONS),
         )
         self._schedule_editor = editor
         edit = editor.edit
         layout.insertWidget(layout.indexOf(text_box) + 1, editor, 1)
+        # 편집 중에는 줄 앞 색 점 자리에 편집기의 색 원을 둔다(원은 입력칸 줄 가운데).
+        color_dot = row_widget.schedule_color_dot
+        color_slot = editor.color_slot
+        if color_slot is not None:
+            layout.insertWidget(layout.indexOf(color_dot), color_slot, 0, Qt.AlignTop)
+            color_dot.hide()
+            color_slot.show()
+            # 키보드 순서: 입력칸 → 스마일 → 시계 → 색 원(그다음은 편집 영역 밖).
+            # 원을 담은 자리는 입력칸으로 넘기는 포커스 프록시라 Qt가 Tab 자리로 센다. 원 바로 뒤에
+            # 두면 Tab이 입력칸으로 되돌아 편집 밖으로 못 나가므로 입력칸 바로 앞에 둔다
+            # (Shift+Tab은 지금 포커스를 가리키는 프록시를 건너뛰어 그대로 밖으로 나간다).
+            QWidget.setTabOrder(color_slot, edit)
+            QWidget.setTabOrder(edit, editor.emoji_button)
+            QWidget.setTabOrder(editor.emoji_button, editor.options_button)
+            QWidget.setTabOrder(editor.options_button, editor.color_button)
         editor.show()
         previous_list_minimum = self.schedule_list.minimumHeight()
 
         def update_editor_height():
             row_height = row_widget.sizeHint()
             item.setSizeHint(row_height)
-            # large의 짧은 일정 영역에서도 색상과 범위 안내를 포함한 한 행은 확보한다.
+            # large의 짧은 일정 영역에서도 입력칸과 범위 안내(요약 줄)를 포함한 한 행은 확보한다.
             self.schedule_list.setMinimumHeight(max(
                 previous_list_minimum, row_height.height() + 2 * self.schedule_list.frameWidth()))
             self.schedule_list.scrollToItem(item)
@@ -3245,7 +3235,7 @@ class MainCalendarWindow(QWidget):
             new_options = editor.options()
             text_changed = bool(new_text) and new_text != old_text
             options_changed = new_options != old_options
-            color_changed = bool(series_id and editor.color() != old_color)
+            color_changed = editor.color() != old_color  # 누르지 않은 팔레트 밖 색은 그대로 남는다
 
             if save and (text_changed or options_changed or color_changed):
                 try:
@@ -3285,6 +3275,12 @@ class MainCalendarWindow(QWidget):
             editor.hide()
             layout.removeWidget(editor)
             editor.deleteLater()
+            if color_slot is not None:
+                # 색 원 자리는 행에 놓였으므로 편집기와 함께 지워지지 않는다. 직접 걷고 색 점을 되돌린다.
+                color_slot.hide()
+                layout.removeWidget(color_slot)
+                color_slot.deleteLater()
+                color_dot.show()
             text_box.show()
             if period_label is not None:
                 period_label.show()
@@ -3430,12 +3426,8 @@ class MainCalendarWindow(QWidget):
         )
 
     def _on_cycle_schedule_color(self):
-        colors = [c[0] for c in db.SCHEDULE_COLORS]
-        try:
-            idx = colors.index(self._schedule_color)
-            self._schedule_color = colors[(idx + 1) % len(colors)]
-        except ValueError:
-            self._schedule_color = colors[0]
+        # 인라인 편집기의 색 원과 같은 순환 규칙(1→2→3→1)을 쓴다.
+        self._schedule_color = next_schedule_color(self._schedule_color, db.SCHEDULE_COLOR_SLOTS)
         self._update_schedule_color_btn()
 
     # ─── 오늘로 이동 ─────────────────────────────────────────────
@@ -3478,6 +3470,10 @@ class MainCalendarWindow(QWidget):
     def _on_holiday_theme_setting_changed(self) -> None:
         """설정창의 '공휴일 테마' 스위치가 바뀌었다. 저장은 설정창이 끝냈으니 다시 판정만 한다."""
         self._holiday_theme.refresh()
+
+    def _on_grid_lines_setting_changed(self) -> None:
+        """설정창의 '칸 구분선' 스위치가 바뀌었다. 저장은 설정창이 끝냈으니 칸만 다시 그린다."""
+        self._refresh_calendar()
 
     def _place_holiday_greeting(self, in_row: bool) -> None:
         """인사말 라벨을 날짜 줄(개수 라벨 바로 앞) 또는 그 아래 둘째 줄(오른쪽 정렬)에 둔다."""
@@ -3765,7 +3761,7 @@ class MainCalendarWindow(QWidget):
         from ui_sticky import StickyNoteWindow
         try:
             notes = db.get_open_sticky_notes()
-            factor = self._get_app_opacity()
+            factor = self._get_widget_opacity()
             for note in notes:
                 if note["id"] in self._sticky_windows:
                     continue  # 기존 편집 원본과 대기 중인 자동저장을 유지한다.
@@ -4093,7 +4089,7 @@ class MainCalendarWindow(QWidget):
         from ui_dday import DDayWidgetWindow
         try:
             widgets = db.get_open_dday_widgets()
-            factor = self._get_app_opacity()
+            factor = self._get_widget_opacity()
             for w in widgets:
                 if w["id"] in self._dday_windows:
                     continue
@@ -4163,7 +4159,7 @@ class MainCalendarWindow(QWidget):
         from ui_focus import FocusWidgetWindow
         try:
             widgets = db.get_open_focus_widgets()
-            factor = self._get_app_opacity()
+            factor = self._get_widget_opacity()
             for w in widgets:
                 if w["id"] in self._focus_windows:
                     continue  # 실행 중인 집중 세션을 idle 인스턴스로 교체하지 않는다.
@@ -4386,6 +4382,7 @@ class MainCalendarWindow(QWidget):
                 on_prepare_data_change=self.prepare_for_data_change,
                 on_before_reset=self._discard_data_widgets,
                 on_holiday_theme_changed=self._on_holiday_theme_setting_changed,
+                on_grid_lines_changed=self._on_grid_lines_setting_changed,
                 on_internet_access_changed=self._update_check.apply_setting,
             )
             self._settings_window.reset_succeeded.connect(self._discard_unit_converter)
