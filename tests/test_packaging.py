@@ -15,7 +15,7 @@ from app_info import (
     APP_VERSION,
     app_exe_name,
 )
-from build_app import _windows_version_parts
+from build_app import _windows_version_parts, without_openssl
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -239,15 +239,20 @@ def test_windows_version_parts_rejects_malformed_versions():
             _windows_version_parts(bad)
 
 
-def _spec_analysis(spec_dir):
+def _spec_analysis(spec_dir, binaries=()):
+    """build.spec을 가짜 Analysis·EXE로 실행한다. Analysis 인자와 EXE가 받은 위치 인자(exe_args)를 돌려준다."""
     captured = {}
 
     def analysis(*args, **kwargs):
         captured.update(kwargs)
-        return SimpleNamespace(pure=[], zipped_data=[], scripts=[], binaries=[], zipfiles=[], datas=[])
+        return SimpleNamespace(pure=[], zipped_data=[], scripts=[], binaries=list(binaries), zipfiles=[], datas=[])
+
+    def exe(*args, **kwargs):
+        captured["exe_args"] = args
+        return object()
 
     namespace = {"SPECPATH": str(spec_dir), "Analysis": analysis, "PYZ": lambda *a, **k: object(),
-                 "EXE": lambda *a, **k: object()}
+                 "EXE": exe}
     saved_path = sys.path[:]  # build.spec이 sys.path 앞에 spec 폴더를 끼워 넣으므로 되돌린다
     try:
         with open(ROOT / "build.spec", encoding="utf-8") as f:
@@ -258,8 +263,45 @@ def _spec_analysis(spec_dir):
 
 
 def test_build_spec_keeps_modules_update_check_needs(tmp_path):
-    # urllib.request는 http.client·email을 쓴다. 제외하면 빌드는 성공하고 EXE만 시작하지 못한다.
-    assert not {"http", "email", "urllib", "ssl", "socket"} & set(_spec_analysis(tmp_path)["excludes"])
+    # urllib.request(프록시 읽기)는 http.client·email을, winhttp_get은 ctypes를 쓴다.
+    # 제외하면 빌드는 성공하고 EXE만 시작하지 못한다.
+    assert not {"http", "email", "urllib", "socket", "ctypes"} & set(_spec_analysis(tmp_path)["excludes"])
+
+
+def test_build_spec_excludes_python_openssl_modules(tmp_path):
+    # 배포 EXE에는 Python용 OpenSSL이 없다(검사 지적 조치). _ssl·_hashlib가 libssl·libcrypto를 끌고 들어온다.
+    assert {"ssl", "_ssl", "_hashlib"} <= set(_spec_analysis(tmp_path)["excludes"])
+
+
+def test_without_openssl_drops_only_the_five_files():
+    keep = [("PySide6\plugins\tls\qschannelbackend.dll", "a", "BINARY"), ("python313.dll", "b", "BINARY"),
+            ("cryptography\hazmat\bindings\_rust.pyd", "c", "EXTENSION")]
+    drop = [("PySide6\plugins\tls\qopensslbackend.dll", "d", "BINARY"), ("LIBCRYPTO-3.DLL", "e", "BINARY"),
+            ("libssl-3.dll", "f", "BINARY"), ("_ssl.pyd", "g", "EXTENSION"), ("lib/_hashlib.pyd", "h", "EXTENSION")]
+    assert without_openssl(keep[:1] + drop + keep[1:]) == keep
+
+
+def test_build_spec_filters_openssl_binaries_before_packing(tmp_path):
+    # qopensslbackend.dll은 모듈이 아니라 PySide6 훅이 모으는 플러그인이라 excludes로는 빠지지 않는다.
+    binaries = [("python313.dll", "b", "BINARY"), ("PySide6\plugins\tls\qopensslbackend.dll", "d", "BINARY")]
+    assert _spec_analysis(tmp_path, binaries=binaries)["exe_args"][2] == binaries[:1]
+
+
+def test_app_code_avoids_openssl_only_hashlib_calls():
+    # OpenSSL이 없는 EXE에는 hashlib.pbkdf2_hmac·scrypt가 없고 hashlib.new는 일부 이름만 된다.
+    # 소스 실행·pytest에서는 되고 EXE에서만 깨지므로 여기서 막는다. sha256 같은 이름 함수는 내장 구현이 맡는다.
+    banned = {"pbkdf2_hmac", "scrypt", "new"}
+    found = []
+    for folder in ("src", "screen_text"):
+        for path in sorted((ROOT / folder).glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if (isinstance(node, ast.Attribute) and node.attr in banned
+                        and isinstance(node.value, ast.Name) and node.value.id == "hashlib"):
+                    found.append(f"{path.name}:{node.lineno} hashlib.{node.attr}")
+                elif isinstance(node, ast.ImportFrom) and node.module == "hashlib":
+                    found.extend(f"{path.name}:{node.lineno} from hashlib import {alias.name}"
+                                 for alias in node.names if alias.name in banned)
+    assert not found, found
 
 
 def _imported_top_modules(folder):

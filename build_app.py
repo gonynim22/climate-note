@@ -11,6 +11,22 @@ if str(_SRC_DIR) not in sys.path:
 
 from app_info import APP_AUTHOR, APP_DISPLAY_NAME, APP_VERSION, app_exe_name
 
+# 배포 EXE에 넣지 않는 OpenSSL 파일(2026-11-10 검사 지적 조치). 앞의 넷은 Python용 OpenSSL과 그것을 끌고
+# 들어오는 확장 모듈이고, 마지막은 Qt가 OpenSSL을 찾아 쓰는 연결 플러그인이다(안에 OpenSSL 버전 표시가 있다).
+# 새 버전 확인은 winhttp_get(WinHTTP), 해시는 Python 내장 구현, 본문 암호화는 cryptography가 맡는다.
+OPENSSL_FILE_NAMES = frozenset({
+    "libcrypto-3.dll", "libssl-3.dll", "_ssl.pyd", "_hashlib.pyd", "qopensslbackend.dll",
+})
+
+
+def without_openssl(entries):
+    """PyInstaller 묶음 목록(이름, 원본, 종류)에서 OPENSSL_FILE_NAMES의 파일만 뺀다. 순서는 유지한다.
+
+    qopensslbackend.dll은 모듈이 아니라 PySide6 훅이 모으는 플러그인이라 build.spec의 excludes로는 빠지지 않는다.
+    """
+    return [entry for entry in entries
+            if entry[0].replace("\\", "/").rsplit("/", 1)[-1].lower() not in OPENSSL_FILE_NAMES]
+
 
 def _windows_version_parts(version: str) -> tuple[int, int, int, int]:
     """``v3.5``/``v3.6a`` 형식 앱 버전을 Windows 4-part 숫자 버전으로 변환한다.

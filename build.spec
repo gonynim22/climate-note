@@ -9,7 +9,7 @@ sys.path.insert(0, str(_SPEC_DIR))
 sys.path.insert(0, str(_SPEC_DIR / "src"))  # 앱 모듈(B안)
 
 from app_info import APP_DISPLAY_NAME, APP_VERSION
-from build_app import make_windows_version_info
+from build_app import make_windows_version_info, without_openssl
 
 block_cipher = None
 
@@ -94,6 +94,12 @@ a = Analysis(
         'arrow',
         'pendulum',
         'loguru',
+        # 배포 EXE에는 Python용 OpenSSL이 없다(2026-11-10 검사 지적 조치). _ssl·_hashlib가 libssl·libcrypto를
+        # 끌고 들어온다. 새 버전 확인은 winhttp_get(WinHTTP), hashlib.sha256은 내장 구현이 같은 값을 낸다.
+        # 앱 코드에서 ssl, hashlib.pbkdf2_hmac·scrypt·new를 쓰면 EXE에서만 깨진다(test_packaging.py가 막는다).
+        'ssl',
+        '_ssl',
+        '_hashlib',
         # PySide6 불필요 서브모듈 제외 (대폭 경량화)
         # 주의: QtXml, QtSvg, QtSvgWidgets, QtNetwork는 qfluentwidgets가 사용하므로 제외 금지
         'PySide6.QtQml',
@@ -140,6 +146,9 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# Qt의 OpenSSL 연결 플러그인 등 excludes로 빠지지 않는 OpenSSL 파일을 묶음에서 거른다.
+a.binaries = without_openssl(a.binaries)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
