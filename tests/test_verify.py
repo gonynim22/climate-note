@@ -196,8 +196,8 @@ def test_release_artifact_failure_has_exit_one(runner, monkeypatch):
     def step(name, _command, directory, _env, **kwargs):
         record = {"name": name, "status": "passed", "returncode": 0, "log": f"{name}.log"}
         kwargs["report"]["steps"].append(record)
-        if name == "pytest":
-            verify.atomic_text(directory / "pytest.xml", "<testsuite><testcase name='ok'/></testsuite>")
+        if name.startswith("pytest"):  # pytest, pytest-no-openssl
+            verify.atomic_text(directory / f"{name}.xml", "<testsuite><testcase name='ok'/></testsuite>")
         return record
 
     # 빌드 명령이 0이어도 이번 EXE가 없으면 산출물 실패다.
@@ -252,6 +252,62 @@ def test_profiles_select_expected_scope(tmp_path):
         command = verify.pytest_command(profile, [], tmp_path)
         assert command.count("tests") == 1
         assert "tests/test_ui.py" not in command
+
+
+def test_data_tests_include_openssl_free_vectors():
+    assert "tests/test_openssl_free.py" in verify.DATA_TESTS
+
+
+def test_no_openssl_command_runs_data_tests_through_the_blocking_runner(tmp_path):
+    command = verify.no_openssl_command(tmp_path)
+    assert command[:2] == [sys.executable, str(verify.ROOT / "tools/run_without_openssl.py")]
+    assert all(test in command for test in verify.DATA_TESTS)
+    assert str(tmp_path / "pytest-no-openssl.xml") in command and "--timeout=120" in command
+    assert str(tmp_path / "pytest-tmp-no-openssl") in command  # 첫 pytest 단계와 임시 폴더를 나눠 쓴다
+
+
+def recording_steps(monkeypatch, failing=()):
+    """단계를 실제로 돌리지 않고 이름만 기록한다. pytest 계열은 junit 결과도 남긴다."""
+    names = []
+
+    def step(name, _command, directory, _env, **kwargs):
+        names.append(name)
+        code = 1 if name in failing else 0
+        record = {"name": name, "status": "failed" if code else "passed", "returncode": code, "log": f"{name}.log"}
+        kwargs["report"]["steps"].append(record)
+        if name.startswith("pytest"):
+            case = "<testcase name='bad'><failure/></testcase>" if code else "<testcase name='ok'/>"
+            verify.atomic_text(directory / f"{name}.xml", f"<testsuite>{case}</testsuite>")
+        return record
+
+    monkeypatch.setattr(verify, "run_step", step)
+    return names
+
+
+@pytest.mark.parametrize(("profile", "expected"), [
+    ("data", ["pytest", "pytest-no-openssl"]), ("quick", ["pytest"]), ("full", ["pytest"])])
+def test_only_data_profiles_repeat_data_tests_without_openssl(runner, monkeypatch, profile, expected):
+    names = recording_steps(monkeypatch)
+    assert verify.execute(profile) == 0
+    assert names == expected
+    report = verify.read_json(runner / "result.json")
+    assert ("tests_no_openssl" in report) == (len(expected) == 2)
+    with open(runner / "summary.md", encoding="utf-8") as stream:
+        assert ("OpenSSL 없는 데이터 검사" in stream.read()) == (len(expected) == 2)
+
+
+def test_release_repeats_data_tests_without_openssl_before_building(runner, monkeypatch):
+    names = recording_steps(monkeypatch)
+    verify.execute("release")  # EXE가 없어 산출물 검사에서 멈춘다
+    assert names[:3] == ["pytest", "pytest-no-openssl", "build"]
+
+
+@pytest.mark.parametrize("profile", ["data", "release"])
+def test_failed_no_openssl_run_fails_the_profile_and_stops_the_build(runner, monkeypatch, profile):
+    names = recording_steps(monkeypatch, failing=("pytest-no-openssl",))
+    assert verify.execute(profile) == 1
+    assert names == ["pytest", "pytest-no-openssl"]
+    assert verify.read_json(runner / "result.json")["tests_no_openssl"]["failures"] == 1
 
 
 def test_source_snapshot_includes_untracked_code_but_not_private_data(tmp_path, monkeypatch):
@@ -444,8 +500,8 @@ def test_release_continues_after_holiday_update(runner, monkeypatch, capsys):
     def step(name, _command, directory, _env, **kwargs):
         record = {"name": name, "status": "passed", "returncode": 0, "log": f"{name}.log"}
         kwargs["report"]["steps"].append(record)
-        if name == "pytest":
-            verify.atomic_text(directory / "pytest.xml", "<testsuite><testcase name='ok'/></testsuite>")
+        if name.startswith("pytest"):  # pytest, pytest-no-openssl
+            verify.atomic_text(directory / f"{name}.xml", "<testsuite><testcase name='ok'/></testsuite>")
         return record
 
     monkeypatch.setattr(verify, "run_step", step)
@@ -463,8 +519,8 @@ def passing_steps(monkeypatch):
     def step(name, _command, directory, _env, **kwargs):
         record = {"name": name, "status": "passed", "returncode": 0, "log": f"{name}.log"}
         kwargs["report"]["steps"].append(record)
-        if name == "pytest":
-            verify.atomic_text(directory / "pytest.xml", "<testsuite><testcase name='ok'/></testsuite>")
+        if name.startswith("pytest"):  # pytest, pytest-no-openssl
+            verify.atomic_text(directory / f"{name}.xml", "<testsuite><testcase name='ok'/></testsuite>")
         return record
 
     monkeypatch.setattr(verify, "run_step", step)
@@ -653,8 +709,8 @@ def test_release_bundle_failure_has_exit_one_and_skips_smoke(runner, monkeypatch
         steps.append(name)
         record = {"name": name, "status": "passed", "returncode": 0, "log": f"{name}.log"}
         kwargs["report"]["steps"].append(record)
-        if name == "pytest":
-            verify.atomic_text(directory / "pytest.xml", "<testsuite><testcase name='ok'/></testsuite>")
+        if name.startswith("pytest"):  # pytest, pytest-no-openssl
+            verify.atomic_text(directory / f"{name}.xml", "<testsuite><testcase name='ok'/></testsuite>")
         if name == "build":
             (directory / "build/build").mkdir(parents=True)
             verify.atomic_text(directory / "build/build/Analysis-00.toc", "()")
@@ -667,5 +723,5 @@ def test_release_bundle_failure_has_exit_one_and_skips_smoke(runner, monkeypatch
     monkeypatch.setattr(verify, "artifact_metadata", lambda exe, _env: {"path": str(exe)})
     monkeypatch.setattr(verify, "bundle_check", failed)
     assert verify.execute("release") == 1
-    assert steps == ["pytest", "build"]
+    assert steps == ["pytest", "pytest-no-openssl", "build"]  # smoke는 돌지 않는다
     assert "검증 환경 밖" in verify.read_json(runner / "result.json")["error"]

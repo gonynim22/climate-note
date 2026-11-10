@@ -42,6 +42,7 @@ DATA_TESTS = tuple(f"tests/test_{name}.py" for name in (
     "schedule_rules", "schedule_storage",
     "database", "security", "data_safety", "edge_cases", "stress",
     "startup_path", "ui", "ui_sticky", "ui_sticky_panel", "ui_data_lifecycle", "widget_limits",
+    "openssl_free",
 ))
 MANUAL_CHECKS = (
     "정상 종료 직전 스티키 저장 및 실제 설정/휴지통 동작",
@@ -212,6 +213,19 @@ def pytest_command(profile, extra, run_dir):
             "--junitxml", str(run_dir / "pytest.xml")]
 
 
+def no_openssl_command(run_dir):
+    """데이터 검사를 Python용 OpenSSL을 막은 프로세스에서 한 번 더 돌린다.
+
+    배포 EXE에는 OpenSSL이 없어 hashlib·hmac을 내장 구현이 맡는다. 열쇠 재료·백업 해시가
+    그 상태에서도 같은 값인지 data·release가 매번 확인한다.
+    """
+    return [sys.executable, str(ROOT / "tools/run_without_openssl.py"),
+            *validate_targets(list(DATA_TESTS)), "-q", "--timeout=120",
+            "--basetemp", str(run_dir / "pytest-tmp-no-openssl"),
+            "-o", f"cache_dir={run_dir / 'pytest-cache-no-openssl'}",
+            "--junitxml", str(run_dir / "pytest-no-openssl.xml")]
+
+
 def run_step(name, command, run_dir, env, *, timeout=1800, report=None):
     if __package__:
         from .smoke_release import managed_launch
@@ -303,6 +317,8 @@ def save_report(run_dir, report):
              f"- 상태: `{report['status']}`", f"- 종료 코드: `{report.get('exit_code', 'pending')}`"]
     if "tests" in report:
         lines.append(f"- 테스트: `{json.dumps(report['tests'])}`")
+    if "tests_no_openssl" in report:
+        lines.append(f"- OpenSSL 없는 데이터 검사: `{json.dumps(report['tests_no_openssl'])}`")
     if report.get("error"):
         lines.append(f"- 오류: {report['error']}")
     if "holidays" in report:
@@ -554,6 +570,10 @@ def execute(profile, extra=()):
             step = run_step("pytest", pytest_command(profile, extra, run_dir), run_dir, env, report=report)
             report["tests"] = junit_result(run_dir / "pytest.xml")
             code = pytest_exit(step["returncode"], report["tests"])
+            if code == 0 and profile in {"data", "release"}:
+                step = run_step("pytest-no-openssl", no_openssl_command(run_dir), run_dir, env, report=report)
+                report["tests_no_openssl"] = junit_result(run_dir / "pytest-no-openssl.xml")
+                code = pytest_exit(step["returncode"], report["tests_no_openssl"])
             if profile == "release":
                 record_root_dist(report, "after_pytest")
             save_report(run_dir, report)
