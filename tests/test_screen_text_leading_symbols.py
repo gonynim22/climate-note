@@ -66,6 +66,34 @@ def outside_box(image, text_left, end):
     return [(text_left, 0, end, HEIGHT)]
 
 
+def disc(size, sub=8):
+    """지름 size인 둥근 점을 화소마다 덮인 비율(0~1)로. 실제 화면처럼 가장자리 화소는 옅다."""
+    yy, xx = (np.mgrid[0:size * sub, 0:size * sub] + .5) / sub
+    c = size / 2
+    inside = (yy - c) ** 2 + (xx - c) ** 2 <= c * c
+    return inside.reshape(size, sub, size, sub).mean(axis=(1, 3))
+
+
+# JPEG로 꼭짓점이 메워진 둥근 점: 꼭짓점도 글자 픽셀 문턱(가장 진한 값의 0.3)을 넘어 글자 픽셀로는 꽉 찬 네모다
+FILLED_ROUND_4 = np.array([[.4, .9, .9, .4], [.9, 1, 1, .9], [.9, 1, 1, .9], [.4, .9, .9, .4]])
+FILLED_ROUND_5 = np.array([[.4, .9, 1, .9, .4], [.9, 1, 1, 1, .9], [1, 1, 1, 1, 1], [.9, 1, 1, 1, .9], [.4, .9, 1, .9, .4]])
+
+
+def bullet_line(coverage, gap=10, top=None):
+    """[회색 기호] [간격] [글자 막대 셋]. coverage는 화소마다 덮인 비율이다. (이미지, 글자 시작 x, 끝 x)."""
+    image = np.full((HEIGHT, 120, 3), 255, np.uint8)
+    rows, columns = coverage.shape
+    top = (HEIGHT - rows) // 2 if top is None else top
+    shade = np.round(255 * (1 - np.asarray(coverage, float))).astype(np.uint8)
+    image[top:top + rows, 4:4 + columns] = np.minimum(image[top:top + rows, 4:4 + columns], shade[..., None])
+    x = 4 + columns + gap
+    left = x
+    for _ in range(3):
+        draw_text_block(image, x)
+        x += 13
+    return image, left, x
+
+
 @pytest.mark.parametrize("kind, size, expected", [
     ("filled", 8, "■"),      # 속이 찬 정사각(작음)
     ("hollow", 16, "□"),     # 속이 빈 정사각(글자 높이에 가까움)
@@ -93,9 +121,17 @@ def test_no_symbol_when_the_line_starts_with_text():
     assert symbols.leading_symbol(image, 0, [(left, 0, end, HEIGHT)]) is None
 
 
-def test_symbol_touching_the_text_is_not_a_bullet():
-    image, left, end = line_image("filled", 8, gap=1)   # 붙어 있으면 글자의 일부일 수 있다
+@pytest.mark.parametrize("size, gap", [(8, 0), (10, 1)])
+def test_symbol_touching_the_text_is_not_a_bullet(size, gap):
+    # 틈 없이 붙었거나, 줄 높이의 0.42배보다 큰데 1px만 떨어졌으면 글자의 일부일 수 있다
+    image, left, end = line_image("filled", size, gap=gap)
     assert symbols.leading_symbol(image, 0, [(0, 0, end, HEIGHT)]) is None
+
+
+def test_square_bullet_one_pixel_before_the_text_is_found():
+    # 100% 배율 공문서의 ▪는 뒤 글자와 1px만 떨어진다(모양 조건을 다 통과하고 간격만 모자란 덩어리 53개 중 50개가 ▪)
+    image, left, end = line_image("filled", 6, gap=1)
+    assert symbols.leading_symbol(image, 0, [(0, 0, end, HEIGHT)])[0] == "■"
 
 
 def test_tall_hollow_shape_is_not_a_symbol():
@@ -107,11 +143,72 @@ def test_tall_hollow_shape_is_not_a_symbol():
 
 
 def test_small_round_bullet_is_not_taken_for_a_filled_square():
-    # 3~4px의 둥근 글머리 •는 픽셀로는 네모라 모양으로 가를 수 없고 크기로 가른다(• 0.14~0.21, ▪ 0.22 이상)
-    image, left, end = line_image("filled", 4)
+    # 4px 둥근 글머리 •는 꼭짓점 화소가 옅다. 크기가 아니라 이 모양으로 ▪와 가른다
+    image, left, end = bullet_line(disc(4))
     assert symbols.leading_symbol(image, 0, [(left, 0, end, HEIGHT)])[0] == "•"
     assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("· 선정평가", 0.9)]) == [("• 선정평가", 0.9, 0)]
     assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("• 선정평가", 0.9)]) == [("• 선정평가", 0.9, 0)]
+
+
+@pytest.mark.parametrize("size", [3, 4])
+def test_small_crisp_square_is_a_square_bullet(size):
+    # 크기로는 •와 ▪를 가를 수 없다(둘 다 줄 글자 높이의 0.17~0.40배). 네 꼭짓점까지 고르게 진한 작은 네모는 ▪다
+    image, left, end = line_image("filled", size)
+    assert symbols.leading_symbol(image, 0, outside_box(image, left, end))[0] == "■"
+
+
+@pytest.mark.parametrize("size", [5, 6, 7])
+def test_round_bullet_larger_than_a_fifth_of_the_line_is_a_dot(size):
+    # 엣지·한글·스캔의 •는 줄 글자 높이의 0.25~0.36배다. 예전 상한 0.22배에 걸려 모델이 읽은 '·'가 남았다
+    image, left, end = bullet_line(disc(size))
+    assert symbols.leading_symbol(image, 0, outside_box(image, left, end))[0] == "•"
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("·슈퍼컴퓨터 소개", 0.9)]) == [("• 슈퍼컴퓨터 소개", 0.9, 0)]
+
+
+def test_round_bullet_whose_pixels_fill_the_box_is_not_a_square():
+    # JPEG로 꼭짓점이 메워져 글자 픽셀로는 꽉 찬 네모인 •. 꼭짓점이 변보다 훨씬 옅어 둥글다(예전에는 ■로 바꿨다)
+    image, left, end = bullet_line(FILLED_ROUND_5)
+    assert symbols.leading_symbol(image, 0, outside_box(image, left, end))[0] == "•"
+    assert symbols.apply_leading_symbols(image, outside_box(image, left, end), [("• 분야별, 지역별", 0.9)]) == [("• 분야별, 지역별", 0.9, 0)]
+
+
+def test_blurred_small_dot_is_not_taken_for_a_square():
+    # 흐린 스캔에서 번진 작은 점은 가로·세로로 나뉘는 모양이라 꼭짓점만 보면 네모다. 속이 고르게 진하지 않으므로 ▪가 아니다
+    profile = np.array([.4, .95, .95, .4])
+    image, left, end = bullet_line(np.outer(profile, profile))
+    assert symbols.leading_symbol(image, 0, outside_box(image, left, end))[0] == "•"
+
+
+def test_dot_one_pixel_before_the_text_is_found_when_the_model_read_a_dot():
+    # 모델이 그 자리를 점 글자로 읽었으면 기호가 따로 있다. 뒤 글자와 1px만 떨어진 •도 찾는다
+    image, left, end = bullet_line(disc(5), gap=1)
+    box = [(0, 0, end, HEIGHT)]
+    assert symbols.leading_symbol(image, 0, box) is None
+    assert symbols.leading_symbol(image, 0, box, loose=True)[0] == "•"
+    assert symbols.apply_leading_symbols(image, box, [("·영상자료 제출 시", 0.9)]) == [("• 영상자료 제출 시", 0.9, 0)]
+
+
+@pytest.mark.parametrize("read", ["- 교육평가: 만족도 조사", "* 기상예보 AtoZ"])
+def test_dash_or_star_the_model_read_over_a_dot_shaped_blob_is_kept(read):
+    # 흐린 스캔에서 짧은 '-'와 '*'는 볼록한 덩어리가 되어 점처럼 보인다. 모델이 읽은 글자가 맞다('• * 기상예보'가 됐다)
+    image, left, end = bullet_line(FILLED_ROUND_4)
+    box = [(0, 0, end, HEIGHT)]
+    assert symbols.leading_symbol(image, 0, box)[0] == "•"
+    assert symbols.apply_leading_symbols(image, box, [(read, 0.9)]) == [(read, 0.9, 0)]
+
+
+def test_star_is_not_a_round_dot():
+    # 별표는 반 진하기에서 팔 사이가 비어 끊긴다
+    star = np.array([[1, 0, 1, 0, 1], [0, 1, 1, 1, 0], [1, 1, 1, 1, 1], [0, 1, 1, 1, 0], [1, 0, 1, 0, 1]], float)
+    image, left, end = bullet_line(star)
+    found = symbols.leading_symbol(image, 0, outside_box(image, left, end))
+    assert found is None or found[0] != "•"
+
+
+def test_small_square_period_below_the_middle_is_not_a_bullet():
+    # 'Ⅲ.'의 네모난 마침표: 세로획은 표 선처럼 건너뛰고 줄 아래의 작은 네모가 첫 덩어리가 된다
+    image, left, end = bullet_line(np.ones((3, 3)), top=17)
+    assert symbols.leading_symbol(image, 0, outside_box(image, left, end)) is None
 
 
 def test_colored_badge_with_letters_is_not_taken_for_a_filled_square():

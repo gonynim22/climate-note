@@ -560,7 +560,10 @@ def _v48_leading_symbol(image, index, boxes, readable=None):
     reference = max((L._ink_height(image, other) for j, other in enumerate(boxes)
                      if j != index and other[0] >= x0 and other[0] - x0 <= 10 * height and L._same_row(other, box)), default=0)
     crop = image[y0:y1, x_from:x_to]
-    blobs = L._blobs(_v48_ink_mask(crop), reference, thin=_v48_ink_mask(crop, L.THIN_INK_FRACTION))
+    # 2026-11-10 의미 변경: 작은 점이 둥근지 네모인지 회색 진하기로 잰다(제품과 같은 진하기를 넘긴다)
+    gray = L._gray(crop)
+    level = np.abs(gray - np.median(gray)) if gray.size else gray
+    blobs = L._blobs(_v48_ink_mask(crop), reference, thin=_v48_ink_mask(crop, L.THIN_INK_FRACTION), level=level)
     last_rule = max((k for k, blob in enumerate(blobs) if L._is_rule(blob) and x_from + blob["right"] < x0), default=-1)
     for blob in blobs[last_rule + 1:]:
         if L._is_rule(blob):
