@@ -1,6 +1,6 @@
 # 작업 기록: EXE에서 Python용 OpenSSL 빼기
 
-작성일: 2026-11-10 / 상태: 구현·자동 검증 완료(최종 검토 수정 `11a85ea` 뒤 release·교대 실행 통과, 실제 TLS는 9번 중 1번 원인 모를 `connection`, 아래 '최종 검토 뒤'). 수동 확인과 push 대기
+작성일: 2026-11-10 / 상태: 구현·자동 검증 완료(최종 검토 수정 `11a85ea` 뒤 release·교대 실행 통과, 실제 TLS는 9번 중 1번 원인 모를 `connection`, 아래 '최종 검토 뒤'), `e355598`까지 push 완료. 수동 확인과 v4.9 최종 release 대기
 
 ## 목표와 범위
 
@@ -102,5 +102,5 @@ release 4차의 EXE(개발 중간 빌드, 배포 EXE 아님): `기후노트_v4.9
   - Windows가 인증서 확인을 위해 스스로 하는 통신이 막힌 망에서는 `connection`·`timeout`이 남을 수 있다.
   - 재검사 도구의 판정은 돌려 봐야 안다. `cryptography` 안의 OpenSSL이 새로 지적되면 `cryptography` 버전 올리기(lock 갱신·전체 재검증·EXE 재빌드)로 대응한다.
 - 변경한 정본 문서: `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/CODING_STANDARDS.md`, `docs/TESTING.md`, `docs/superpowers/specs/2026-11-04-update-check-design.md`, `docs/RELEASE_HISTORY.md`.
-- 다음 행동: 사용자 결정(push 여부). v4.9를 마무리할 때 최종 `release`로 배포 EXE를 만들고 `tools/exe_handoff_check.py`·`--live-update-check`를 다시 돌린 뒤 재검사에 낸다.
-- 배포·커밋·push 여부: 작업별 로컬 커밋. push는 하지 않았다(사용자 승인 필요).
+- 다음 행동: v4.9를 마무리할 때 최종 `release`로 배포 EXE를 만들고 `tools/exe_handoff_check.py`·`--live-update-check`를 다시 돌린 뒤 재검사에 낸다.
+- 배포·커밋·push 여부: 작업별 로컬 커밋 뒤, 사용자 승인으로 2026-11-10 밤 `e355598`까지 push했다(앞서 있던 글자 따기 커밋 `614cdfc` 포함). push 전 로컬 OSV 종료 코드 0, GitLab 서버 보안 검사 5종(Gitleaks·Semgrep·OSV-Scanner·Trivy·Syft) 통과, 이어서 GitHub 미러에 같은 커밋. 배포 EXE와 GitLab Release는 아직 없다(v4.9 마무리 때).
