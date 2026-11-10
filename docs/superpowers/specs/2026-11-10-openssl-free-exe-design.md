@@ -151,7 +151,7 @@ winhttp.dll         (Windows 내장. TLS·인증서 검증)
   - 기존 `test_build_spec_keeps_every_module_the_app_imports`가 앱 코드의 `import ssl`을 자동으로 막는다.
   - 새 단언: `src/`·`screen_text/`가 `hashlib.pbkdf2_hmac`·`hashlib.scrypt`·`hashlib.new(`를 쓰지 않는다(OpenSSL 없이는 없거나 일부만 된다).
 - `tools/verify.py`의 `release` 묶음 검사(`bundle_check` 또는 그 옆)
-  - 이번 빌드 TOC와 EXE 안 파일 목록에 다섯 파일이 없다.
+  - EXE 안 파일 목록에 다섯 파일이 없다. (구현 중 정정, 2026-11-10: Analysis TOC는 `build.spec`이 `a.binaries`를 거르기 전 목록이라 `qopensslbackend.dll`이 남는다. 판정은 EXE 안 파일로 하고, TOC에만 있던 파일은 '묶기 전에 걸러짐'으로 보고서에 남긴다.)
   - EXE 안 모든 바이너리에서 OpenSSL 버전 표시(`OpenSSL <숫자>.<숫자>.<숫자>`)를 ASCII와 UTF-16LE 두 가지로 찾아 보고서에 남기고, `cryptography`의 `_rust.pyd` 밖에서 나오면 실패한다(UPX로 압축돼 글자를 볼 수 없는 파일이 있으면 그 사실을 보고서에 적는다). 이 검사 함수는 3절의 네 파일로 단위 시험한다(UTF-16 표시를 찾는지 포함).
 
 ### 7.5 문서·고지

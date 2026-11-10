@@ -337,7 +337,8 @@ def save_report(run_dir, report):
             shown = ", ".join(f"{Path(item['name']).name}({', '.join(item['found'])})"
                               for item in openssl["banners"]) or "없음"
             lines.append(f"- OpenSSL: Python용·Qt 연결 파일 없음, 버전 표시 {shown}뿐 "
-                         f"(dll·pyd {openssl['scanned']}개 확인, UPX 압축 {len(openssl['upx_packed'])}개)")
+                         f"(dll·pyd {openssl['scanned']}개 확인, 묶기 전에 거른 파일 {len(openssl['filtered'])}개, "
+                         f"UPX 압축 {len(openssl['upx_packed'])}개)")
     if report.get("root_dist"):
         lines += ["", "## 기존 dist 보존", ""]
         for observation in report["root_dist"]:
@@ -500,13 +501,17 @@ def openssl_check(toc_path, exe):
     """이번 EXE에 Python용 OpenSSL·Qt OpenSSL 연결 플러그인이 없고 버전 표시가 허용 파일에만 있는지 확인한다.
 
     2026-11-10 바이너리 검사가 EXE의 OpenSSL을 지적했다. build.spec이 빼도 다른 경로로 다시
-    섞이면 빌드는 성공하므로, 묶음 목록(TOC)과 EXE 안 파일을 직접 본다.
+    섞이면 빌드는 성공하므로, EXE 안 파일을 직접 본다. Analysis TOC는 build.spec이 a.binaries를 거르기
+    전 목록이라 판정에 쓰지 않고, 거기에만 있던 파일을 '묶기 전에 걸러짐(filtered)'으로 기록한다.
     """
+    def openssl_files(names):
+        return sorted({name.replace("\\", "/") for name in names
+                       if OPENSSL_FILE.match(name.replace("\\", "/").rsplit("/", 1)[-1])})
+
     with open(toc_path, encoding="utf-8") as stream:
-        listed = list(_toc_names(ast.literal_eval(stream.read())))
+        analysed = openssl_files(_toc_names(ast.literal_eval(stream.read())))
     names, read = _embedded_archive(exe)
-    files = sorted({name.replace("\\", "/") for name in [*listed, *names]
-                    if OPENSSL_FILE.match(name.replace("\\", "/").rsplit("/", 1)[-1])})
+    files = openssl_files(names)
     if files:
         raise VerificationFailure(f"EXE에 OpenSSL 파일 포함: {files}")
     banners, packed, scanned = [], [], 0
@@ -524,7 +529,7 @@ def openssl_check(toc_path, exe):
     unexpected = [item for item in banners if not item["name"].endswith(OPENSSL_BANNER_ALLOWED)]
     if unexpected:
         raise VerificationFailure(f"허용하지 않은 OpenSSL 버전 표시: {unexpected}")
-    return {"files": files, "scanned": scanned, "banners": banners, "upx_packed": packed}
+    return {"files": files, "filtered": analysed, "scanned": scanned, "banners": banners, "upx_packed": packed}
 
 
 def _pyz_module_names(exe):

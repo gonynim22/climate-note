@@ -779,8 +779,18 @@ def test_openssl_check_accepts_exe_with_only_the_cryptography_copy(tmp_path, mon
     assert result["banners"] == [{"name": "cryptography/hazmat/bindings/_rust.pyd", "found": ["OpenSSL 4.0.1"]}]
 
 
-def test_openssl_check_rejects_openssl_file_in_toc(tmp_path, monkeypatch):
-    toc = _openssl_case(tmp_path, monkeypatch, CLEAN_BLOBS, [("_ssl.pyd", "C:/Python313/DLLs/_ssl.pyd", "EXTENSION")])
+def test_openssl_check_reports_files_filtered_after_analysis(tmp_path, monkeypatch):
+    # Analysis TOC는 build.spec이 a.binaries를 거르기 전 목록이다. 거기에만 있고 EXE에 없으면 실패가 아니라
+    # '묶기 전에 걸러졌다'는 기록이다(2026-11-10 첫 release가 이 차이로 잘못 실패했다).
+    plugin = (r"PySide6\plugins\tls\qopensslbackend.dll", "C:/venv/qopensslbackend.dll", "BINARY")
+    toc = _openssl_case(tmp_path, monkeypatch, CLEAN_BLOBS, [plugin])
+    result = verify.openssl_check(toc, tmp_path / "app.exe")
+    assert result["files"] == [] and result["filtered"] == ["PySide6/plugins/tls/qopensslbackend.dll"]
+
+
+def test_openssl_check_rejects_file_listed_in_analysis_and_still_inside_exe(tmp_path, monkeypatch):
+    blobs = {**CLEAN_BLOBS, "_ssl.pyd": b"extension"}
+    toc = _openssl_case(tmp_path, monkeypatch, blobs)
     with pytest.raises(verify.VerificationFailure, match="OpenSSL 파일") as caught:
         verify.openssl_check(toc, tmp_path / "app.exe")
     assert "_ssl.pyd" in str(caught.value)
@@ -835,7 +845,7 @@ def _release_until_bundle(runner, monkeypatch, openssl):
 
 
 def test_release_records_openssl_check_before_smoke(runner, monkeypatch):
-    found = {"files": [], "scanned": 5, "upx_packed": [],
+    found = {"files": [], "filtered": ["PySide6/plugins/tls/qopensslbackend.dll"], "scanned": 5, "upx_packed": [],
              "banners": [{"name": "cryptography/hazmat/bindings/_rust.pyd", "found": ["OpenSSL 4.0.1"]}]}
     _code, steps, report = _release_until_bundle(runner, monkeypatch, lambda _toc, _exe: found)
     assert steps == ["pytest", "pytest-no-openssl", "build", "smoke"]
@@ -843,6 +853,7 @@ def test_release_records_openssl_check_before_smoke(runner, monkeypatch):
     with open(runner / "summary.md", encoding="utf-8") as stream:
         summary = stream.read()
     assert "OpenSSL: Python용·Qt 연결 파일 없음" in summary and "_rust.pyd(OpenSSL 4.0.1)" in summary
+    assert "묶기 전에 거른 파일 1개" in summary
 
 
 def test_release_openssl_failure_has_exit_one_and_skips_smoke(runner, monkeypatch):
