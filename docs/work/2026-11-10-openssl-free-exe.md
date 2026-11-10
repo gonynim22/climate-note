@@ -1,6 +1,6 @@
 # 작업 기록: EXE에서 Python용 OpenSSL 빼기
 
-작성일: 2026-11-10 / 상태: 구현 완료. 최종 검토 수정(`11a85ea`) 뒤의 release·교대 실행·실제 TLS 재확인이 남았다(아래 '최종 검토 뒤'). 수동 확인과 push 대기
+작성일: 2026-11-10 / 상태: 구현·자동 검증 완료(최종 검토 수정 `11a85ea` 뒤 release·교대 실행 통과, 실제 TLS는 9번 중 1번 원인 모를 `connection`, 아래 '최종 검토 뒤'). 수동 확인과 push 대기
 
 ## 목표와 범위
 
@@ -79,11 +79,16 @@ release 2차의 EXE(개발 중간 빌드, 배포 EXE 아님): `기후노트_v4.9
 |---|---|---|---|
 | 수정 관련 pytest 묶음(통신 층·새 버전 확인·하네스·고지·smoke) | 통과 | 직접 실행 | 230 통과·1 건너뜀, 92 통과 |
 | 고친 통신 층으로 실제 확인 한 번 | 통과 | 직접 실행 | 200, 최신 `v4.8`, 0.25초 |
-| `verify.py release` (PowerShell) 3차 | **미실행(중단)** | `20261110-210726-809b40c1fd` | 시스템 메모리 부족으로 하네스 밖에서 중단됐다. 명령의 실패가 아니다. 결과 없음 |
-| v4.8 EXE 교대 실행(수정 뒤 EXE) | 미실행 | | release 3차 뒤에 한다 |
-| 실제 TLS(`--live-update-check`, 수정 뒤 EXE) | 미실행 | | release 3차 뒤에 한다 |
+| `verify.py release` (PowerShell) 3차 | 미실행(중단) | `20261110-210726-809b40c1fd` | 시스템 메모리 부족으로 하네스 밖에서 중단됐다. 명령의 실패가 아니다. 결과 없음 |
+| `verify.py release` (PowerShell) 4차 | 통과 | `20261110-211300-ce5ca59b9f` | 입력은 `5be40af`(코드는 `11a85ea`). 공휴일 최신 확인, pytest 4,455개(4,454 통과·1 건너뜀), OpenSSL 없는 데이터 검사 654개(653 통과·1 건너뜀, `test_crypto_compat` 포함), 빌드, EXE 구성, 격리 실행 7개 장면 |
+| v4.8 EXE 교대 실행(수정 뒤 EXE) | 통과 | `20261110-212824-5f051ca94e` | v4.8 → 새 EXE → v4.8, 매번 데이터 불변·건강 검사·오류 로그 없음 |
+| 실제 TLS(`--live-update-check`, 수정 뒤 EXE) | 9번 중 8번 통과 | 실패 `20261110-211300-ce5ca59b9f/smoke/update_check_live`, 통과 `20261110-212824-5f051ca94e`와 `20261110-213414…214034`의 6개 | 첫 실행이 21:29:58에 `새 버전 확인 실패: connection`을 남겼다. 같은 EXE로 다시 돌린 7번은 모두 통과(6번은 75초 창) |
 
-위 표의 release 2차·교대 실행·실제 TLS 증거는 수정 전 커밋(`ca1c8e1`)의 것이다. `11a85ea`가 `src/winhttp_get.py`·`src/update_check.py`·`tools/`를 바꿨으므로 현재 코드의 통과 근거로 쓰지 않는다. 데이터 쪽 코드는 바뀌지 않았다.
+release 4차의 EXE(개발 중간 빌드, 배포 EXE 아님): `기후노트_v4.9.exe` 92,493,522 bytes, SHA-256 `11828F490BEFF10256AF7DFE168AE0D0F0D1BCECE6B7FA3012BCD68E1EDCDBE6`. EXE 구성은 2차와 같다(BINARY 62, OpenSSL 파일 0, 버전 표시는 `_rust.pyd`뿐, dll·pyd 105개 확인, 묶기 전에 거른 파일 1개). 새 버전 확인 장면은 `새 버전 확인 실패: http-407`을 남겼고 로컬 프록시가 `gitlab.aigov.go.kr:443` 터널 요청을 받았다(EXE의 통신 층이 실제로 왕복했다). 격리 실행 시간(초): 신규 6.9, 기존 7.5, 차단 6.9, v17 6.6, v18 7.0, 새 버전 확인 67.0, 글자 따기 15.3.
+
+위쪽 표의 release 2차·교대 실행·실제 TLS 증거는 수정 전 커밋(`ca1c8e1`)의 것이고, 현재 코드의 근거는 이 표다. 데이터 쪽 코드는 두 시점 사이에 바뀌지 않았다.
+
+**실제 TLS의 실패 1번은 원인을 모른다.** 소스 실행으로 같은 요청을 40번(한 프로세스 25번, 새 프로세스 15번) 보내 모두 200이었고, EXE는 그 뒤 7번 연속 통과했다. 기록에는 분류(`connection`)만 남아 WinHTTP 오류 번호를 알 수 없다. 그 순간의 망·서버 문제일 수도, EXE에서 드물게 나는 문제일 수도 있다. 앱은 실패를 화면에 보이지 않고 1시간 뒤 다시 확인하므로 사용자 영향은 없지만, 다음에 원인을 알 수 있게 실패 기록에 WinHTTP 오류 번호를 함께 남기는 것을 사용자에게 제안했다(계약 '분류만 남는다'를 바꾸는 일이라 묻는다).
 
 미룬 작은 지적(검토자 Minor, 고치지 않음): 프록시 값의 드문 모양(socks 스킴 등) 거부, `without_openssl`의 `-x64` 변형 이름, UPX 압축 파일을 실패로 볼지, 테스트의 포트 9 고정, 1ms 미만 시간 제한, 헤더 길이 계산, 실행기 종료 코드 3의 원인 문구, 정적 테스트 둘, 교대 실행 도구 설명 한 줄.
 
@@ -95,5 +100,5 @@ release 2차의 EXE(개발 중간 빌드, 배포 EXE 아님): `기후노트_v4.9
   - Windows가 인증서 확인을 위해 스스로 하는 통신이 막힌 망에서는 `connection`·`timeout`이 남을 수 있다.
   - 재검사 도구의 판정은 돌려 봐야 안다. `cryptography` 안의 OpenSSL이 새로 지적되면 `cryptography` 버전 올리기(lock 갱신·전체 재검증·EXE 재빌드)로 대응한다.
 - 변경한 정본 문서: `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/CODING_STANDARDS.md`, `docs/TESTING.md`, `docs/superpowers/specs/2026-11-04-update-check-design.md`, `docs/RELEASE_HISTORY.md`.
-- 다음 행동: (1) PowerShell `release`를 다시 돌린다 → (2) 그 EXE로 `tools/exe_handoff_check.py --old dist\기후노트_v4.8.exe --new <실행 폴더>\dist\기후노트_v4.9.exe` → (3) `tools/smoke_release.py --exe … --run-dir … --live-update-check` → (4) 이 표와 릴리스 이력의 중간 빌드 값을 새 결과로 고친다. 그 뒤 v4.9를 마무리할 때 최종 `release`로 배포 EXE를 만들고 재검사에 낸다.
+- 다음 행동: 사용자 결정(실패 기록에 WinHTTP 오류 번호를 남길지, push 여부). v4.9를 마무리할 때 최종 `release`로 배포 EXE를 만들고 `tools/exe_handoff_check.py`·`--live-update-check`를 다시 돌린 뒤 재검사에 낸다.
 - 배포·커밋·push 여부: 작업별 로컬 커밋. push는 하지 않았다(사용자 승인 필요).
