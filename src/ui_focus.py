@@ -1,7 +1,7 @@
 # ui_focus.py - 집중 모드 위젯
 from __future__ import annotations
 
-import random
+import secrets
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QDialog,
@@ -736,7 +736,7 @@ class FocusWidgetWindow(QWidget):
     def _show_encouragement_bubble(self) -> None:
         if self._display_mode != "glance" or self.tomato_label.isHidden():
             return
-        self.encouragement_bubble.setText(random.choice(FOCUS_ENCOURAGEMENT_MESSAGES))
+        self.encouragement_bubble.setText(secrets.choice(FOCUS_ENCOURAGEMENT_MESSAGES))
         self.encouragement_bubble.adjustSize()
 
         anchor = self.tomato_label.mapToGlobal(

@@ -214,7 +214,7 @@ def test_focus_widget_tomato_click_shows_temporary_bubble(qtbot, app_dir, qapp, 
     data = next(w for w in db.get_open_focus_widgets() if w["id"] == wid)
     win = FocusWidgetWindow(wid, data)
     qtbot.addWidget(win)
-    monkeypatch.setattr("ui_focus.random.choice", lambda messages: "힘내")
+    monkeypatch.setattr("ui_focus.secrets.choice", lambda messages: "힘내")
 
     win._set_display_mode("glance")
     qtbot.mouseClick(win.tomato_label, Qt.LeftButton)

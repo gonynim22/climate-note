@@ -238,6 +238,15 @@ def get_config():
 - 암호 라이브러리를 바꾸기 전에 구버전으로 DB·salt·일일 백업·PIN 내보내기 기준본을 보존한다. 신→구·구→신 양방향으로 전체 본문, ID 연결, 실제 백업 복구와 가져오기/재내보내기를 확인한다. 기존 목적지 메모·사용 중인 바로가기와 원본 보존 사본의 해시도 확인한다.
 - `security.py`·`database.py`의 저장 계약 변경과 라이브러리 갱신을 섞지 않는다. 설치 전후 패키지 차이와 EXE 내부 모듈·바이너리를 대조하고, 키 파생 또는 복구 호환이 달라지면 배포를 진행하지 않는다. 검증 경로는 `output/harness/` 내부로 제한하며 실사용 AppData는 검사에 쓰지 않는다. 실행 증거와 승인된 버전 메타데이터 차이는 [2단계 작업 기록](work/2026-10-05-push-security-scan-step2.md)에 남긴다.
 
+## 7. 적절하지 않은 난수 값 사용 (CWE-330) — 2026-11-11
+
+기관 소스 점검이 집중 위젯의 응원 문구 고르기에 쓴 `random` import를 지적했다. 보안과 무관한 쓰임이었지만 점검은 쓰임과 관계없이 import 줄을 짚었다.
+
+- 점검에 내는 코드(루트 스크립트·`src/`·`screen_text/`)는 `random`을 import하지 않는다. 무작위 선택은 `secrets.choice`, 무작위 바이트는 `os.urandom`이나 `secrets.token_bytes`를 쓴다(salt·PIN 검증값은 이미 `os.urandom`이다).
+- `secrets`는 Python용 OpenSSL이 없는 배포 EXE에서도 동작한다(`hmac`이 내장 비교 함수로 대신한다).
+- `tests/`·`tools/`의 합성 자료 생성은 같은 결과를 다시 만들려고 seed를 주는 `random`을 쓴다. 점검에 내지 않는 코드라 그대로 둔다.
+- `tests/test_security_scan_rules.py`가 재발을 막는다(`import random`·`import random as`·`from random import`·여러 모듈을 한 줄에 import하는 경우).
+
 ## 참고 문서
 
 > CODEMIND 점검 원본 자료는 기관 내부 문서이므로 이 저장소에 포함하지 않는다.

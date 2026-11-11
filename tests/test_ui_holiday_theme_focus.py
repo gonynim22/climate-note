@@ -241,7 +241,7 @@ def test_hat_labels_are_transparent_for_mouse(qtbot, app_dir):
 
 def test_tomato_click_still_shows_bubble_with_hat(qtbot, app_dir, monkeypatch):
     win = _focus_window(qtbot)
-    monkeypatch.setattr("ui_focus.random.choice", lambda messages: "힘내")
+    monkeypatch.setattr("ui_focus.secrets.choice", lambda messages: "힘내")
     win.set_holiday_theme(THEMES["christmas"])
     win.show()
     qtbot.waitExposed(win)
