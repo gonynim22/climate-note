@@ -805,12 +805,7 @@ class SettingsWindow(QWidget):
                 f"모니터 {index + 1} ({geometry.width()}x{geometry.height()})",
                 userData=str(index),
             )
-        monitor_index = self.monitor_combo.findData(db.get_setting(db.SETTING_TARGET_SCREEN, "0"))
-        preferred = match_screen(
-            decode_screen(db.get_setting(db.SETTING_CALENDAR_SCREEN, "")), self._monitor_screens,
-        )
-        if preferred is not None:
-            monitor_index = self._monitor_screens.index(preferred)
+        monitor_index = self._saved_monitor_index()
         if monitor_index >= 0:
             self.monitor_combo.setCurrentIndex(monitor_index)
         self._monitor_selection_index = self.monitor_combo.currentIndex()
@@ -1053,12 +1048,7 @@ class SettingsWindow(QWidget):
         self.font_combo.setItemEnabled(self.font_combo.count() - 1, False)
         for family in available_system_fonts():
             self.font_combo.addItem(family, userData=system_font_key(family))
-        current_font = db.get_setting(db.SETTING_APP_FONT, db.DEFAULT_APP_FONT)
-        font_index = self.font_combo.findData(current_font)
-        if font_index < 0 and current_font.startswith(SYSTEM_FONT_PREFIX):
-            font_index = self._add_missing_system_font(current_font)
-        if font_index < 0:
-            font_index = self.font_combo.findData(db.DEFAULT_APP_FONT)
+        font_index = self._saved_font_index()
         if font_index >= 0:
             self.font_combo.setCurrentIndex(font_index)
         self.font_combo.currentIndexChanged.connect(self._on_font_changed)
@@ -1314,9 +1304,6 @@ class SettingsWindow(QWidget):
                 return
             db.backup_before_operation("import")
             limited = db.import_all_data(json_bytes.decode("utf-8")) or {}
-            imported_palette = db.get_schedule_palette()
-            self._saved_schedule_colors = imported_palette
-            self.schedule_color_picker.set_colors(imported_palette)
             audit("데이터 가져오기", "성공")
             InfoBar.success(
                 title="가져오기 완료",
@@ -1333,6 +1320,7 @@ class SettingsWindow(QWidget):
             self.import_pin.clear()
             if self.on_import_callback:
                 self.on_import_callback()
+            self._show_saved_settings_safely()  # 가져온 설정을 열린 창에도 보인다(일정 색 포함)
         except (
             OSError, ValueError, TypeError, sqlite3.Error, KeyError, InvalidToken,
             AttributeError, db.DataHealthError,
@@ -1375,7 +1363,8 @@ class SettingsWindow(QWidget):
                     if self.on_reset_callback:
                         self.on_reset_callback()
                 audit("전체 초기화(Factory Reset)", "성공")
-                self._set_internet_switch(False)  # 설정이 지워져 꺼짐이다. 열린 창의 스위치도 맞춘다
+                self._set_internet_switch(False)  # 설정이 지워져 꺼짐이다. DB를 다시 읽지 못해도 맞는다
+                self._show_saved_settings_safely()  # 나머지 컨트롤도 기본값으로 다시 보인다
                 self.reset_succeeded.emit()
                 InfoBar.success(
                     title="초기화 완료",
@@ -1481,6 +1470,77 @@ class SettingsWindow(QWidget):
         """저장 없이 스위치 모양만 맞춘다. 신호를 막아야 처리기가 저장을 다시 시도하지 않는다."""
         with QSignalBlocker(self.internet_switch):
             self.internet_switch.setChecked(checked)
+
+    def _saved_monitor_index(self) -> int:
+        """저장된 화면(장치 정보가 맞으면 그 화면, 아니면 순번)의 모니터 칸. 없으면 -1."""
+        index = self.monitor_combo.findData(db.get_setting(db.SETTING_TARGET_SCREEN, "0"))
+        preferred = match_screen(
+            decode_screen(db.get_setting(db.SETTING_CALENDAR_SCREEN, "")), self._monitor_screens,
+        )
+        if preferred is not None:
+            index = self._monitor_screens.index(preferred)
+        return index
+
+    def _saved_font_index(self) -> int:
+        """저장된 글꼴 칸. 이 PC에 없는 시스템 글꼴은 '(없음)' 칸을 만들어 가리키고, 그 밖에는 기본 글꼴."""
+        current_font = db.get_setting(db.SETTING_APP_FONT, db.DEFAULT_APP_FONT)
+        index = self.font_combo.findData(current_font)
+        if index < 0 and current_font.startswith(SYSTEM_FONT_PREFIX):
+            index = self._add_missing_system_font(current_font)
+        if index < 0:
+            index = self.font_combo.findData(db.DEFAULT_APP_FONT)
+        return index
+
+    def _show_saved_settings_safely(self) -> None:
+        """가져오기·초기화는 이미 끝났다. 다시 보이다 DB 읽기가 실패해도 작업 실패로 보이지 않게 기록만 남긴다.
+
+        컨트롤 일부가 예전 값으로 남을 수 있지만 표시뿐이고, 창을 다시 열면 맞는다.
+        """
+        try:
+            self._show_saved_settings()
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            audit("설정창 다시 읽기", f"실패: {type(exc).__name__}")
+
+    def _show_saved_settings(self) -> None:
+        """가져오기·초기화처럼 창 밖에서 바뀐 설정을 열린 컨트롤에 다시 보인다(2026-11-11).
+
+        값만 바꾸고 신호는 막는다. 새 값의 적용은 메인 창이 가져오기·초기화 콜백에서 하므로
+        여기서 다시 저장하거나 두 번 적용하지 않는다.
+        """
+        monitor_index = self._saved_monitor_index()
+        if monitor_index >= 0:
+            with QSignalBlocker(self.monitor_combo):
+                self.monitor_combo.setCurrentIndex(monitor_index)
+        self._monitor_selection_index = self.monitor_combo.currentIndex()
+        self._update_position_buttons(db.get_setting(db.SETTING_CALENDAR_POSITION, "bottom-right"))
+        for slider, field, value in (
+                (self.opacity_slider, self.opacity_value_label,
+                 db.get_setting(db.SETTING_APP_OPACITY, db.DEFAULT_APP_OPACITY)),
+                (self.widget_opacity_slider, self.widget_opacity_value_label, db.get_widget_opacity())):
+            percent = db.opacity_percent(value)
+            with QSignalBlocker(slider):
+                slider.setValue(percent)
+            field.setValue(percent)
+        scale = db.get_setting(db.SETTING_CALENDAR_SCALE, db.DEFAULT_CALENDAR_SCALE)
+        self.scale_picker.select(scale if scale in db.CALENDAR_SCALES else db.DEFAULT_CALENDAR_SCALE, emit=False)
+        for switch, key, default in (
+                (self.lunar_switch, db.SETTING_SHOW_LUNAR, "0"),
+                (self.holiday_theme_switch, db.SETTING_HOLIDAY_THEME_ENABLED, "1"),
+                (self.grid_lines_switch, db.SETTING_CALENDAR_GRID_LINES, "0"),
+                (self.sidebar_switch, db.SETTING_SHOW_SIDEBAR, "0"),
+                (self.law_search_switch, db.SETTING_SHOW_LAW_SEARCH, "1"),
+                (self.privacy_switch, db.SETTING_USE_PRIVACY_LOCK, "0"),
+                (self.keep_desktop_switch, db.SETTING_KEEP_ON_SHOW_DESKTOP, db.DEFAULT_KEEP_ON_SHOW_DESKTOP),
+                (self.internet_switch, db.SETTING_INTERNET_ACCESS, "0")):
+            with QSignalBlocker(switch):
+                switch.setChecked(db.get_setting(key, default) == "1")
+        self.pin_container.setVisible(self.privacy_switch.isChecked())
+        self._saved_schedule_colors = db.get_schedule_palette()
+        self.schedule_color_picker.set_colors(self._saved_schedule_colors)  # 신호 없이 모양만 바꾼다
+        font_index = self._saved_font_index()
+        if font_index >= 0:
+            with QSignalBlocker(self.font_combo):
+                self.font_combo.setCurrentIndex(font_index)
 
     def _on_font_changed(self, index: int):
         font_key = self.font_combo.itemData(index)
