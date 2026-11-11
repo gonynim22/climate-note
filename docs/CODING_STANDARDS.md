@@ -247,6 +247,13 @@ def get_config():
 - `tests/`·`tools/`의 합성 자료 생성은 같은 결과를 다시 만들려고 seed를 주는 `random`을 쓴다. 점검에 내지 않는 코드라 그대로 둔다.
 - `tests/test_security_scan_rules.py`가 재발을 막는다(`import random`·`import random as`·`from random import`·여러 모듈을 한 줄에 import하는 경우).
 
+## 8. 하드코드된 중요정보 — 이름이 `ip`로 끝나는 변수 (2026-11-11)
+
+기관 소스 점검이 일정 줄 툴팁의 `tooltip += "\n이 날만 수정됨"`을 하드코드된 중요정보로 짚었다. 점검의 판정 조건은 공개되지 않아 짚히지 않은 비슷한 코드와 비교했다. 점검에 낸 코드에서 이름이 `ip`로 끝나는 변수에 문자열을 넣는 문장은 이 줄 하나뿐이었다. 같은 문구를 `content_text`에 붙인 줄, `ip`가 이름 가운데 있는 `description`·`TIPS_TEXT`, 키워드 인자 `chip="…"`은 짚히지 않았다. 점검은 이름 끝의 `ip`를 IP 주소 변수(`server_ip` 같은)로 읽은 것으로 보인다.
+
+- 점검에 내는 코드(루트 스크립트·`src/`·`screen_text/`)에서는 문자열(f-string 포함)을 넣는 변수·속성·상수 이름을 `ip`로 끝내지 않는다. 툴팁 문구는 `tooltip_text`·`COLOR_BUTTON_TOOLTIP_TEXT`처럼 쓴다. 키워드 인자 이름(`tooltip="…"`)은 짚히지 않았으므로 그대로 둔다.
+- `tests/test_security_scan_rules.py`가 재발을 막는다.
+
 ## 참고 문서
 
 > CODEMIND 점검 원본 자료는 기관 내부 문서이므로 이 저장소에 포함하지 않는다.

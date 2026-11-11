@@ -22,6 +22,14 @@ def _offenders(pattern):
             if pattern.search(path.read_text(encoding="utf-8"))]
 
 
+def _submitted_sources():
+    """기관 소스 점검에 내는 코드의 (경로, 본문)."""
+    for path in _tracked_python_files():
+        name = path.relative_to(ROOT).as_posix()
+        if "/" not in name or name.startswith(_SUBMITTED_FOLDERS):
+            yield name, path.read_text(encoding="utf-8")
+
+
 def test_tracked_python_reads_xml_with_defusedxml():
     assert _offenders(_STDLIB_XML_IMPORT) == []
 
@@ -53,9 +61,45 @@ def test_random_import_finder_sees_every_import_form():
 def test_submitted_code_picks_at_random_with_secrets():
     # 기관 소스 점검은 보안과 무관한 문구 고르기에 쓴 random import도 지적했다(2026-11-11).
     # tests/·tools/의 합성 자료 생성은 점검에 내지 않으므로 seed를 주는 random을 그대로 쓴다.
-    found = []
-    for path in _tracked_python_files():
-        name = path.relative_to(ROOT).as_posix()
-        if "/" not in name or name.startswith(_SUBMITTED_FOLDERS):
-            found += [f"{name}:{line}" for line in _random_imports(path.read_text(encoding="utf-8"))]
+    found = [f"{name}:{line}" for name, source in _submitted_sources() for line in _random_imports(source)]
+    assert found == []
+
+
+def _ip_named_literals(source):
+    """이름이 `ip`로 끝나는 변수·속성에 문자열(f-string 포함)을 넣는 문장의 줄 번호."""
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        else:
+            continue
+        literal = isinstance(node.value, ast.JoinedStr) or (
+            isinstance(node.value, ast.Constant) and isinstance(node.value.value, str))
+        names = [target.id if isinstance(target, ast.Name) else target.attr
+                 for target in targets if isinstance(target, (ast.Name, ast.Attribute))]
+        if literal and any(name.lower().endswith("ip") for name in names):
+            lines.append(node.lineno)
+    return lines
+
+
+def test_ip_named_literal_finder_matches_only_names_ending_in_ip():
+    source = ('tooltip += "\\n이 날만 수정됨"\n'
+              'COLOR_BUTTON_TOOLTIP = "누를 때마다 다음 색"\n'
+              'self.server_ip = f"{host}"\n'
+              'tip: str = "x"\n'
+              'description += ", 포모도로"\n'
+              'TIPS_TEXT = "x"\n'
+              'make(chip="x")\n'
+              'tooltip = build()\n'
+              'tooltip_text = "x"\n'
+              'skip = 3\n')
+    assert _ip_named_literals(source) == [1, 2, 3, 4]
+
+
+def test_submitted_code_keeps_text_out_of_names_ending_in_ip():
+    # 기관 소스 점검은 이름이 ip로 끝나는 변수(tooltip)에 넣은 화면 문구를 하드코드된 중요정보로 지적했다(2026-11-11).
+    # ip가 이름 가운데 있는 description·TIPS_TEXT와 키워드 인자 chip="…"은 지적되지 않았다.
+    found = [f"{name}:{line}" for name, source in _submitted_sources() for line in _ip_named_literals(source)]
     assert found == []

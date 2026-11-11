@@ -26,7 +26,7 @@ SCHEDULE_EMOJIS = (
 )
 
 
-COLOR_BUTTON_TOOLTIP = "누를 때마다 다음 색"
+COLOR_BUTTON_TOOLTIP_TEXT = "누를 때마다 다음 색"
 
 
 def next_schedule_color(current, slots):
@@ -340,7 +340,7 @@ class ScheduleInlineEditor(QWidget):
             self.color_button.setFixedSize(SCHEDULE_CONTROL_DIAMETER, SCHEDULE_CONTROL_DIAMETER)
             # 마우스로 눌러도 글자 입력 포커스를 가져가지 않는다. 키보드는 Tab으로 와서 Space.
             self.color_button.setFocusPolicy(Qt.TabFocus)
-            self.color_button.setToolTip(COLOR_BUTTON_TOOLTIP)
+            self.color_button.setToolTip(COLOR_BUTTON_TOOLTIP_TEXT)
             self.color_button.clicked.connect(self._cycle_color)
             self.color_button.installEventFilter(self)
             slot_layout.addWidget(self.color_button)
@@ -376,7 +376,7 @@ class ScheduleInlineEditor(QWidget):
         display = self._display_by_slot.get(str(self._color or "").strip().upper(), self._color)
         self.color_button.set_color(display)
         name = self._color_names.get(str(display).strip().upper(), "사용자 지정 색")
-        self.color_button.setAccessibleName(f"일정 색상 {name} — {COLOR_BUTTON_TOOLTIP}")
+        self.color_button.setAccessibleName(f"일정 색상 {name} — {COLOR_BUTTON_TOOLTIP_TEXT}")
 
     def _sync_summary(self) -> None:
         options = self.options()

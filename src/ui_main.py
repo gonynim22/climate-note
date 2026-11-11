@@ -2879,10 +2879,10 @@ class MainCalendarWindow(QWidget):
         box_layout.setSpacing(4)
         text_label = ScheduleTextLabel(content)
         text_label.setTextFormat(Qt.PlainText)
-        tooltip = self._schedule_tooltip(content, options, series_start)
+        tooltip_text = self._schedule_tooltip(content, options, series_start)
         if entry and entry.get("is_override"):
-            tooltip += "\n이 날만 수정됨"
-        text_label.setToolTip(plain_tooltip(tooltip))
+            tooltip_text += "\n이 날만 수정됨"
+        text_label.setToolTip(plain_tooltip(tooltip_text))
         row_widget.schedule_text_label = text_label
         if decryption_failed:
             text_label.setStyleSheet("color: #D32F2F; font-style: italic;")
