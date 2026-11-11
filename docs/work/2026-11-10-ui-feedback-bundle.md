@@ -1,6 +1,6 @@
 # 작업 기록: 사용자 의견 3건 묶음 업데이트(구분선·투명도·편집 색)
 
-작성일: 2026-11-10 / 상태: **구현·검토·자동 검사 완료, 수동 확인 대기**(v4.9 개발 범위, 2026-11-11 사용자 요청으로 커밋, push 전)
+작성일: 2026-11-10 / 상태: **구현·검토·자동 검사 완료, 수동 확인 대기**(v4.9 개발 범위, 2026-11-11 커밋·push 완료: GitLab·GitHub `2e8d650`)
 
 ## 목표와 범위
 
@@ -162,3 +162,5 @@
 | `verify.py data` (검토 수정 뒤) | 통과 684 · 건너뜀 1 | [`20261111-003657-1bc237d679`](../../output/harness/20261111-003657-1bc237d679/summary.md) | OpenSSL 없는 데이터 검사도 684 통과 · 1 건너뜀(설계상) |
 | `verify.py full` (검토 수정 뒤) | 통과 4548 · 건너뜀 1 | [`20261111-004015-a474045cfe`](../../output/harness/20261111-004015-a474045cfe/summary.md) | 전체 pytest 1회. 이 뒤로 제품 코드는 바꾸지 않았고 구분선 검사 파일만 위처럼 넓혔다 |
 | `verify.py release` (PowerShell) | 미실행 | | 사용자가 버전을 마무리할 때 |
+| push 전 로컬 검사 | 통과 | 커밋 `2e8d650` | 커밋 압축본(`git archive`)의 OSV `scan source -r` 종료 코드 0·No issues, gitleaks(`95904d6..2e8d650`) 누출 0, DDA 문구 0 |
+| GitLab push 서버 보안 검사 | 통과 | `95904d6..2e8d650` (2026-11-11, 56초) | Gitleaks·Semgrep·OSV-Scanner·Trivy·Syft 모두 PASS. 뒤이어 GitHub `main`도 `2e8d650` |
