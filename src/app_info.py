@@ -2,7 +2,7 @@
 
 APP_DISPLAY_NAME = "기후노트"
 APP_VERSION = "v4.9"
-APP_RELEASE_DATE = "2026. 11. 10."
+APP_RELEASE_DATE = "2026. 11. 11."
 APP_CONTACT_EMAIL = "ggjo@korea.kr"
 APP_AUTHOR = f"기후에너지환경부 보문산불주먹 ({APP_CONTACT_EMAIL})"
 
