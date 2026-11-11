@@ -522,10 +522,12 @@ def openssl_check(toc_path, exe):
         data = read(name)
         scanned += 1
         if b"UPX!" in data[:4096]:
-            packed.append(posix)  # 압축된 파일은 글자를 볼 수 없다. 보고서에 남긴다
+            packed.append(posix)  # 압축된 파일은 안의 글자를 볼 수 없다
         found = find_openssl_banners(data)
         if found:
             banners.append({"name": posix, "found": found})
+    if packed:
+        raise VerificationFailure(f"UPX로 압축돼 OpenSSL 버전 표시를 확인할 수 없는 파일: {packed}")
     unexpected = [item for item in banners if not item["name"].endswith(OPENSSL_BANNER_ALLOWED)]
     if unexpected:
         raise VerificationFailure(f"허용하지 않은 OpenSSL 버전 표시: {unexpected}")

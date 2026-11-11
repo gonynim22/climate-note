@@ -207,7 +207,8 @@ VC 런타임(`vcruntime140*`·`msvcp140*`)만 허용하고, EXE 안 Qt DLL은 �
 v4.9부터 같은 자리에서 `openssl_check`가 이번 EXE에 Python용 OpenSSL(`libcrypto`·`libssl`·`_ssl`·`_hashlib`)과
 Qt의 `qopensslbackend.dll`이 없는지 EXE 안 파일 이름으로 확인하고(Analysis TOC는 `build.spec`이 묶음을 거르기 전
 목록이라 판정에 쓰지 않고, 거기에만 있던 파일을 `filtered`로 기록한다), EXE 안 모든 dll·pyd에서
-`OpenSSL <버전>` 표시를 ASCII와 UTF-16으로 찾는다. 표시는 `cryptography`의 `_rust.pyd`에만 있어야 하며,
+`OpenSSL <버전>` 표시를 ASCII와 UTF-16으로 찾는다. 표시는 `cryptography`의 `_rust.pyd`에만 있어야 하고,
+UPX로 압축돼 안의 글자를 볼 수 없는 파일이 있으면 확인하지 못한 것이므로 실패한다(2026-11-11).
 결과는 `result.json`의 `bundle.openssl`과 `summary.md`의 `OpenSSL:` 줄에 남는다.
 EXE 구성을 바꾼 작업은 `tools/exe_handoff_check.py --old <이전 배포 EXE> --new <이번 EXE>`로 같은 합성 데이터를
 이전 → 이번 → 이전 EXE 순으로 열어, 매번 데이터 불변과 건강 검사를 확인한다(`release`에는 넣지 않는다).

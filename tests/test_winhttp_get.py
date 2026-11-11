@@ -2,6 +2,7 @@
 
 평문 로컬 서버는 안쪽 함수 _get(secure=False)로만 부른다. 앱 경로의 공개 함수 https_get은 https만 받는다.
 """
+import ast
 import datetime
 import http.server
 import socket
@@ -197,11 +198,12 @@ def _as_proxy(server):
 
 
 def test_closed_proxy_is_connection_error():
+    closed = f"127.0.0.1:{_closed_port()}"  # 포트 9를 닫혔다고 가정하지 않는다(그 PC에서 열려 있을 수 있다)
     with pytest.raises(WinHttpError) as caught:
-        winhttp_get._get(PROXIED, 80, "/ok", secure=False, **{**ARGS, "proxy": "127.0.0.1:9"})
+        winhttp_get._get(PROXIED, 80, "/ok", secure=False, **{**ARGS, "proxy": closed})
     assert caught.value.timed_out is False
     with pytest.raises(WinHttpError) as caught:  # release의 update_check 시나리오와 같은 모양
-        winhttp_get.https_get(f"https://{PROXIED}/x", **{**ARGS, "proxy": "127.0.0.1:9"})
+        winhttp_get.https_get(f"https://{PROXIED}/x", **{**ARGS, "proxy": closed})
     assert caught.value.timed_out is False
 
 
@@ -272,11 +274,38 @@ def test_public_function_always_asks_for_a_secure_request(monkeypatch, url, expe
     assert calls == [(expected, {"secure": True, **ARGS})]
 
 
-@pytest.mark.parametrize("headers", [{"Accept": "a\r\nX-Injected: y"}, {"Bad\nName": "a"}, {"Na:me": "a"}])
-def test_header_with_line_break_is_refused(server, headers):
+@pytest.mark.parametrize("headers", [{"Accept": "a\r\nX-Injected: y"}, {"Bad\nName": "a"}, {"Na:me": "a"},
+                                     # 헤더 길이는 글자 수로 넘긴다. ASCII가 아니면 UTF-16 길이와 어긋난다
+                                     {"Accept": "é"}, {"Accept": "a😀"}, {"Accept": "a\x00b"}])
+def test_header_with_unusable_characters_is_refused(server, headers):
     with pytest.raises(ValueError):
         _get(server, "/ok", headers=headers)
     assert server.seen == []
+
+
+def test_sub_millisecond_timeout_stays_bounded(monkeypatch):
+    # WinHTTP는 제한 시간 0을 '무한'으로 읽는다. 1ms 미만을 0으로 깎지 않는다.
+    real = winhttp_get._library()
+    timeouts = []
+
+    class Spy:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def WinHttpSetTimeouts(self, session, *values):
+            timeouts.append(values)
+            return real.WinHttpSetTimeouts(session, *values)
+
+    monkeypatch.setattr(winhttp_get, "_library", lambda: Spy())
+    with pytest.raises(WinHttpError):
+        winhttp_get._get("127.0.0.1", _closed_port(), "/ok", secure=False, **{**ARGS, "timeout_seconds": 0.0004})
+    assert timeouts == [(1, 1, 1, 1)]
+
+
+@pytest.mark.parametrize("seconds", [0, -1, float("nan"), float("inf")])
+def test_timeout_must_be_positive(seconds):
+    with pytest.raises(ValueError):
+        winhttp_get._get("127.0.0.1", _closed_port(), "/ok", secure=False, **{**ARGS, "timeout_seconds": seconds})
 
 
 def test_handles_are_closed_on_success_and_failure(server, monkeypatch):
@@ -339,7 +368,29 @@ def test_dll_is_loaded_from_system32_only(monkeypatch):
     assert calls == [("winhttp", {"use_last_error": True, "winmode": 0x800})]  # LOAD_LIBRARY_SEARCH_SYSTEM32
 
 
-def test_source_never_relaxes_certificate_checks():
-    source = Path(winhttp_get.__file__).read_text(encoding="utf-8")
-    for forbidden in ("SECURITY_FLAG", "OPTION_SECURITY_FLAGS", "REVOCATION", "PySide6", "import database", "import ssl"):
-        assert forbidden not in source
+def test_only_the_two_hardening_options_are_set(server, monkeypatch):
+    # 인증서 검증을 느슨하게 하는 옵션은 이름(SECURITY_FLAGS) 대신 숫자(31)로도 쓸 수 있어 소스 글자로는 못 막는다.
+    # 실제 요청에서 WinHttpSetOption에 넘긴 옵션 번호를 모은다: TLS 하한(84)과 쿠키·리디렉션·자동 인증 끄기(63)뿐이다.
+    real = winhttp_get._library()
+    options = []
+
+    class Spy:
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+        def WinHttpSetOption(self, handle, option, buffer, size):
+            options.append(option)
+            return real.WinHttpSetOption(handle, option, buffer, size)
+
+    monkeypatch.setattr(winhttp_get, "_library", lambda: Spy())
+    _get(server, "/ok")
+    with pytest.raises(WinHttpError):  # 평문 서버에 TLS로 붙으면 실패한다. 보안 요청 경로의 옵션도 모은다
+        winhttp_get._get("127.0.0.1", server.server_address[1], "/ok", secure=True, **ARGS)
+    assert sorted(set(options)) == [63, 84]
+
+
+def test_module_has_no_qt_db_or_python_ssl():
+    tree = ast.parse(Path(winhttp_get.__file__).read_text(encoding="utf-8"))
+    modules = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+    modules |= {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
+    assert {name for name in modules if name.split(".")[0] in {"PySide6", "database", "ssl"}} == set()

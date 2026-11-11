@@ -815,10 +815,22 @@ def test_openssl_check_rejects_banner_outside_allowed_file(tmp_path, monkeypatch
     assert "Qt6Network.dll" in str(caught.value) and "OpenSSL 3.5.4" in str(caught.value)
 
 
-def test_openssl_check_reports_upx_packed_binaries(tmp_path, monkeypatch):
+def test_openssl_check_rejects_upx_packed_binaries(tmp_path, monkeypatch):
+    # 압축된 파일은 안의 OpenSSL 버전 표시를 볼 수 없다. 확인하지 못한 것을 통과로 두지 않는다.
     blobs = {**CLEAN_BLOBS, "packed.dll": b"MZ" + b"\x00" * 100 + b"UPX!" + b"\x00" * 100}
-    result = verify.openssl_check(_openssl_case(tmp_path, monkeypatch, blobs), tmp_path / "app.exe")
-    assert result["upx_packed"] == ["packed.dll"]
+    with pytest.raises(verify.VerificationFailure, match="UPX") as caught:
+        verify.openssl_check(_openssl_case(tmp_path, monkeypatch, blobs), tmp_path / "app.exe")
+    assert "packed.dll" in str(caught.value)
+
+
+def test_runner_names_the_module_imported_before_blocking():
+    # 종료 코드 3은 OpenSSL을 막지 못했다는 뜻이다. 무엇이 먼저 불렸는지 밝혀야 원인을 찾는다.
+    runner = verify.ROOT / "tools" / "run_without_openssl.py"
+    code = f"import hashlib, runpy, sys; sys.argv = ['run_without_openssl.py']; runpy.run_path(r'{runner}', run_name='__main__')"
+    done = subprocess.run([sys.executable, "-X", "utf8", "-c", code], capture_output=True, encoding="utf-8",
+                          timeout=60)
+    assert done.returncode == 3
+    assert "이미 불린 모듈: hashlib" in done.stderr
 
 
 def _release_until_bundle(runner, monkeypatch, openssl):

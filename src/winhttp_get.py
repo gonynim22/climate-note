@@ -17,6 +17,7 @@ https://learn.microsoft.com/windows/win32/winhttp/error-messages
 import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
+import math
 import re
 import threading
 import time
@@ -40,6 +41,7 @@ WINHTTP_QUERY_FLAG_NUMBER = 0x20000000
 ERROR_WINHTTP_TIMEOUT = 12002
 
 _HEADER_NAME = re.compile(r"[A-Za-z0-9-]+")
+_HEADER_VALUE = re.compile(r"[\t\x20-\x7e]*")  # 인쇄할 수 있는 ASCII와 탭만. 헤더 길이를 글자 수로 넘기기 때문이다
 _HANDLE = ctypes.c_void_p
 _DWORD_P = ctypes.POINTER(wintypes.DWORD)
 _SIGNATURES = {
@@ -114,7 +116,7 @@ def _close_handle(handle) -> None:
 def _header_lines(headers: dict[str, str]) -> str:
     lines = []
     for name, value in headers.items():
-        if not _HEADER_NAME.fullmatch(name) or "\r" in value or "\n" in value:
+        if not _HEADER_NAME.fullmatch(name) or not _HEADER_VALUE.fullmatch(value):
             raise ValueError("헤더 이름·값에 쓸 수 없는 문자가 있습니다.")
         lines.append(f"{name}: {value}\r\n")
     return "".join(lines)
@@ -137,6 +139,8 @@ def https_get(url: str, *, headers: dict[str, str], user_agent: str, timeout_sec
 def _get(host: str, port: int, path: str, *, secure: bool, headers: dict[str, str], user_agent: str,
          timeout_seconds: float, max_bytes: int, proxy: str | None) -> Response:
     lines = _header_lines(headers)
+    if not 0 < timeout_seconds < math.inf:
+        raise ValueError("제한 시간은 0보다 크고 끝이 있어야 합니다.")
     winhttp = _library()
     deadline = time.monotonic() + timeout_seconds * TOTAL_TIMEOUT_FACTOR
 
@@ -170,7 +174,7 @@ def _get(host: str, port: int, path: str, *, secure: bool, headers: dict[str, st
             raise _failure()
         if secure:
             _set_tls_floor(session)
-        milliseconds = int(timeout_seconds * 1000)
+        milliseconds = max(1, int(timeout_seconds * 1000))  # WinHTTP는 0을 '무한'으로 읽는다
         if not winhttp.WinHttpSetTimeouts(session, milliseconds, milliseconds, milliseconds, milliseconds):
             raise _failure()
         connection = winhttp.WinHttpConnect(session, host, port, 0)
@@ -187,6 +191,7 @@ def _get(host: str, port: int, path: str, *, secure: bool, headers: dict[str, st
         if not _set_dword_option(request, WINHTTP_OPTION_DISABLE_FEATURE, single_request):
             raise failure()
         within_deadline()
+        # 헤더는 ASCII만 받으므로(_header_lines) 글자 수가 곧 WinHTTP가 세는 UTF-16 글자 수다
         if not winhttp.WinHttpSendRequest(request, lines or None, len(lines), None, 0, 0, 0):
             raise failure()
         within_deadline()

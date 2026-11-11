@@ -273,11 +273,13 @@ def test_build_spec_excludes_python_openssl_modules(tmp_path):
     assert {"ssl", "_ssl", "_hashlib"} <= set(_spec_analysis(tmp_path)["excludes"])
 
 
-def test_without_openssl_drops_only_the_five_files():
+def test_without_openssl_drops_only_openssl_files():
     keep = [(r"PySide6\plugins\tls\qschannelbackend.dll", "a", "BINARY"), ("python313.dll", "b", "BINARY"),
             (r"cryptography\hazmat\bindings\_rust.pyd", "c", "EXTENSION")]
     drop = [(r"PySide6\plugins\tls\qopensslbackend.dll", "d", "BINARY"), ("LIBCRYPTO-3.DLL", "e", "BINARY"),
-            ("libssl-3.dll", "f", "BINARY"), ("_ssl.pyd", "g", "EXTENSION"), ("lib/_hashlib.pyd", "h", "EXTENSION")]
+            ("libssl-3.dll", "f", "BINARY"), ("_ssl.pyd", "g", "EXTENSION"), ("lib/_hashlib.pyd", "h", "EXTENSION"),
+            # Git Bash에서 빌드하면 PATH의 mingw64 OpenSSL이 이 이름으로 섞여 든다(2026-09-28)
+            ("libcrypto-3-x64.dll", "i", "BINARY"), ("libssl-3-x64.dll", "j", "BINARY")]
     assert without_openssl(keep[:1] + drop + keep[1:]) == keep
 
 

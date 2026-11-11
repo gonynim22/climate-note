@@ -75,13 +75,15 @@ def proxy_for(host: str) -> str | None:
     """이 호스트에 쓸 HTTPS 프록시를 '호스트:포트'로 돌려준다. 없거나 예외 대상이면 None.
 
     읽는 방식은 urllib과 같다(환경 변수 → Windows 인터넷 설정, no_proxy·예외 목록 적용).
-    자동 구성 스크립트(PAC)와 프록시 인증은 지원하지 않는다. 주소에 사용자 정보가 있으면 ValueError다.
+    자동 구성 스크립트(PAC)와 프록시 인증은 지원하지 않는다. 주소에 사용자 정보가 있거나 스킴이 http·https가
+    아니면(SOCKS 등. WinHTTP의 지정 프록시는 HTTP 프록시다) ValueError다.
     """
     address = urllib.request.getproxies().get("https")
     if not address or urllib.request.proxy_bypass(host):
         return None
     parts = urllib.parse.urlsplit(address if "//" in address else "//" + address)
-    if parts.username is not None or parts.password is not None or not parts.hostname:
+    if (parts.scheme not in ("", "http", "https") or parts.username is not None or parts.password is not None
+            or not parts.hostname):
         raise ValueError("쓸 수 없는 프록시 주소입니다.")
     name = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
     return f"{name}:{parts.port}" if parts.port else name  # 잘못된 포트는 parts.port가 ValueError를 낸다

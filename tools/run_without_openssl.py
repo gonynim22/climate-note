@@ -13,8 +13,10 @@ BLOCKED = ("_ssl", "_hashlib")
 
 
 def main(argv):
-    if "hashlib" in sys.modules or "ssl" in sys.modules:
-        print("OpenSSL을 막기 전에 hashlib/ssl이 이미 불려 있습니다.", file=sys.stderr)
+    already = [name for name in ("hashlib", "ssl") if name in sys.modules]
+    if already:
+        print(f"OpenSSL을 막기 전에 이미 불린 모듈: {', '.join(already)}. "
+              "이 실행기를 다른 코드보다 먼저 띄워야 막을 수 있습니다.", file=sys.stderr)
         return 3
     for name in BLOCKED:
         sys.modules[name] = None  # None이면 import가 ImportError로 끝난다
@@ -24,8 +26,13 @@ def main(argv):
     sys.path[0] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     import hashlib
-    if "openssl" in hashlib.sha256.__name__ or hasattr(hashlib, "pbkdf2_hmac"):
-        print("OpenSSL 차단이 적용되지 않았습니다.", file=sys.stderr)
+    reasons = []
+    if "openssl" in hashlib.sha256.__name__:
+        reasons.append("hashlib.sha256이 OpenSSL 구현입니다")
+    if hasattr(hashlib, "pbkdf2_hmac"):
+        reasons.append("OpenSSL에만 있는 hashlib.pbkdf2_hmac이 남아 있습니다")
+    if reasons:
+        print("OpenSSL 차단이 적용되지 않았습니다: " + ", ".join(reasons), file=sys.stderr)
         return 3
 
     import pytest

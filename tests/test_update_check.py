@@ -1,4 +1,5 @@
 """새 버전 확인의 판정·요청: 실제 네트워크 없이 가짜 통신 층으로 검사한다."""
+import ast
 import ctypes
 import json
 import logging
@@ -158,7 +159,9 @@ def test_proxy_is_read_the_way_urllib_reads_it(monkeypatch, proxies, bypass, exp
 
 
 @pytest.mark.parametrize("address", ["http://user:pw@p.invalid:8080", "http://user@p.invalid:8080",
-                                     "http://:8080", "http://", "http://p.invalid:port"])
+                                     "http://:8080", "http://", "http://p.invalid:port",
+                                     # WinHTTP의 지정 프록시는 HTTP 프록시다. SOCKS 등을 HTTP로 보내지 않는다
+                                     "socks5://p.invalid:1080", "socks4a://p.invalid:1080", "ftp://p.invalid:21"])
 def test_unusable_proxy_address_is_refused(monkeypatch, address):
     monkeypatch.setattr(urllib.request, "getproxies", lambda: {"https": address})
     monkeypatch.setattr(urllib.request, "proxy_bypass", lambda host: False)
@@ -176,7 +179,26 @@ def test_refused_proxy_means_connection_failure_without_a_request(monkeypatch):
     assert fetch.calls == []
 
 
+def _imports_and_attributes(source):
+    """import한 모듈 이름과 쓰는 속성 이름. 글자를 찾으면 주석에 걸리고 'import ssl as s'는 놓친다."""
+    modules, attributes = set(), set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+        elif isinstance(node, ast.Attribute):
+            attributes.add(node.attr)
+    return modules, attributes
+
+
+def test_import_finder_ignores_comments_and_sees_aliases():
+    source = "# import PySide6\nimport ssl as s\nfrom http import client\nopen_it = urllib.request.urlopen\n"
+    assert _imports_and_attributes(source) == ({"ssl", "http"}, {"request", "urlopen"})
+
+
 def test_module_has_no_qt_db_or_openssl():
-    source = Path(update_check.__file__).read_text(encoding="utf-8")
-    for forbidden in ("PySide6", "import database", "import ssl", "http.client", "OpenerDirector"):
-        assert forbidden not in source
+    # 판정·요청 모듈은 Qt·DB 없이 돌고, HTTPS는 winhttp_get만 쓴다(urllib·http.client로 열지 않는다).
+    modules, attributes = _imports_and_attributes(Path(update_check.__file__).read_text(encoding="utf-8"))
+    assert {name for name in modules if name.split(".")[0] in {"PySide6", "database", "ssl", "http"}} == set()
+    assert attributes & {"OpenerDirector", "urlopen", "build_opener", "HTTPSConnection"} == set()
